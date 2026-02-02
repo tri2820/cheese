@@ -28,3 +28,4 @@ result-*
 *.bak
 .*.swp
 examples/rainbow/rainbow
+examples/statusbar/statusbar

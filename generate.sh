@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate Wayland protocol bindings (flat structure, one package per directory)
+# Generate Wayland protocol bindings including wlroots protocols
 
 set -e
 
@@ -8,6 +8,9 @@ PROTOCOLS_PATH="${PROTOCOLS_PATH:-$(nix eval --raw nixpkgs#wayland-protocols --a
 # Try to find wayland.xml
 WAYLAND_XML="${WAYLAND_XML:-$(find /nix/store -name wayland.xml -path "*/wayland-scanner/*" 2>/dev/null | head -1)}"
 
+# Find wlroots protocols
+WLROOTS_PROTOCOLS="${WLROOTS_PROTOCOLS:-$(find /nix/store -type d -name protocols -path "*wlroots*source/protocols" 2>/dev/null | head -1)}"
+
 # Fallback to any wayland.xml
 if [ -z "$WAYLAND_XML" ]; then
     WAYLAND_XML="$(find /nix/store -name wayland.xml 2>/dev/null | grep -E "wayland-scanner|share/wayland" | head -1)"
@@ -15,18 +18,19 @@ fi
 
 if [ -z "$PROTOCOLS_PATH" ] || [ ! -d "$PROTOCOLS_PATH" ]; then
     echo "Error: Could not find wayland-protocols path"
-    echo "Set PROTOCOLS_PATH environment variable or run in nix develop"
     exit 1
 fi
 
 if [ -z "$WAYLAND_XML" ] || [ ! -f "$WAYLAND_XML" ]; then
     echo "Error: Could not find wayland.xml"
-    echo "Set WAYLAND_XML environment variable"
     exit 1
 fi
 
 echo "Protocols path: $PROTOCOLS_PATH"
 echo "Wayland XML: $WAYLAND_XML"
+if [ -n "$WLROOTS_PROTOCOLS" ]; then
+    echo "wlroots protocols: $WLROOTS_PROTOCOLS"
+fi
 echo ""
 
 echo "Building scanner..."
@@ -48,13 +52,52 @@ echo "Generating core wayland protocol into client package..."
     -pkg "client" 2>&1 | grep -v "^Generated" || true
 echo ""
 
-# Count for progress
-total=$(find "$PROTOCOLS_PATH" -name "*.xml" | wc -l)
+# Collect all XML files
+xml_files=()
+while IFS= read -r xml; do
+    xml_files+=("$xml")
+done < <(find "$PROTOCOLS_PATH" -name "*.xml" | sort)
+
+# Add wlroots protocols if found in a directory
+if [ -n "$WLROOTS_PROTOCOLS" ] && [ -d "$WLROOTS_PROTOCOLS" ]; then
+    while IFS= read -r xml; do
+        xml_files+=("$xml")
+    done < <(find "$WLROOTS_PROTOCOLS" -name "*.xml" | sort)
+fi
+
+# Also search for individual wlr protocol XMLs scattered in nix store
+# (e.g., in Qt bundles, compositor sources, etc.)
+echo "Searching for additional wlr-* protocols..."
+wlr_count=0
+for pattern in "*/protocols/wlr-*.xml" "*/wayland/protocols/wlr-*/*.xml"; do
+    while IFS= read -r xml; do
+        # Check if we haven't already added this protocol
+        base=$(basename "$xml" .xml | tr '-' '_')
+        already_added=false
+        for existing in "${xml_files[@]}"; do
+            if [ "$(basename "$existing" .xml | tr '-' '_')" = "$base" ]; then
+                already_added=true
+                break
+            fi
+        done
+        if [ "$already_added" = false ]; then
+            xml_files+=("$xml")
+            wlr_count=$((wlr_count + 1))
+            echo "  Found: $(basename "$xml")"
+        fi
+    done < <(find /nix/store -path "$pattern" 2>/dev/null | sort -u)
+done
+if [ $wlr_count -gt 0 ]; then
+    echo "  Added $wlr_count wlr protocols"
+fi
+echo ""
+
+total=${#xml_files[@]}
 current=0
 
-# Generate all other protocols (each in its own directory)
+# Generate all protocols
 echo "Generating protocols..."
-for xml in $(find "$PROTOCOLS_PATH" -name "*.xml" | sort); do
+for xml in "${xml_files[@]}"; do
     current=$((current + 1))
     base=$(basename "$xml" .xml | tr '-' '_')
 
@@ -80,3 +123,6 @@ echo ""
 echo "Generated protocol summary:"
 echo "  Directories: $(find protocols -mindepth 1 -maxdepth 1 -type d 2>/dev/null | wc -l)"
 echo "  Core: protocols/client/wayland.go (wayland protocol)"
+if [ -n "$WLROOTS_PROTOCOLS" ]; then
+    echo "  wlroots: $(find protocols -mindepth 1 -maxdepth 1 -type d -name "wlr_*" 2>/dev/null | wc -l) protocols"
+fi
