@@ -1,0 +1,29 @@
+# Binaries
+/wayland-scanner
+cheese-*
+
+# Go
+*.test
+*.out
+*.prof
+vendor/
+go.work
+go.work.sum
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Nix
+result
+result-*
+.direnv/
+
+# Temporary files
+*.tmp
+*.bak
+.*.swp
