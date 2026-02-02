@@ -78,6 +78,9 @@ func (i *ZwpTabletManagerV2) Destroy() error {
 // ZwpTabletSeatV2: controller object for graphic tablet devices of a seat
 type ZwpTabletSeatV2 struct {
 	client.BaseProxy
+	tabletAddedHandler ZwpTabletSeatV2TabletAddedHandler
+	toolAddedHandler   ZwpTabletSeatV2ToolAddedHandler
+	padAddedHandler    ZwpTabletSeatV2PadAddedHandler
 }
 
 // NewZwpTabletSeatV2 creates a new ZwpTabletSeatV2
@@ -123,9 +126,79 @@ type ZwpTabletSeatV2PadAddedEvent struct {
 
 type ZwpTabletSeatV2PadAddedHandler func(ZwpTabletSeatV2PadAddedEvent)
 
+// SetTabletAddedHandler sets the handler for the tablet_added event
+func (i *ZwpTabletSeatV2) SetTabletAddedHandler(f ZwpTabletSeatV2TabletAddedHandler) {
+	i.tabletAddedHandler = f
+}
+
+// SetToolAddedHandler sets the handler for the tool_added event
+func (i *ZwpTabletSeatV2) SetToolAddedHandler(f ZwpTabletSeatV2ToolAddedHandler) {
+	i.toolAddedHandler = f
+}
+
+// SetPadAddedHandler sets the handler for the pad_added event
+func (i *ZwpTabletSeatV2) SetPadAddedHandler(f ZwpTabletSeatV2PadAddedHandler) {
+	i.padAddedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpTabletSeatV2) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // tablet_added
+		if i.tabletAddedHandler != nil {
+			ev := ZwpTabletSeatV2TabletAddedEvent{}
+			l := 0
+			_ = fd
+			idID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Id = i.Context().GetProxy(idID).(*ZwpTabletV2)
+			i.tabletAddedHandler(ev)
+		}
+	case 1: // tool_added
+		if i.toolAddedHandler != nil {
+			ev := ZwpTabletSeatV2ToolAddedEvent{}
+			l := 0
+			_ = fd
+			idID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Id = i.Context().GetProxy(idID).(*ZwpTabletToolV2)
+			i.toolAddedHandler(ev)
+		}
+	case 2: // pad_added
+		if i.padAddedHandler != nil {
+			ev := ZwpTabletSeatV2PadAddedEvent{}
+			l := 0
+			_ = fd
+			idID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Id = i.Context().GetProxy(idID).(*ZwpTabletPadV2)
+			i.padAddedHandler(ev)
+		}
+	}
+}
+
 // ZwpTabletToolV2: a physical tablet tool
 type ZwpTabletToolV2 struct {
 	client.BaseProxy
+	typeHandler            ZwpTabletToolV2TypeHandler
+	hardwareSerialHandler  ZwpTabletToolV2HardwareSerialHandler
+	hardwareIdWacomHandler ZwpTabletToolV2HardwareIdWacomHandler
+	capabilityHandler      ZwpTabletToolV2CapabilityHandler
+	doneHandler            ZwpTabletToolV2DoneHandler
+	removedHandler         ZwpTabletToolV2RemovedHandler
+	proximityInHandler     ZwpTabletToolV2ProximityInHandler
+	proximityOutHandler    ZwpTabletToolV2ProximityOutHandler
+	downHandler            ZwpTabletToolV2DownHandler
+	upHandler              ZwpTabletToolV2UpHandler
+	motionHandler          ZwpTabletToolV2MotionHandler
+	pressureHandler        ZwpTabletToolV2PressureHandler
+	distanceHandler        ZwpTabletToolV2DistanceHandler
+	tiltHandler            ZwpTabletToolV2TiltHandler
+	rotationHandler        ZwpTabletToolV2RotationHandler
+	sliderHandler          ZwpTabletToolV2SliderHandler
+	wheelHandler           ZwpTabletToolV2WheelHandler
+	buttonHandler          ZwpTabletToolV2ButtonHandler
+	frameHandler           ZwpTabletToolV2FrameHandler
 }
 
 // NewZwpTabletToolV2 creates a new ZwpTabletToolV2
@@ -355,9 +428,299 @@ type ZwpTabletToolV2FrameEvent struct {
 
 type ZwpTabletToolV2FrameHandler func(ZwpTabletToolV2FrameEvent)
 
+// SetTypeHandler sets the handler for the type event
+func (i *ZwpTabletToolV2) SetTypeHandler(f ZwpTabletToolV2TypeHandler) {
+	i.typeHandler = f
+}
+
+// SetHardwareSerialHandler sets the handler for the hardware_serial event
+func (i *ZwpTabletToolV2) SetHardwareSerialHandler(f ZwpTabletToolV2HardwareSerialHandler) {
+	i.hardwareSerialHandler = f
+}
+
+// SetHardwareIdWacomHandler sets the handler for the hardware_id_wacom event
+func (i *ZwpTabletToolV2) SetHardwareIdWacomHandler(f ZwpTabletToolV2HardwareIdWacomHandler) {
+	i.hardwareIdWacomHandler = f
+}
+
+// SetCapabilityHandler sets the handler for the capability event
+func (i *ZwpTabletToolV2) SetCapabilityHandler(f ZwpTabletToolV2CapabilityHandler) {
+	i.capabilityHandler = f
+}
+
+// SetDoneHandler sets the handler for the done event
+func (i *ZwpTabletToolV2) SetDoneHandler(f ZwpTabletToolV2DoneHandler) {
+	i.doneHandler = f
+}
+
+// SetRemovedHandler sets the handler for the removed event
+func (i *ZwpTabletToolV2) SetRemovedHandler(f ZwpTabletToolV2RemovedHandler) {
+	i.removedHandler = f
+}
+
+// SetProximityInHandler sets the handler for the proximity_in event
+func (i *ZwpTabletToolV2) SetProximityInHandler(f ZwpTabletToolV2ProximityInHandler) {
+	i.proximityInHandler = f
+}
+
+// SetProximityOutHandler sets the handler for the proximity_out event
+func (i *ZwpTabletToolV2) SetProximityOutHandler(f ZwpTabletToolV2ProximityOutHandler) {
+	i.proximityOutHandler = f
+}
+
+// SetDownHandler sets the handler for the down event
+func (i *ZwpTabletToolV2) SetDownHandler(f ZwpTabletToolV2DownHandler) {
+	i.downHandler = f
+}
+
+// SetUpHandler sets the handler for the up event
+func (i *ZwpTabletToolV2) SetUpHandler(f ZwpTabletToolV2UpHandler) {
+	i.upHandler = f
+}
+
+// SetMotionHandler sets the handler for the motion event
+func (i *ZwpTabletToolV2) SetMotionHandler(f ZwpTabletToolV2MotionHandler) {
+	i.motionHandler = f
+}
+
+// SetPressureHandler sets the handler for the pressure event
+func (i *ZwpTabletToolV2) SetPressureHandler(f ZwpTabletToolV2PressureHandler) {
+	i.pressureHandler = f
+}
+
+// SetDistanceHandler sets the handler for the distance event
+func (i *ZwpTabletToolV2) SetDistanceHandler(f ZwpTabletToolV2DistanceHandler) {
+	i.distanceHandler = f
+}
+
+// SetTiltHandler sets the handler for the tilt event
+func (i *ZwpTabletToolV2) SetTiltHandler(f ZwpTabletToolV2TiltHandler) {
+	i.tiltHandler = f
+}
+
+// SetRotationHandler sets the handler for the rotation event
+func (i *ZwpTabletToolV2) SetRotationHandler(f ZwpTabletToolV2RotationHandler) {
+	i.rotationHandler = f
+}
+
+// SetSliderHandler sets the handler for the slider event
+func (i *ZwpTabletToolV2) SetSliderHandler(f ZwpTabletToolV2SliderHandler) {
+	i.sliderHandler = f
+}
+
+// SetWheelHandler sets the handler for the wheel event
+func (i *ZwpTabletToolV2) SetWheelHandler(f ZwpTabletToolV2WheelHandler) {
+	i.wheelHandler = f
+}
+
+// SetButtonHandler sets the handler for the button event
+func (i *ZwpTabletToolV2) SetButtonHandler(f ZwpTabletToolV2ButtonHandler) {
+	i.buttonHandler = f
+}
+
+// SetFrameHandler sets the handler for the frame event
+func (i *ZwpTabletToolV2) SetFrameHandler(f ZwpTabletToolV2FrameHandler) {
+	i.frameHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpTabletToolV2) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // type
+		if i.typeHandler != nil {
+			ev := ZwpTabletToolV2TypeEvent{}
+			l := 0
+			_ = fd
+			ev.ToolType = client.Uint32(data[l : l+4])
+			l += 4
+			i.typeHandler(ev)
+		}
+	case 1: // hardware_serial
+		if i.hardwareSerialHandler != nil {
+			ev := ZwpTabletToolV2HardwareSerialEvent{}
+			l := 0
+			_ = fd
+			ev.HardwareSerialHi = client.Uint32(data[l : l+4])
+			l += 4
+			ev.HardwareSerialLo = client.Uint32(data[l : l+4])
+			l += 4
+			i.hardwareSerialHandler(ev)
+		}
+	case 2: // hardware_id_wacom
+		if i.hardwareIdWacomHandler != nil {
+			ev := ZwpTabletToolV2HardwareIdWacomEvent{}
+			l := 0
+			_ = fd
+			ev.HardwareIdHi = client.Uint32(data[l : l+4])
+			l += 4
+			ev.HardwareIdLo = client.Uint32(data[l : l+4])
+			l += 4
+			i.hardwareIdWacomHandler(ev)
+		}
+	case 3: // capability
+		if i.capabilityHandler != nil {
+			ev := ZwpTabletToolV2CapabilityEvent{}
+			l := 0
+			_ = fd
+			ev.Capability = client.Uint32(data[l : l+4])
+			l += 4
+			i.capabilityHandler(ev)
+		}
+	case 4: // done
+		if i.doneHandler != nil {
+			ev := ZwpTabletToolV2DoneEvent{}
+			_ = fd
+			_ = data
+			i.doneHandler(ev)
+		}
+	case 5: // removed
+		if i.removedHandler != nil {
+			ev := ZwpTabletToolV2RemovedEvent{}
+			_ = fd
+			_ = data
+			i.removedHandler(ev)
+		}
+	case 6: // proximity_in
+		if i.proximityInHandler != nil {
+			ev := ZwpTabletToolV2ProximityInEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			tabletID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Tablet = i.Context().GetProxy(tabletID).(*ZwpTabletV2)
+			surfaceID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Surface = i.Context().GetProxy(surfaceID).(*client.WlSurface)
+			i.proximityInHandler(ev)
+		}
+	case 7: // proximity_out
+		if i.proximityOutHandler != nil {
+			ev := ZwpTabletToolV2ProximityOutEvent{}
+			_ = fd
+			_ = data
+			i.proximityOutHandler(ev)
+		}
+	case 8: // down
+		if i.downHandler != nil {
+			ev := ZwpTabletToolV2DownEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			i.downHandler(ev)
+		}
+	case 9: // up
+		if i.upHandler != nil {
+			ev := ZwpTabletToolV2UpEvent{}
+			_ = fd
+			_ = data
+			i.upHandler(ev)
+		}
+	case 10: // motion
+		if i.motionHandler != nil {
+			ev := ZwpTabletToolV2MotionEvent{}
+			l := 0
+			_ = fd
+			ev.X = client.Fixed(data[l : l+4])
+			l += 4
+			ev.Y = client.Fixed(data[l : l+4])
+			l += 4
+			i.motionHandler(ev)
+		}
+	case 11: // pressure
+		if i.pressureHandler != nil {
+			ev := ZwpTabletToolV2PressureEvent{}
+			l := 0
+			_ = fd
+			ev.Pressure = client.Uint32(data[l : l+4])
+			l += 4
+			i.pressureHandler(ev)
+		}
+	case 12: // distance
+		if i.distanceHandler != nil {
+			ev := ZwpTabletToolV2DistanceEvent{}
+			l := 0
+			_ = fd
+			ev.Distance = client.Uint32(data[l : l+4])
+			l += 4
+			i.distanceHandler(ev)
+		}
+	case 13: // tilt
+		if i.tiltHandler != nil {
+			ev := ZwpTabletToolV2TiltEvent{}
+			l := 0
+			_ = fd
+			ev.TiltX = client.Fixed(data[l : l+4])
+			l += 4
+			ev.TiltY = client.Fixed(data[l : l+4])
+			l += 4
+			i.tiltHandler(ev)
+		}
+	case 14: // rotation
+		if i.rotationHandler != nil {
+			ev := ZwpTabletToolV2RotationEvent{}
+			l := 0
+			_ = fd
+			ev.Degrees = client.Fixed(data[l : l+4])
+			l += 4
+			i.rotationHandler(ev)
+		}
+	case 15: // slider
+		if i.sliderHandler != nil {
+			ev := ZwpTabletToolV2SliderEvent{}
+			l := 0
+			_ = fd
+			ev.Position = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.sliderHandler(ev)
+		}
+	case 16: // wheel
+		if i.wheelHandler != nil {
+			ev := ZwpTabletToolV2WheelEvent{}
+			l := 0
+			_ = fd
+			ev.Degrees = client.Fixed(data[l : l+4])
+			l += 4
+			ev.Clicks = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.wheelHandler(ev)
+		}
+	case 17: // button
+		if i.buttonHandler != nil {
+			ev := ZwpTabletToolV2ButtonEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Button = client.Uint32(data[l : l+4])
+			l += 4
+			ev.State = client.Uint32(data[l : l+4])
+			l += 4
+			i.buttonHandler(ev)
+		}
+	case 18: // frame
+		if i.frameHandler != nil {
+			ev := ZwpTabletToolV2FrameEvent{}
+			l := 0
+			_ = fd
+			ev.Time = client.Uint32(data[l : l+4])
+			l += 4
+			i.frameHandler(ev)
+		}
+	}
+}
+
 // ZwpTabletV2: graphics tablet device
 type ZwpTabletV2 struct {
 	client.BaseProxy
+	nameHandler    ZwpTabletV2NameHandler
+	idHandler      ZwpTabletV2IdHandler
+	pathHandler    ZwpTabletV2PathHandler
+	doneHandler    ZwpTabletV2DoneHandler
+	removedHandler ZwpTabletV2RemovedHandler
+	bustypeHandler ZwpTabletV2BustypeHandler
 }
 
 // NewZwpTabletV2 creates a new ZwpTabletV2
@@ -434,9 +797,107 @@ type ZwpTabletV2BustypeEvent struct {
 
 type ZwpTabletV2BustypeHandler func(ZwpTabletV2BustypeEvent)
 
+// SetNameHandler sets the handler for the name event
+func (i *ZwpTabletV2) SetNameHandler(f ZwpTabletV2NameHandler) {
+	i.nameHandler = f
+}
+
+// SetIdHandler sets the handler for the id event
+func (i *ZwpTabletV2) SetIdHandler(f ZwpTabletV2IdHandler) {
+	i.idHandler = f
+}
+
+// SetPathHandler sets the handler for the path event
+func (i *ZwpTabletV2) SetPathHandler(f ZwpTabletV2PathHandler) {
+	i.pathHandler = f
+}
+
+// SetDoneHandler sets the handler for the done event
+func (i *ZwpTabletV2) SetDoneHandler(f ZwpTabletV2DoneHandler) {
+	i.doneHandler = f
+}
+
+// SetRemovedHandler sets the handler for the removed event
+func (i *ZwpTabletV2) SetRemovedHandler(f ZwpTabletV2RemovedHandler) {
+	i.removedHandler = f
+}
+
+// SetBustypeHandler sets the handler for the bustype event
+func (i *ZwpTabletV2) SetBustypeHandler(f ZwpTabletV2BustypeHandler) {
+	i.bustypeHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpTabletV2) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // name
+		if i.nameHandler != nil {
+			ev := ZwpTabletV2NameEvent{}
+			l := 0
+			_ = fd
+			nameRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			nameLen := client.PaddedLen(nameRawLen)
+			ev.Name = client.String(data[l : l+nameLen])
+			l += nameLen
+			i.nameHandler(ev)
+		}
+	case 1: // id
+		if i.idHandler != nil {
+			ev := ZwpTabletV2IdEvent{}
+			l := 0
+			_ = fd
+			ev.Vid = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Pid = client.Uint32(data[l : l+4])
+			l += 4
+			i.idHandler(ev)
+		}
+	case 2: // path
+		if i.pathHandler != nil {
+			ev := ZwpTabletV2PathEvent{}
+			l := 0
+			_ = fd
+			pathRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			pathLen := client.PaddedLen(pathRawLen)
+			ev.Path = client.String(data[l : l+pathLen])
+			l += pathLen
+			i.pathHandler(ev)
+		}
+	case 3: // done
+		if i.doneHandler != nil {
+			ev := ZwpTabletV2DoneEvent{}
+			_ = fd
+			_ = data
+			i.doneHandler(ev)
+		}
+	case 4: // removed
+		if i.removedHandler != nil {
+			ev := ZwpTabletV2RemovedEvent{}
+			_ = fd
+			_ = data
+			i.removedHandler(ev)
+		}
+	case 5: // bustype
+		if i.bustypeHandler != nil {
+			ev := ZwpTabletV2BustypeEvent{}
+			l := 0
+			_ = fd
+			ev.Bustype = client.Uint32(data[l : l+4])
+			l += 4
+			i.bustypeHandler(ev)
+		}
+	}
+}
+
 // ZwpTabletPadRingV2: pad ring
 type ZwpTabletPadRingV2 struct {
 	client.BaseProxy
+	sourceHandler ZwpTabletPadRingV2SourceHandler
+	angleHandler  ZwpTabletPadRingV2AngleHandler
+	stopHandler   ZwpTabletPadRingV2StopHandler
+	frameHandler  ZwpTabletPadRingV2FrameHandler
 }
 
 // NewZwpTabletPadRingV2 creates a new ZwpTabletPadRingV2
@@ -514,9 +975,73 @@ type ZwpTabletPadRingV2FrameEvent struct {
 
 type ZwpTabletPadRingV2FrameHandler func(ZwpTabletPadRingV2FrameEvent)
 
+// SetSourceHandler sets the handler for the source event
+func (i *ZwpTabletPadRingV2) SetSourceHandler(f ZwpTabletPadRingV2SourceHandler) {
+	i.sourceHandler = f
+}
+
+// SetAngleHandler sets the handler for the angle event
+func (i *ZwpTabletPadRingV2) SetAngleHandler(f ZwpTabletPadRingV2AngleHandler) {
+	i.angleHandler = f
+}
+
+// SetStopHandler sets the handler for the stop event
+func (i *ZwpTabletPadRingV2) SetStopHandler(f ZwpTabletPadRingV2StopHandler) {
+	i.stopHandler = f
+}
+
+// SetFrameHandler sets the handler for the frame event
+func (i *ZwpTabletPadRingV2) SetFrameHandler(f ZwpTabletPadRingV2FrameHandler) {
+	i.frameHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpTabletPadRingV2) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // source
+		if i.sourceHandler != nil {
+			ev := ZwpTabletPadRingV2SourceEvent{}
+			l := 0
+			_ = fd
+			ev.Source = client.Uint32(data[l : l+4])
+			l += 4
+			i.sourceHandler(ev)
+		}
+	case 1: // angle
+		if i.angleHandler != nil {
+			ev := ZwpTabletPadRingV2AngleEvent{}
+			l := 0
+			_ = fd
+			ev.Degrees = client.Fixed(data[l : l+4])
+			l += 4
+			i.angleHandler(ev)
+		}
+	case 2: // stop
+		if i.stopHandler != nil {
+			ev := ZwpTabletPadRingV2StopEvent{}
+			_ = fd
+			_ = data
+			i.stopHandler(ev)
+		}
+	case 3: // frame
+		if i.frameHandler != nil {
+			ev := ZwpTabletPadRingV2FrameEvent{}
+			l := 0
+			_ = fd
+			ev.Time = client.Uint32(data[l : l+4])
+			l += 4
+			i.frameHandler(ev)
+		}
+	}
+}
+
 // ZwpTabletPadStripV2: pad strip
 type ZwpTabletPadStripV2 struct {
 	client.BaseProxy
+	sourceHandler   ZwpTabletPadStripV2SourceHandler
+	positionHandler ZwpTabletPadStripV2PositionHandler
+	stopHandler     ZwpTabletPadStripV2StopHandler
+	frameHandler    ZwpTabletPadStripV2FrameHandler
 }
 
 // NewZwpTabletPadStripV2 creates a new ZwpTabletPadStripV2
@@ -594,9 +1119,76 @@ type ZwpTabletPadStripV2FrameEvent struct {
 
 type ZwpTabletPadStripV2FrameHandler func(ZwpTabletPadStripV2FrameEvent)
 
+// SetSourceHandler sets the handler for the source event
+func (i *ZwpTabletPadStripV2) SetSourceHandler(f ZwpTabletPadStripV2SourceHandler) {
+	i.sourceHandler = f
+}
+
+// SetPositionHandler sets the handler for the position event
+func (i *ZwpTabletPadStripV2) SetPositionHandler(f ZwpTabletPadStripV2PositionHandler) {
+	i.positionHandler = f
+}
+
+// SetStopHandler sets the handler for the stop event
+func (i *ZwpTabletPadStripV2) SetStopHandler(f ZwpTabletPadStripV2StopHandler) {
+	i.stopHandler = f
+}
+
+// SetFrameHandler sets the handler for the frame event
+func (i *ZwpTabletPadStripV2) SetFrameHandler(f ZwpTabletPadStripV2FrameHandler) {
+	i.frameHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpTabletPadStripV2) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // source
+		if i.sourceHandler != nil {
+			ev := ZwpTabletPadStripV2SourceEvent{}
+			l := 0
+			_ = fd
+			ev.Source = client.Uint32(data[l : l+4])
+			l += 4
+			i.sourceHandler(ev)
+		}
+	case 1: // position
+		if i.positionHandler != nil {
+			ev := ZwpTabletPadStripV2PositionEvent{}
+			l := 0
+			_ = fd
+			ev.Position = client.Uint32(data[l : l+4])
+			l += 4
+			i.positionHandler(ev)
+		}
+	case 2: // stop
+		if i.stopHandler != nil {
+			ev := ZwpTabletPadStripV2StopEvent{}
+			_ = fd
+			_ = data
+			i.stopHandler(ev)
+		}
+	case 3: // frame
+		if i.frameHandler != nil {
+			ev := ZwpTabletPadStripV2FrameEvent{}
+			l := 0
+			_ = fd
+			ev.Time = client.Uint32(data[l : l+4])
+			l += 4
+			i.frameHandler(ev)
+		}
+	}
+}
+
 // ZwpTabletPadGroupV2: a set of buttons, rings and strips
 type ZwpTabletPadGroupV2 struct {
 	client.BaseProxy
+	buttonsHandler    ZwpTabletPadGroupV2ButtonsHandler
+	ringHandler       ZwpTabletPadGroupV2RingHandler
+	stripHandler      ZwpTabletPadGroupV2StripHandler
+	modesHandler      ZwpTabletPadGroupV2ModesHandler
+	doneHandler       ZwpTabletPadGroupV2DoneHandler
+	modeSwitchHandler ZwpTabletPadGroupV2ModeSwitchHandler
+	dialHandler       ZwpTabletPadGroupV2DialHandler
 }
 
 // NewZwpTabletPadGroupV2 creates a new ZwpTabletPadGroupV2
@@ -671,9 +1263,128 @@ type ZwpTabletPadGroupV2DialEvent struct {
 
 type ZwpTabletPadGroupV2DialHandler func(ZwpTabletPadGroupV2DialEvent)
 
+// SetButtonsHandler sets the handler for the buttons event
+func (i *ZwpTabletPadGroupV2) SetButtonsHandler(f ZwpTabletPadGroupV2ButtonsHandler) {
+	i.buttonsHandler = f
+}
+
+// SetRingHandler sets the handler for the ring event
+func (i *ZwpTabletPadGroupV2) SetRingHandler(f ZwpTabletPadGroupV2RingHandler) {
+	i.ringHandler = f
+}
+
+// SetStripHandler sets the handler for the strip event
+func (i *ZwpTabletPadGroupV2) SetStripHandler(f ZwpTabletPadGroupV2StripHandler) {
+	i.stripHandler = f
+}
+
+// SetModesHandler sets the handler for the modes event
+func (i *ZwpTabletPadGroupV2) SetModesHandler(f ZwpTabletPadGroupV2ModesHandler) {
+	i.modesHandler = f
+}
+
+// SetDoneHandler sets the handler for the done event
+func (i *ZwpTabletPadGroupV2) SetDoneHandler(f ZwpTabletPadGroupV2DoneHandler) {
+	i.doneHandler = f
+}
+
+// SetModeSwitchHandler sets the handler for the mode_switch event
+func (i *ZwpTabletPadGroupV2) SetModeSwitchHandler(f ZwpTabletPadGroupV2ModeSwitchHandler) {
+	i.modeSwitchHandler = f
+}
+
+// SetDialHandler sets the handler for the dial event
+func (i *ZwpTabletPadGroupV2) SetDialHandler(f ZwpTabletPadGroupV2DialHandler) {
+	i.dialHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpTabletPadGroupV2) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // buttons
+		if i.buttonsHandler != nil {
+			ev := ZwpTabletPadGroupV2ButtonsEvent{}
+			l := 0
+			_ = fd
+			buttonsLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Buttons = data[l : l+buttonsLen]
+			l += client.PaddedLen(buttonsLen)
+			i.buttonsHandler(ev)
+		}
+	case 1: // ring
+		if i.ringHandler != nil {
+			ev := ZwpTabletPadGroupV2RingEvent{}
+			l := 0
+			_ = fd
+			ringID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Ring = i.Context().GetProxy(ringID).(*ZwpTabletPadRingV2)
+			i.ringHandler(ev)
+		}
+	case 2: // strip
+		if i.stripHandler != nil {
+			ev := ZwpTabletPadGroupV2StripEvent{}
+			l := 0
+			_ = fd
+			stripID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Strip = i.Context().GetProxy(stripID).(*ZwpTabletPadStripV2)
+			i.stripHandler(ev)
+		}
+	case 3: // modes
+		if i.modesHandler != nil {
+			ev := ZwpTabletPadGroupV2ModesEvent{}
+			l := 0
+			_ = fd
+			ev.Modes = client.Uint32(data[l : l+4])
+			l += 4
+			i.modesHandler(ev)
+		}
+	case 4: // done
+		if i.doneHandler != nil {
+			ev := ZwpTabletPadGroupV2DoneEvent{}
+			_ = fd
+			_ = data
+			i.doneHandler(ev)
+		}
+	case 5: // mode_switch
+		if i.modeSwitchHandler != nil {
+			ev := ZwpTabletPadGroupV2ModeSwitchEvent{}
+			l := 0
+			_ = fd
+			ev.Time = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Mode = client.Uint32(data[l : l+4])
+			l += 4
+			i.modeSwitchHandler(ev)
+		}
+	case 6: // dial
+		if i.dialHandler != nil {
+			ev := ZwpTabletPadGroupV2DialEvent{}
+			l := 0
+			_ = fd
+			dialID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Dial = i.Context().GetProxy(dialID).(*ZwpTabletPadDialV2)
+			i.dialHandler(ev)
+		}
+	}
+}
+
 // ZwpTabletPadV2: a set of buttons, rings, strips and dials
 type ZwpTabletPadV2 struct {
 	client.BaseProxy
+	groupHandler   ZwpTabletPadV2GroupHandler
+	pathHandler    ZwpTabletPadV2PathHandler
+	buttonsHandler ZwpTabletPadV2ButtonsHandler
+	doneHandler    ZwpTabletPadV2DoneHandler
+	buttonHandler  ZwpTabletPadV2ButtonHandler
+	enterHandler   ZwpTabletPadV2EnterHandler
+	leaveHandler   ZwpTabletPadV2LeaveHandler
+	removedHandler ZwpTabletPadV2RemovedHandler
 }
 
 // NewZwpTabletPadV2 creates a new ZwpTabletPadV2
@@ -786,9 +1497,142 @@ type ZwpTabletPadV2RemovedEvent struct {
 
 type ZwpTabletPadV2RemovedHandler func(ZwpTabletPadV2RemovedEvent)
 
+// SetGroupHandler sets the handler for the group event
+func (i *ZwpTabletPadV2) SetGroupHandler(f ZwpTabletPadV2GroupHandler) {
+	i.groupHandler = f
+}
+
+// SetPathHandler sets the handler for the path event
+func (i *ZwpTabletPadV2) SetPathHandler(f ZwpTabletPadV2PathHandler) {
+	i.pathHandler = f
+}
+
+// SetButtonsHandler sets the handler for the buttons event
+func (i *ZwpTabletPadV2) SetButtonsHandler(f ZwpTabletPadV2ButtonsHandler) {
+	i.buttonsHandler = f
+}
+
+// SetDoneHandler sets the handler for the done event
+func (i *ZwpTabletPadV2) SetDoneHandler(f ZwpTabletPadV2DoneHandler) {
+	i.doneHandler = f
+}
+
+// SetButtonHandler sets the handler for the button event
+func (i *ZwpTabletPadV2) SetButtonHandler(f ZwpTabletPadV2ButtonHandler) {
+	i.buttonHandler = f
+}
+
+// SetEnterHandler sets the handler for the enter event
+func (i *ZwpTabletPadV2) SetEnterHandler(f ZwpTabletPadV2EnterHandler) {
+	i.enterHandler = f
+}
+
+// SetLeaveHandler sets the handler for the leave event
+func (i *ZwpTabletPadV2) SetLeaveHandler(f ZwpTabletPadV2LeaveHandler) {
+	i.leaveHandler = f
+}
+
+// SetRemovedHandler sets the handler for the removed event
+func (i *ZwpTabletPadV2) SetRemovedHandler(f ZwpTabletPadV2RemovedHandler) {
+	i.removedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpTabletPadV2) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // group
+		if i.groupHandler != nil {
+			ev := ZwpTabletPadV2GroupEvent{}
+			l := 0
+			_ = fd
+			pad_groupID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.PadGroup = i.Context().GetProxy(pad_groupID).(*ZwpTabletPadGroupV2)
+			i.groupHandler(ev)
+		}
+	case 1: // path
+		if i.pathHandler != nil {
+			ev := ZwpTabletPadV2PathEvent{}
+			l := 0
+			_ = fd
+			pathRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			pathLen := client.PaddedLen(pathRawLen)
+			ev.Path = client.String(data[l : l+pathLen])
+			l += pathLen
+			i.pathHandler(ev)
+		}
+	case 2: // buttons
+		if i.buttonsHandler != nil {
+			ev := ZwpTabletPadV2ButtonsEvent{}
+			l := 0
+			_ = fd
+			ev.Buttons = client.Uint32(data[l : l+4])
+			l += 4
+			i.buttonsHandler(ev)
+		}
+	case 3: // done
+		if i.doneHandler != nil {
+			ev := ZwpTabletPadV2DoneEvent{}
+			_ = fd
+			_ = data
+			i.doneHandler(ev)
+		}
+	case 4: // button
+		if i.buttonHandler != nil {
+			ev := ZwpTabletPadV2ButtonEvent{}
+			l := 0
+			_ = fd
+			ev.Time = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Button = client.Uint32(data[l : l+4])
+			l += 4
+			ev.State = client.Uint32(data[l : l+4])
+			l += 4
+			i.buttonHandler(ev)
+		}
+	case 5: // enter
+		if i.enterHandler != nil {
+			ev := ZwpTabletPadV2EnterEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			tabletID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Tablet = i.Context().GetProxy(tabletID).(*ZwpTabletV2)
+			surfaceID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Surface = i.Context().GetProxy(surfaceID).(*client.WlSurface)
+			i.enterHandler(ev)
+		}
+	case 6: // leave
+		if i.leaveHandler != nil {
+			ev := ZwpTabletPadV2LeaveEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			surfaceID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Surface = i.Context().GetProxy(surfaceID).(*client.WlSurface)
+			i.leaveHandler(ev)
+		}
+	case 7: // removed
+		if i.removedHandler != nil {
+			ev := ZwpTabletPadV2RemovedEvent{}
+			_ = fd
+			_ = data
+			i.removedHandler(ev)
+		}
+	}
+}
+
 // ZwpTabletPadDialV2: pad dial
 type ZwpTabletPadDialV2 struct {
 	client.BaseProxy
+	deltaHandler ZwpTabletPadDialV2DeltaHandler
+	frameHandler ZwpTabletPadDialV2FrameHandler
 }
 
 // NewZwpTabletPadDialV2 creates a new ZwpTabletPadDialV2
@@ -845,3 +1689,37 @@ type ZwpTabletPadDialV2FrameEvent struct {
 }
 
 type ZwpTabletPadDialV2FrameHandler func(ZwpTabletPadDialV2FrameEvent)
+
+// SetDeltaHandler sets the handler for the delta event
+func (i *ZwpTabletPadDialV2) SetDeltaHandler(f ZwpTabletPadDialV2DeltaHandler) {
+	i.deltaHandler = f
+}
+
+// SetFrameHandler sets the handler for the frame event
+func (i *ZwpTabletPadDialV2) SetFrameHandler(f ZwpTabletPadDialV2FrameHandler) {
+	i.frameHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpTabletPadDialV2) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // delta
+		if i.deltaHandler != nil {
+			ev := ZwpTabletPadDialV2DeltaEvent{}
+			l := 0
+			_ = fd
+			ev.Value120 = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.deltaHandler(ev)
+		}
+	case 1: // frame
+		if i.frameHandler != nil {
+			ev := ZwpTabletPadDialV2FrameEvent{}
+			l := 0
+			_ = fd
+			ev.Time = client.Uint32(data[l : l+4])
+			l += 4
+			i.frameHandler(ev)
+		}
+	}
+}

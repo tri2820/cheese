@@ -73,6 +73,8 @@ func (i *ExtTransientSeatManagerV1) Destroy() error {
 // ExtTransientSeatV1: transient seat handle
 type ExtTransientSeatV1 struct {
 	client.BaseProxy
+	readyHandler  ExtTransientSeatV1ReadyHandler
+	deniedHandler ExtTransientSeatV1DeniedHandler
 }
 
 // NewExtTransientSeatV1 creates a new ExtTransientSeatV1
@@ -109,3 +111,35 @@ type ExtTransientSeatV1DeniedEvent struct {
 }
 
 type ExtTransientSeatV1DeniedHandler func(ExtTransientSeatV1DeniedEvent)
+
+// SetReadyHandler sets the handler for the ready event
+func (i *ExtTransientSeatV1) SetReadyHandler(f ExtTransientSeatV1ReadyHandler) {
+	i.readyHandler = f
+}
+
+// SetDeniedHandler sets the handler for the denied event
+func (i *ExtTransientSeatV1) SetDeniedHandler(f ExtTransientSeatV1DeniedHandler) {
+	i.deniedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ExtTransientSeatV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // ready
+		if i.readyHandler != nil {
+			ev := ExtTransientSeatV1ReadyEvent{}
+			l := 0
+			_ = fd
+			ev.GlobalName = client.Uint32(data[l : l+4])
+			l += 4
+			i.readyHandler(ev)
+		}
+	case 1: // denied
+		if i.deniedHandler != nil {
+			ev := ExtTransientSeatV1DeniedEvent{}
+			_ = fd
+			_ = data
+			i.deniedHandler(ev)
+		}
+	}
+}

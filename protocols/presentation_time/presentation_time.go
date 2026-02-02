@@ -29,6 +29,7 @@ import (
 // WpPresentation: timed presentation related wl_surface requests
 type WpPresentation struct {
 	client.BaseProxy
+	clockIdHandler WpPresentationClockIdHandler
 }
 
 // NewWpPresentation creates a new WpPresentation
@@ -87,9 +88,32 @@ type WpPresentationClockIdEvent struct {
 
 type WpPresentationClockIdHandler func(WpPresentationClockIdEvent)
 
+// SetClockIdHandler sets the handler for the clock_id event
+func (i *WpPresentation) SetClockIdHandler(f WpPresentationClockIdHandler) {
+	i.clockIdHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WpPresentation) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // clock_id
+		if i.clockIdHandler != nil {
+			ev := WpPresentationClockIdEvent{}
+			l := 0
+			_ = fd
+			ev.ClkId = client.Uint32(data[l : l+4])
+			l += 4
+			i.clockIdHandler(ev)
+		}
+	}
+}
+
 // WpPresentationFeedback: presentation time feedback event
 type WpPresentationFeedback struct {
 	client.BaseProxy
+	syncOutputHandler WpPresentationFeedbackSyncOutputHandler
+	presentedHandler  WpPresentationFeedbackPresentedHandler
+	discardedHandler  WpPresentationFeedbackDiscardedHandler
 }
 
 // NewWpPresentationFeedback creates a new WpPresentationFeedback
@@ -134,3 +158,62 @@ type WpPresentationFeedbackDiscardedEvent struct {
 }
 
 type WpPresentationFeedbackDiscardedHandler func(WpPresentationFeedbackDiscardedEvent)
+
+// SetSyncOutputHandler sets the handler for the sync_output event
+func (i *WpPresentationFeedback) SetSyncOutputHandler(f WpPresentationFeedbackSyncOutputHandler) {
+	i.syncOutputHandler = f
+}
+
+// SetPresentedHandler sets the handler for the presented event
+func (i *WpPresentationFeedback) SetPresentedHandler(f WpPresentationFeedbackPresentedHandler) {
+	i.presentedHandler = f
+}
+
+// SetDiscardedHandler sets the handler for the discarded event
+func (i *WpPresentationFeedback) SetDiscardedHandler(f WpPresentationFeedbackDiscardedHandler) {
+	i.discardedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WpPresentationFeedback) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // sync_output
+		if i.syncOutputHandler != nil {
+			ev := WpPresentationFeedbackSyncOutputEvent{}
+			l := 0
+			_ = fd
+			outputID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Output = i.Context().GetProxy(outputID).(*client.WlOutput)
+			i.syncOutputHandler(ev)
+		}
+	case 1: // presented
+		if i.presentedHandler != nil {
+			ev := WpPresentationFeedbackPresentedEvent{}
+			l := 0
+			_ = fd
+			ev.TvSecHi = client.Uint32(data[l : l+4])
+			l += 4
+			ev.TvSecLo = client.Uint32(data[l : l+4])
+			l += 4
+			ev.TvNsec = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Refresh = client.Uint32(data[l : l+4])
+			l += 4
+			ev.SeqHi = client.Uint32(data[l : l+4])
+			l += 4
+			ev.SeqLo = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Flags = client.Uint32(data[l : l+4])
+			l += 4
+			i.presentedHandler(ev)
+		}
+	case 2: // discarded
+		if i.discardedHandler != nil {
+			ev := WpPresentationFeedbackDiscardedEvent{}
+			_ = fd
+			_ = data
+			i.discardedHandler(ev)
+		}
+	}
+}

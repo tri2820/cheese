@@ -92,6 +92,8 @@ func (i *ZwpPrimarySelectionDeviceManagerV1) Destroy() error {
 
 type ZwpPrimarySelectionDeviceV1 struct {
 	client.BaseProxy
+	dataOfferHandler ZwpPrimarySelectionDeviceV1DataOfferHandler
+	selectionHandler ZwpPrimarySelectionDeviceV1SelectionHandler
 }
 
 // NewZwpPrimarySelectionDeviceV1 creates a new ZwpPrimarySelectionDeviceV1
@@ -153,9 +155,48 @@ type ZwpPrimarySelectionDeviceV1SelectionEvent struct {
 
 type ZwpPrimarySelectionDeviceV1SelectionHandler func(ZwpPrimarySelectionDeviceV1SelectionEvent)
 
+// SetDataOfferHandler sets the handler for the data_offer event
+func (i *ZwpPrimarySelectionDeviceV1) SetDataOfferHandler(f ZwpPrimarySelectionDeviceV1DataOfferHandler) {
+	i.dataOfferHandler = f
+}
+
+// SetSelectionHandler sets the handler for the selection event
+func (i *ZwpPrimarySelectionDeviceV1) SetSelectionHandler(f ZwpPrimarySelectionDeviceV1SelectionHandler) {
+	i.selectionHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpPrimarySelectionDeviceV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // data_offer
+		if i.dataOfferHandler != nil {
+			ev := ZwpPrimarySelectionDeviceV1DataOfferEvent{}
+			l := 0
+			_ = fd
+			offerID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Offer = i.Context().GetProxy(offerID).(*ZwpPrimarySelectionOfferV1)
+			i.dataOfferHandler(ev)
+		}
+	case 1: // selection
+		if i.selectionHandler != nil {
+			ev := ZwpPrimarySelectionDeviceV1SelectionEvent{}
+			l := 0
+			_ = fd
+			idID := client.Uint32(data[l : l+4])
+			l += 4
+			if idID != 0 {
+				ev.Id = i.Context().GetProxy(idID).(*ZwpPrimarySelectionOfferV1)
+			}
+			i.selectionHandler(ev)
+		}
+	}
+}
+
 // ZwpPrimarySelectionOfferV1: offer to transfer primary selection contents
 type ZwpPrimarySelectionOfferV1 struct {
 	client.BaseProxy
+	offerHandler ZwpPrimarySelectionOfferV1OfferHandler
 }
 
 // NewZwpPrimarySelectionOfferV1 creates a new ZwpPrimarySelectionOfferV1
@@ -205,9 +246,34 @@ type ZwpPrimarySelectionOfferV1OfferEvent struct {
 
 type ZwpPrimarySelectionOfferV1OfferHandler func(ZwpPrimarySelectionOfferV1OfferEvent)
 
+// SetOfferHandler sets the handler for the offer event
+func (i *ZwpPrimarySelectionOfferV1) SetOfferHandler(f ZwpPrimarySelectionOfferV1OfferHandler) {
+	i.offerHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpPrimarySelectionOfferV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // offer
+		if i.offerHandler != nil {
+			ev := ZwpPrimarySelectionOfferV1OfferEvent{}
+			l := 0
+			_ = fd
+			mime_typeRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			mime_typeLen := client.PaddedLen(mime_typeRawLen)
+			ev.MimeType = client.String(data[l : l+mime_typeLen])
+			l += mime_typeLen
+			i.offerHandler(ev)
+		}
+	}
+}
+
 // ZwpPrimarySelectionSourceV1: offer to replace the contents of the primary selection
 type ZwpPrimarySelectionSourceV1 struct {
 	client.BaseProxy
+	sendHandler      ZwpPrimarySelectionSourceV1SendHandler
+	cancelledHandler ZwpPrimarySelectionSourceV1CancelledHandler
 }
 
 // NewZwpPrimarySelectionSourceV1 creates a new ZwpPrimarySelectionSourceV1
@@ -262,3 +328,38 @@ type ZwpPrimarySelectionSourceV1CancelledEvent struct {
 }
 
 type ZwpPrimarySelectionSourceV1CancelledHandler func(ZwpPrimarySelectionSourceV1CancelledEvent)
+
+// SetSendHandler sets the handler for the send event
+func (i *ZwpPrimarySelectionSourceV1) SetSendHandler(f ZwpPrimarySelectionSourceV1SendHandler) {
+	i.sendHandler = f
+}
+
+// SetCancelledHandler sets the handler for the cancelled event
+func (i *ZwpPrimarySelectionSourceV1) SetCancelledHandler(f ZwpPrimarySelectionSourceV1CancelledHandler) {
+	i.cancelledHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpPrimarySelectionSourceV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // send
+		if i.sendHandler != nil {
+			ev := ZwpPrimarySelectionSourceV1SendEvent{}
+			l := 0
+			mime_typeRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			mime_typeLen := client.PaddedLen(mime_typeRawLen)
+			ev.MimeType = client.String(data[l : l+mime_typeLen])
+			l += mime_typeLen
+			ev.Fd = uintptr(fd)
+			i.sendHandler(ev)
+		}
+	case 1: // cancelled
+		if i.cancelledHandler != nil {
+			ev := ZwpPrimarySelectionSourceV1CancelledEvent{}
+			_ = fd
+			_ = data
+			i.cancelledHandler(ev)
+		}
+	}
+}

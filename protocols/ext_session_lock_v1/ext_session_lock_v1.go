@@ -72,6 +72,8 @@ func (i *ExtSessionLockManagerV1) Lock() (*ExtSessionLockV1, error) {
 // ExtSessionLockV1: manage lock state and create lock surfaces
 type ExtSessionLockV1 struct {
 	client.BaseProxy
+	lockedHandler   ExtSessionLockV1LockedHandler
+	finishedHandler ExtSessionLockV1FinishedHandler
 }
 
 // NewExtSessionLockV1 creates a new ExtSessionLockV1
@@ -154,9 +156,40 @@ type ExtSessionLockV1FinishedEvent struct {
 
 type ExtSessionLockV1FinishedHandler func(ExtSessionLockV1FinishedEvent)
 
+// SetLockedHandler sets the handler for the locked event
+func (i *ExtSessionLockV1) SetLockedHandler(f ExtSessionLockV1LockedHandler) {
+	i.lockedHandler = f
+}
+
+// SetFinishedHandler sets the handler for the finished event
+func (i *ExtSessionLockV1) SetFinishedHandler(f ExtSessionLockV1FinishedHandler) {
+	i.finishedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ExtSessionLockV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // locked
+		if i.lockedHandler != nil {
+			ev := ExtSessionLockV1LockedEvent{}
+			_ = fd
+			_ = data
+			i.lockedHandler(ev)
+		}
+	case 1: // finished
+		if i.finishedHandler != nil {
+			ev := ExtSessionLockV1FinishedEvent{}
+			_ = fd
+			_ = data
+			i.finishedHandler(ev)
+		}
+	}
+}
+
 // ExtSessionLockSurfaceV1: a surface displayed while the session is locked
 type ExtSessionLockSurfaceV1 struct {
 	client.BaseProxy
+	configureHandler ExtSessionLockSurfaceV1ConfigureHandler
 }
 
 // NewExtSessionLockSurfaceV1 creates a new ExtSessionLockSurfaceV1
@@ -214,3 +247,27 @@ type ExtSessionLockSurfaceV1ConfigureEvent struct {
 }
 
 type ExtSessionLockSurfaceV1ConfigureHandler func(ExtSessionLockSurfaceV1ConfigureEvent)
+
+// SetConfigureHandler sets the handler for the configure event
+func (i *ExtSessionLockSurfaceV1) SetConfigureHandler(f ExtSessionLockSurfaceV1ConfigureHandler) {
+	i.configureHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ExtSessionLockSurfaceV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // configure
+		if i.configureHandler != nil {
+			ev := ExtSessionLockSurfaceV1ConfigureEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Width = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Height = client.Uint32(data[l : l+4])
+			l += 4
+			i.configureHandler(ev)
+		}
+	}
+}

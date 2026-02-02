@@ -32,6 +32,7 @@ import (
 // XdgShell: create desktop-style surfaces
 type XdgShell struct {
 	client.BaseProxy
+	pingHandler XdgShellPingHandler
 }
 
 // NewXdgShell creates a new XdgShell
@@ -159,9 +160,31 @@ type XdgShellPingEvent struct {
 
 type XdgShellPingHandler func(XdgShellPingEvent)
 
+// SetPingHandler sets the handler for the ping event
+func (i *XdgShell) SetPingHandler(f XdgShellPingHandler) {
+	i.pingHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *XdgShell) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // ping
+		if i.pingHandler != nil {
+			ev := XdgShellPingEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			i.pingHandler(ev)
+		}
+	}
+}
+
 // XdgSurface: A desktop window
 type XdgSurface struct {
 	client.BaseProxy
+	configureHandler XdgSurfaceConfigureHandler
+	closeHandler     XdgSurfaceCloseHandler
 }
 
 // NewXdgSurface creates a new XdgSurface
@@ -456,9 +479,50 @@ type XdgSurfaceCloseEvent struct {
 
 type XdgSurfaceCloseHandler func(XdgSurfaceCloseEvent)
 
+// SetConfigureHandler sets the handler for the configure event
+func (i *XdgSurface) SetConfigureHandler(f XdgSurfaceConfigureHandler) {
+	i.configureHandler = f
+}
+
+// SetCloseHandler sets the handler for the close event
+func (i *XdgSurface) SetCloseHandler(f XdgSurfaceCloseHandler) {
+	i.closeHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *XdgSurface) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // configure
+		if i.configureHandler != nil {
+			ev := XdgSurfaceConfigureEvent{}
+			l := 0
+			_ = fd
+			ev.Width = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Height = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			statesLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.States = data[l : l+statesLen]
+			l += client.PaddedLen(statesLen)
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			i.configureHandler(ev)
+		}
+	case 1: // close
+		if i.closeHandler != nil {
+			ev := XdgSurfaceCloseEvent{}
+			_ = fd
+			_ = data
+			i.closeHandler(ev)
+		}
+	}
+}
+
 // XdgPopup: short-lived, popup surfaces for menus
 type XdgPopup struct {
 	client.BaseProxy
+	popupDoneHandler XdgPopupPopupDoneHandler
 }
 
 // NewXdgPopup creates a new XdgPopup
@@ -488,3 +552,21 @@ type XdgPopupPopupDoneEvent struct {
 }
 
 type XdgPopupPopupDoneHandler func(XdgPopupPopupDoneEvent)
+
+// SetPopupDoneHandler sets the handler for the popup_done event
+func (i *XdgPopup) SetPopupDoneHandler(f XdgPopupPopupDoneHandler) {
+	i.popupDoneHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *XdgPopup) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // popup_done
+		if i.popupDoneHandler != nil {
+			ev := XdgPopupPopupDoneEvent{}
+			_ = fd
+			_ = data
+			i.popupDoneHandler(ev)
+		}
+	}
+}

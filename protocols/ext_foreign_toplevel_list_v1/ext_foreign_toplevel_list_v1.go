@@ -35,6 +35,8 @@ import (
 // ExtForeignToplevelListV1: list toplevels
 type ExtForeignToplevelListV1 struct {
 	client.BaseProxy
+	toplevelHandler ExtForeignToplevelListV1ToplevelHandler
+	finishedHandler ExtForeignToplevelListV1FinishedHandler
 }
 
 // NewExtForeignToplevelListV1 creates a new ExtForeignToplevelListV1
@@ -86,9 +88,47 @@ type ExtForeignToplevelListV1FinishedEvent struct {
 
 type ExtForeignToplevelListV1FinishedHandler func(ExtForeignToplevelListV1FinishedEvent)
 
+// SetToplevelHandler sets the handler for the toplevel event
+func (i *ExtForeignToplevelListV1) SetToplevelHandler(f ExtForeignToplevelListV1ToplevelHandler) {
+	i.toplevelHandler = f
+}
+
+// SetFinishedHandler sets the handler for the finished event
+func (i *ExtForeignToplevelListV1) SetFinishedHandler(f ExtForeignToplevelListV1FinishedHandler) {
+	i.finishedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ExtForeignToplevelListV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // toplevel
+		if i.toplevelHandler != nil {
+			ev := ExtForeignToplevelListV1ToplevelEvent{}
+			l := 0
+			_ = fd
+			toplevelID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Toplevel = i.Context().GetProxy(toplevelID).(*ExtForeignToplevelHandleV1)
+			i.toplevelHandler(ev)
+		}
+	case 1: // finished
+		if i.finishedHandler != nil {
+			ev := ExtForeignToplevelListV1FinishedEvent{}
+			_ = fd
+			_ = data
+			i.finishedHandler(ev)
+		}
+	}
+}
+
 // ExtForeignToplevelHandleV1: a mapped toplevel
 type ExtForeignToplevelHandleV1 struct {
 	client.BaseProxy
+	closedHandler     ExtForeignToplevelHandleV1ClosedHandler
+	doneHandler       ExtForeignToplevelHandleV1DoneHandler
+	titleHandler      ExtForeignToplevelHandleV1TitleHandler
+	appIdHandler      ExtForeignToplevelHandleV1AppIdHandler
+	identifierHandler ExtForeignToplevelHandleV1IdentifierHandler
 }
 
 // NewExtForeignToplevelHandleV1 creates a new ExtForeignToplevelHandleV1
@@ -145,3 +185,84 @@ type ExtForeignToplevelHandleV1IdentifierEvent struct {
 }
 
 type ExtForeignToplevelHandleV1IdentifierHandler func(ExtForeignToplevelHandleV1IdentifierEvent)
+
+// SetClosedHandler sets the handler for the closed event
+func (i *ExtForeignToplevelHandleV1) SetClosedHandler(f ExtForeignToplevelHandleV1ClosedHandler) {
+	i.closedHandler = f
+}
+
+// SetDoneHandler sets the handler for the done event
+func (i *ExtForeignToplevelHandleV1) SetDoneHandler(f ExtForeignToplevelHandleV1DoneHandler) {
+	i.doneHandler = f
+}
+
+// SetTitleHandler sets the handler for the title event
+func (i *ExtForeignToplevelHandleV1) SetTitleHandler(f ExtForeignToplevelHandleV1TitleHandler) {
+	i.titleHandler = f
+}
+
+// SetAppIdHandler sets the handler for the app_id event
+func (i *ExtForeignToplevelHandleV1) SetAppIdHandler(f ExtForeignToplevelHandleV1AppIdHandler) {
+	i.appIdHandler = f
+}
+
+// SetIdentifierHandler sets the handler for the identifier event
+func (i *ExtForeignToplevelHandleV1) SetIdentifierHandler(f ExtForeignToplevelHandleV1IdentifierHandler) {
+	i.identifierHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ExtForeignToplevelHandleV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // closed
+		if i.closedHandler != nil {
+			ev := ExtForeignToplevelHandleV1ClosedEvent{}
+			_ = fd
+			_ = data
+			i.closedHandler(ev)
+		}
+	case 1: // done
+		if i.doneHandler != nil {
+			ev := ExtForeignToplevelHandleV1DoneEvent{}
+			_ = fd
+			_ = data
+			i.doneHandler(ev)
+		}
+	case 2: // title
+		if i.titleHandler != nil {
+			ev := ExtForeignToplevelHandleV1TitleEvent{}
+			l := 0
+			_ = fd
+			titleRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			titleLen := client.PaddedLen(titleRawLen)
+			ev.Title = client.String(data[l : l+titleLen])
+			l += titleLen
+			i.titleHandler(ev)
+		}
+	case 3: // app_id
+		if i.appIdHandler != nil {
+			ev := ExtForeignToplevelHandleV1AppIdEvent{}
+			l := 0
+			_ = fd
+			app_idRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			app_idLen := client.PaddedLen(app_idRawLen)
+			ev.AppId = client.String(data[l : l+app_idLen])
+			l += app_idLen
+			i.appIdHandler(ev)
+		}
+	case 4: // identifier
+		if i.identifierHandler != nil {
+			ev := ExtForeignToplevelHandleV1IdentifierEvent{}
+			l := 0
+			_ = fd
+			identifierRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			identifierLen := client.PaddedLen(identifierRawLen)
+			ev.Identifier = client.String(data[l : l+identifierLen])
+			l += identifierLen
+			i.identifierHandler(ev)
+		}
+	}
+}

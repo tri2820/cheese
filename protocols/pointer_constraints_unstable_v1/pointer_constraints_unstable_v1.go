@@ -132,6 +132,8 @@ func (i *ZwpPointerConstraintsV1) ConfinePointer(surface *client.WlSurface, poin
 // ZwpLockedPointerV1: receive relative pointer motion events
 type ZwpLockedPointerV1 struct {
 	client.BaseProxy
+	lockedHandler   ZwpLockedPointerV1LockedHandler
+	unlockedHandler ZwpLockedPointerV1UnlockedHandler
 }
 
 // NewZwpLockedPointerV1 creates a new ZwpLockedPointerV1
@@ -207,9 +209,41 @@ type ZwpLockedPointerV1UnlockedEvent struct {
 
 type ZwpLockedPointerV1UnlockedHandler func(ZwpLockedPointerV1UnlockedEvent)
 
+// SetLockedHandler sets the handler for the locked event
+func (i *ZwpLockedPointerV1) SetLockedHandler(f ZwpLockedPointerV1LockedHandler) {
+	i.lockedHandler = f
+}
+
+// SetUnlockedHandler sets the handler for the unlocked event
+func (i *ZwpLockedPointerV1) SetUnlockedHandler(f ZwpLockedPointerV1UnlockedHandler) {
+	i.unlockedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpLockedPointerV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // locked
+		if i.lockedHandler != nil {
+			ev := ZwpLockedPointerV1LockedEvent{}
+			_ = fd
+			_ = data
+			i.lockedHandler(ev)
+		}
+	case 1: // unlocked
+		if i.unlockedHandler != nil {
+			ev := ZwpLockedPointerV1UnlockedEvent{}
+			_ = fd
+			_ = data
+			i.unlockedHandler(ev)
+		}
+	}
+}
+
 // ZwpConfinedPointerV1: confined pointer object
 type ZwpConfinedPointerV1 struct {
 	client.BaseProxy
+	confinedHandler   ZwpConfinedPointerV1ConfinedHandler
+	unconfinedHandler ZwpConfinedPointerV1UnconfinedHandler
 }
 
 // NewZwpConfinedPointerV1 creates a new ZwpConfinedPointerV1
@@ -266,3 +300,33 @@ type ZwpConfinedPointerV1UnconfinedEvent struct {
 }
 
 type ZwpConfinedPointerV1UnconfinedHandler func(ZwpConfinedPointerV1UnconfinedEvent)
+
+// SetConfinedHandler sets the handler for the confined event
+func (i *ZwpConfinedPointerV1) SetConfinedHandler(f ZwpConfinedPointerV1ConfinedHandler) {
+	i.confinedHandler = f
+}
+
+// SetUnconfinedHandler sets the handler for the unconfined event
+func (i *ZwpConfinedPointerV1) SetUnconfinedHandler(f ZwpConfinedPointerV1UnconfinedHandler) {
+	i.unconfinedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpConfinedPointerV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // confined
+		if i.confinedHandler != nil {
+			ev := ZwpConfinedPointerV1ConfinedEvent{}
+			_ = fd
+			_ = data
+			i.confinedHandler(ev)
+		}
+	case 1: // unconfined
+		if i.unconfinedHandler != nil {
+			ev := ZwpConfinedPointerV1UnconfinedEvent{}
+			_ = fd
+			_ = data
+			i.unconfinedHandler(ev)
+		}
+	}
+}

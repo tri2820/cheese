@@ -75,6 +75,11 @@ func (i *ZxdgOutputManagerV1) GetXdgOutput(output *client.WlOutput) (*ZxdgOutput
 // ZxdgOutputV1: compositor logical output region
 type ZxdgOutputV1 struct {
 	client.BaseProxy
+	logicalPositionHandler ZxdgOutputV1LogicalPositionHandler
+	logicalSizeHandler     ZxdgOutputV1LogicalSizeHandler
+	doneHandler            ZxdgOutputV1DoneHandler
+	nameHandler            ZxdgOutputV1NameHandler
+	descriptionHandler     ZxdgOutputV1DescriptionHandler
 }
 
 // NewZxdgOutputV1 creates a new ZxdgOutputV1
@@ -134,3 +139,87 @@ type ZxdgOutputV1DescriptionEvent struct {
 }
 
 type ZxdgOutputV1DescriptionHandler func(ZxdgOutputV1DescriptionEvent)
+
+// SetLogicalPositionHandler sets the handler for the logical_position event
+func (i *ZxdgOutputV1) SetLogicalPositionHandler(f ZxdgOutputV1LogicalPositionHandler) {
+	i.logicalPositionHandler = f
+}
+
+// SetLogicalSizeHandler sets the handler for the logical_size event
+func (i *ZxdgOutputV1) SetLogicalSizeHandler(f ZxdgOutputV1LogicalSizeHandler) {
+	i.logicalSizeHandler = f
+}
+
+// SetDoneHandler sets the handler for the done event
+func (i *ZxdgOutputV1) SetDoneHandler(f ZxdgOutputV1DoneHandler) {
+	i.doneHandler = f
+}
+
+// SetNameHandler sets the handler for the name event
+func (i *ZxdgOutputV1) SetNameHandler(f ZxdgOutputV1NameHandler) {
+	i.nameHandler = f
+}
+
+// SetDescriptionHandler sets the handler for the description event
+func (i *ZxdgOutputV1) SetDescriptionHandler(f ZxdgOutputV1DescriptionHandler) {
+	i.descriptionHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZxdgOutputV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // logical_position
+		if i.logicalPositionHandler != nil {
+			ev := ZxdgOutputV1LogicalPositionEvent{}
+			l := 0
+			_ = fd
+			ev.X = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Y = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.logicalPositionHandler(ev)
+		}
+	case 1: // logical_size
+		if i.logicalSizeHandler != nil {
+			ev := ZxdgOutputV1LogicalSizeEvent{}
+			l := 0
+			_ = fd
+			ev.Width = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Height = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.logicalSizeHandler(ev)
+		}
+	case 2: // done
+		if i.doneHandler != nil {
+			ev := ZxdgOutputV1DoneEvent{}
+			_ = fd
+			_ = data
+			i.doneHandler(ev)
+		}
+	case 3: // name
+		if i.nameHandler != nil {
+			ev := ZxdgOutputV1NameEvent{}
+			l := 0
+			_ = fd
+			nameRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			nameLen := client.PaddedLen(nameRawLen)
+			ev.Name = client.String(data[l : l+nameLen])
+			l += nameLen
+			i.nameHandler(ev)
+		}
+	case 4: // description
+		if i.descriptionHandler != nil {
+			ev := ZxdgOutputV1DescriptionEvent{}
+			l := 0
+			_ = fd
+			descriptionRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			descriptionLen := client.PaddedLen(descriptionRawLen)
+			ev.Description = client.String(data[l : l+descriptionLen])
+			l += descriptionLen
+			i.descriptionHandler(ev)
+		}
+	}
+}

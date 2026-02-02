@@ -30,6 +30,8 @@ import (
 // ZwpLinuxDmabufV1: factory for creating dmabuf-based wl_buffers
 type ZwpLinuxDmabufV1 struct {
 	client.BaseProxy
+	formatHandler   ZwpLinuxDmabufV1FormatHandler
+	modifierHandler ZwpLinuxDmabufV1ModifierHandler
 }
 
 // NewZwpLinuxDmabufV1 creates a new ZwpLinuxDmabufV1
@@ -123,9 +125,49 @@ type ZwpLinuxDmabufV1ModifierEvent struct {
 
 type ZwpLinuxDmabufV1ModifierHandler func(ZwpLinuxDmabufV1ModifierEvent)
 
+// SetFormatHandler sets the handler for the format event
+func (i *ZwpLinuxDmabufV1) SetFormatHandler(f ZwpLinuxDmabufV1FormatHandler) {
+	i.formatHandler = f
+}
+
+// SetModifierHandler sets the handler for the modifier event
+func (i *ZwpLinuxDmabufV1) SetModifierHandler(f ZwpLinuxDmabufV1ModifierHandler) {
+	i.modifierHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpLinuxDmabufV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // format
+		if i.formatHandler != nil {
+			ev := ZwpLinuxDmabufV1FormatEvent{}
+			l := 0
+			_ = fd
+			ev.Format = client.Uint32(data[l : l+4])
+			l += 4
+			i.formatHandler(ev)
+		}
+	case 1: // modifier
+		if i.modifierHandler != nil {
+			ev := ZwpLinuxDmabufV1ModifierEvent{}
+			l := 0
+			_ = fd
+			ev.Format = client.Uint32(data[l : l+4])
+			l += 4
+			ev.ModifierHi = client.Uint32(data[l : l+4])
+			l += 4
+			ev.ModifierLo = client.Uint32(data[l : l+4])
+			l += 4
+			i.modifierHandler(ev)
+		}
+	}
+}
+
 // ZwpLinuxBufferParamsV1: parameters for creating a dmabuf-based wl_buffer
 type ZwpLinuxBufferParamsV1 struct {
 	client.BaseProxy
+	createdHandler ZwpLinuxBufferParamsV1CreatedHandler
+	failedHandler  ZwpLinuxBufferParamsV1FailedHandler
 }
 
 // NewZwpLinuxBufferParamsV1 creates a new ZwpLinuxBufferParamsV1
@@ -256,9 +298,49 @@ type ZwpLinuxBufferParamsV1FailedEvent struct {
 
 type ZwpLinuxBufferParamsV1FailedHandler func(ZwpLinuxBufferParamsV1FailedEvent)
 
+// SetCreatedHandler sets the handler for the created event
+func (i *ZwpLinuxBufferParamsV1) SetCreatedHandler(f ZwpLinuxBufferParamsV1CreatedHandler) {
+	i.createdHandler = f
+}
+
+// SetFailedHandler sets the handler for the failed event
+func (i *ZwpLinuxBufferParamsV1) SetFailedHandler(f ZwpLinuxBufferParamsV1FailedHandler) {
+	i.failedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpLinuxBufferParamsV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // created
+		if i.createdHandler != nil {
+			ev := ZwpLinuxBufferParamsV1CreatedEvent{}
+			l := 0
+			_ = fd
+			bufferID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Buffer = i.Context().GetProxy(bufferID).(*client.WlBuffer)
+			i.createdHandler(ev)
+		}
+	case 1: // failed
+		if i.failedHandler != nil {
+			ev := ZwpLinuxBufferParamsV1FailedEvent{}
+			_ = fd
+			_ = data
+			i.failedHandler(ev)
+		}
+	}
+}
+
 // ZwpLinuxDmabufFeedbackV1: dmabuf feedback
 type ZwpLinuxDmabufFeedbackV1 struct {
 	client.BaseProxy
+	doneHandler                ZwpLinuxDmabufFeedbackV1DoneHandler
+	formatTableHandler         ZwpLinuxDmabufFeedbackV1FormatTableHandler
+	mainDeviceHandler          ZwpLinuxDmabufFeedbackV1MainDeviceHandler
+	trancheDoneHandler         ZwpLinuxDmabufFeedbackV1TrancheDoneHandler
+	trancheTargetDeviceHandler ZwpLinuxDmabufFeedbackV1TrancheTargetDeviceHandler
+	trancheFormatsHandler      ZwpLinuxDmabufFeedbackV1TrancheFormatsHandler
+	trancheFlagsHandler        ZwpLinuxDmabufFeedbackV1TrancheFlagsHandler
 }
 
 // NewZwpLinuxDmabufFeedbackV1 creates a new ZwpLinuxDmabufFeedbackV1
@@ -336,3 +418,109 @@ type ZwpLinuxDmabufFeedbackV1TrancheFlagsEvent struct {
 }
 
 type ZwpLinuxDmabufFeedbackV1TrancheFlagsHandler func(ZwpLinuxDmabufFeedbackV1TrancheFlagsEvent)
+
+// SetDoneHandler sets the handler for the done event
+func (i *ZwpLinuxDmabufFeedbackV1) SetDoneHandler(f ZwpLinuxDmabufFeedbackV1DoneHandler) {
+	i.doneHandler = f
+}
+
+// SetFormatTableHandler sets the handler for the format_table event
+func (i *ZwpLinuxDmabufFeedbackV1) SetFormatTableHandler(f ZwpLinuxDmabufFeedbackV1FormatTableHandler) {
+	i.formatTableHandler = f
+}
+
+// SetMainDeviceHandler sets the handler for the main_device event
+func (i *ZwpLinuxDmabufFeedbackV1) SetMainDeviceHandler(f ZwpLinuxDmabufFeedbackV1MainDeviceHandler) {
+	i.mainDeviceHandler = f
+}
+
+// SetTrancheDoneHandler sets the handler for the tranche_done event
+func (i *ZwpLinuxDmabufFeedbackV1) SetTrancheDoneHandler(f ZwpLinuxDmabufFeedbackV1TrancheDoneHandler) {
+	i.trancheDoneHandler = f
+}
+
+// SetTrancheTargetDeviceHandler sets the handler for the tranche_target_device event
+func (i *ZwpLinuxDmabufFeedbackV1) SetTrancheTargetDeviceHandler(f ZwpLinuxDmabufFeedbackV1TrancheTargetDeviceHandler) {
+	i.trancheTargetDeviceHandler = f
+}
+
+// SetTrancheFormatsHandler sets the handler for the tranche_formats event
+func (i *ZwpLinuxDmabufFeedbackV1) SetTrancheFormatsHandler(f ZwpLinuxDmabufFeedbackV1TrancheFormatsHandler) {
+	i.trancheFormatsHandler = f
+}
+
+// SetTrancheFlagsHandler sets the handler for the tranche_flags event
+func (i *ZwpLinuxDmabufFeedbackV1) SetTrancheFlagsHandler(f ZwpLinuxDmabufFeedbackV1TrancheFlagsHandler) {
+	i.trancheFlagsHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpLinuxDmabufFeedbackV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // done
+		if i.doneHandler != nil {
+			ev := ZwpLinuxDmabufFeedbackV1DoneEvent{}
+			_ = fd
+			_ = data
+			i.doneHandler(ev)
+		}
+	case 1: // format_table
+		if i.formatTableHandler != nil {
+			ev := ZwpLinuxDmabufFeedbackV1FormatTableEvent{}
+			l := 0
+			ev.Fd = uintptr(fd)
+			ev.Size = client.Uint32(data[l : l+4])
+			l += 4
+			i.formatTableHandler(ev)
+		}
+	case 2: // main_device
+		if i.mainDeviceHandler != nil {
+			ev := ZwpLinuxDmabufFeedbackV1MainDeviceEvent{}
+			l := 0
+			_ = fd
+			deviceLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Device = data[l : l+deviceLen]
+			l += client.PaddedLen(deviceLen)
+			i.mainDeviceHandler(ev)
+		}
+	case 3: // tranche_done
+		if i.trancheDoneHandler != nil {
+			ev := ZwpLinuxDmabufFeedbackV1TrancheDoneEvent{}
+			_ = fd
+			_ = data
+			i.trancheDoneHandler(ev)
+		}
+	case 4: // tranche_target_device
+		if i.trancheTargetDeviceHandler != nil {
+			ev := ZwpLinuxDmabufFeedbackV1TrancheTargetDeviceEvent{}
+			l := 0
+			_ = fd
+			deviceLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Device = data[l : l+deviceLen]
+			l += client.PaddedLen(deviceLen)
+			i.trancheTargetDeviceHandler(ev)
+		}
+	case 5: // tranche_formats
+		if i.trancheFormatsHandler != nil {
+			ev := ZwpLinuxDmabufFeedbackV1TrancheFormatsEvent{}
+			l := 0
+			_ = fd
+			indicesLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Indices = data[l : l+indicesLen]
+			l += client.PaddedLen(indicesLen)
+			i.trancheFormatsHandler(ev)
+		}
+	case 6: // tranche_flags
+		if i.trancheFlagsHandler != nil {
+			ev := ZwpLinuxDmabufFeedbackV1TrancheFlagsEvent{}
+			l := 0
+			_ = fd
+			ev.Flags = client.Uint32(data[l : l+4])
+			l += 4
+			i.trancheFlagsHandler(ev)
+		}
+	}
+}

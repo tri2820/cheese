@@ -31,6 +31,7 @@ import (
 // ZwpFullscreenShellV1: displays a single surface per output
 type ZwpFullscreenShellV1 struct {
 	client.BaseProxy
+	capabilityHandler ZwpFullscreenShellV1CapabilityHandler
 }
 
 // NewZwpFullscreenShellV1 creates a new ZwpFullscreenShellV1
@@ -142,8 +143,31 @@ type ZwpFullscreenShellV1CapabilityEvent struct {
 
 type ZwpFullscreenShellV1CapabilityHandler func(ZwpFullscreenShellV1CapabilityEvent)
 
+// SetCapabilityHandler sets the handler for the capability event
+func (i *ZwpFullscreenShellV1) SetCapabilityHandler(f ZwpFullscreenShellV1CapabilityHandler) {
+	i.capabilityHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpFullscreenShellV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // capability
+		if i.capabilityHandler != nil {
+			ev := ZwpFullscreenShellV1CapabilityEvent{}
+			l := 0
+			_ = fd
+			ev.Capability = client.Uint32(data[l : l+4])
+			l += 4
+			i.capabilityHandler(ev)
+		}
+	}
+}
+
 type ZwpFullscreenShellModeFeedbackV1 struct {
 	client.BaseProxy
+	modeSuccessfulHandler   ZwpFullscreenShellModeFeedbackV1ModeSuccessfulHandler
+	modeFailedHandler       ZwpFullscreenShellModeFeedbackV1ModeFailedHandler
+	presentCancelledHandler ZwpFullscreenShellModeFeedbackV1PresentCancelledHandler
 }
 
 // NewZwpFullscreenShellModeFeedbackV1 creates a new ZwpFullscreenShellModeFeedbackV1
@@ -170,3 +194,45 @@ type ZwpFullscreenShellModeFeedbackV1PresentCancelledEvent struct {
 }
 
 type ZwpFullscreenShellModeFeedbackV1PresentCancelledHandler func(ZwpFullscreenShellModeFeedbackV1PresentCancelledEvent)
+
+// SetModeSuccessfulHandler sets the handler for the mode_successful event
+func (i *ZwpFullscreenShellModeFeedbackV1) SetModeSuccessfulHandler(f ZwpFullscreenShellModeFeedbackV1ModeSuccessfulHandler) {
+	i.modeSuccessfulHandler = f
+}
+
+// SetModeFailedHandler sets the handler for the mode_failed event
+func (i *ZwpFullscreenShellModeFeedbackV1) SetModeFailedHandler(f ZwpFullscreenShellModeFeedbackV1ModeFailedHandler) {
+	i.modeFailedHandler = f
+}
+
+// SetPresentCancelledHandler sets the handler for the present_cancelled event
+func (i *ZwpFullscreenShellModeFeedbackV1) SetPresentCancelledHandler(f ZwpFullscreenShellModeFeedbackV1PresentCancelledHandler) {
+	i.presentCancelledHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpFullscreenShellModeFeedbackV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // mode_successful
+		if i.modeSuccessfulHandler != nil {
+			ev := ZwpFullscreenShellModeFeedbackV1ModeSuccessfulEvent{}
+			_ = fd
+			_ = data
+			i.modeSuccessfulHandler(ev)
+		}
+	case 1: // mode_failed
+		if i.modeFailedHandler != nil {
+			ev := ZwpFullscreenShellModeFeedbackV1ModeFailedEvent{}
+			_ = fd
+			_ = data
+			i.modeFailedHandler(ev)
+		}
+	case 2: // present_cancelled
+		if i.presentCancelledHandler != nil {
+			ev := ZwpFullscreenShellModeFeedbackV1PresentCancelledEvent{}
+			_ = fd
+			_ = data
+			i.presentCancelledHandler(ev)
+		}
+	}
+}

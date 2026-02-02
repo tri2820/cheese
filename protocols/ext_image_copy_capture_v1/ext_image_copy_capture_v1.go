@@ -111,6 +111,12 @@ func (i *ExtImageCopyCaptureManagerV1) Destroy() error {
 // ExtImageCopyCaptureSessionV1: image copy capture session
 type ExtImageCopyCaptureSessionV1 struct {
 	client.BaseProxy
+	bufferSizeHandler   ExtImageCopyCaptureSessionV1BufferSizeHandler
+	shmFormatHandler    ExtImageCopyCaptureSessionV1ShmFormatHandler
+	dmabufDeviceHandler ExtImageCopyCaptureSessionV1DmabufDeviceHandler
+	dmabufFormatHandler ExtImageCopyCaptureSessionV1DmabufFormatHandler
+	doneHandler         ExtImageCopyCaptureSessionV1DoneHandler
+	stoppedHandler      ExtImageCopyCaptureSessionV1StoppedHandler
 }
 
 // NewExtImageCopyCaptureSessionV1 creates a new ExtImageCopyCaptureSessionV1
@@ -200,9 +206,108 @@ type ExtImageCopyCaptureSessionV1StoppedEvent struct {
 
 type ExtImageCopyCaptureSessionV1StoppedHandler func(ExtImageCopyCaptureSessionV1StoppedEvent)
 
+// SetBufferSizeHandler sets the handler for the buffer_size event
+func (i *ExtImageCopyCaptureSessionV1) SetBufferSizeHandler(f ExtImageCopyCaptureSessionV1BufferSizeHandler) {
+	i.bufferSizeHandler = f
+}
+
+// SetShmFormatHandler sets the handler for the shm_format event
+func (i *ExtImageCopyCaptureSessionV1) SetShmFormatHandler(f ExtImageCopyCaptureSessionV1ShmFormatHandler) {
+	i.shmFormatHandler = f
+}
+
+// SetDmabufDeviceHandler sets the handler for the dmabuf_device event
+func (i *ExtImageCopyCaptureSessionV1) SetDmabufDeviceHandler(f ExtImageCopyCaptureSessionV1DmabufDeviceHandler) {
+	i.dmabufDeviceHandler = f
+}
+
+// SetDmabufFormatHandler sets the handler for the dmabuf_format event
+func (i *ExtImageCopyCaptureSessionV1) SetDmabufFormatHandler(f ExtImageCopyCaptureSessionV1DmabufFormatHandler) {
+	i.dmabufFormatHandler = f
+}
+
+// SetDoneHandler sets the handler for the done event
+func (i *ExtImageCopyCaptureSessionV1) SetDoneHandler(f ExtImageCopyCaptureSessionV1DoneHandler) {
+	i.doneHandler = f
+}
+
+// SetStoppedHandler sets the handler for the stopped event
+func (i *ExtImageCopyCaptureSessionV1) SetStoppedHandler(f ExtImageCopyCaptureSessionV1StoppedHandler) {
+	i.stoppedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ExtImageCopyCaptureSessionV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // buffer_size
+		if i.bufferSizeHandler != nil {
+			ev := ExtImageCopyCaptureSessionV1BufferSizeEvent{}
+			l := 0
+			_ = fd
+			ev.Width = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Height = client.Uint32(data[l : l+4])
+			l += 4
+			i.bufferSizeHandler(ev)
+		}
+	case 1: // shm_format
+		if i.shmFormatHandler != nil {
+			ev := ExtImageCopyCaptureSessionV1ShmFormatEvent{}
+			l := 0
+			_ = fd
+			ev.Format = client.Uint32(data[l : l+4])
+			l += 4
+			i.shmFormatHandler(ev)
+		}
+	case 2: // dmabuf_device
+		if i.dmabufDeviceHandler != nil {
+			ev := ExtImageCopyCaptureSessionV1DmabufDeviceEvent{}
+			l := 0
+			_ = fd
+			deviceLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Device = data[l : l+deviceLen]
+			l += client.PaddedLen(deviceLen)
+			i.dmabufDeviceHandler(ev)
+		}
+	case 3: // dmabuf_format
+		if i.dmabufFormatHandler != nil {
+			ev := ExtImageCopyCaptureSessionV1DmabufFormatEvent{}
+			l := 0
+			_ = fd
+			ev.Format = client.Uint32(data[l : l+4])
+			l += 4
+			modifiersLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Modifiers = data[l : l+modifiersLen]
+			l += client.PaddedLen(modifiersLen)
+			i.dmabufFormatHandler(ev)
+		}
+	case 4: // done
+		if i.doneHandler != nil {
+			ev := ExtImageCopyCaptureSessionV1DoneEvent{}
+			_ = fd
+			_ = data
+			i.doneHandler(ev)
+		}
+	case 5: // stopped
+		if i.stoppedHandler != nil {
+			ev := ExtImageCopyCaptureSessionV1StoppedEvent{}
+			_ = fd
+			_ = data
+			i.stoppedHandler(ev)
+		}
+	}
+}
+
 // ExtImageCopyCaptureFrameV1: image capture frame
 type ExtImageCopyCaptureFrameV1 struct {
 	client.BaseProxy
+	transformHandler        ExtImageCopyCaptureFrameV1TransformHandler
+	damageHandler           ExtImageCopyCaptureFrameV1DamageHandler
+	presentationTimeHandler ExtImageCopyCaptureFrameV1PresentationTimeHandler
+	readyHandler            ExtImageCopyCaptureFrameV1ReadyHandler
+	failedHandler           ExtImageCopyCaptureFrameV1FailedHandler
 }
 
 // NewExtImageCopyCaptureFrameV1 creates a new ExtImageCopyCaptureFrameV1
@@ -334,9 +439,97 @@ type ExtImageCopyCaptureFrameV1FailedEvent struct {
 
 type ExtImageCopyCaptureFrameV1FailedHandler func(ExtImageCopyCaptureFrameV1FailedEvent)
 
+// SetTransformHandler sets the handler for the transform event
+func (i *ExtImageCopyCaptureFrameV1) SetTransformHandler(f ExtImageCopyCaptureFrameV1TransformHandler) {
+	i.transformHandler = f
+}
+
+// SetDamageHandler sets the handler for the damage event
+func (i *ExtImageCopyCaptureFrameV1) SetDamageHandler(f ExtImageCopyCaptureFrameV1DamageHandler) {
+	i.damageHandler = f
+}
+
+// SetPresentationTimeHandler sets the handler for the presentation_time event
+func (i *ExtImageCopyCaptureFrameV1) SetPresentationTimeHandler(f ExtImageCopyCaptureFrameV1PresentationTimeHandler) {
+	i.presentationTimeHandler = f
+}
+
+// SetReadyHandler sets the handler for the ready event
+func (i *ExtImageCopyCaptureFrameV1) SetReadyHandler(f ExtImageCopyCaptureFrameV1ReadyHandler) {
+	i.readyHandler = f
+}
+
+// SetFailedHandler sets the handler for the failed event
+func (i *ExtImageCopyCaptureFrameV1) SetFailedHandler(f ExtImageCopyCaptureFrameV1FailedHandler) {
+	i.failedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ExtImageCopyCaptureFrameV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // transform
+		if i.transformHandler != nil {
+			ev := ExtImageCopyCaptureFrameV1TransformEvent{}
+			l := 0
+			_ = fd
+			ev.Transform = client.Uint32(data[l : l+4])
+			l += 4
+			i.transformHandler(ev)
+		}
+	case 1: // damage
+		if i.damageHandler != nil {
+			ev := ExtImageCopyCaptureFrameV1DamageEvent{}
+			l := 0
+			_ = fd
+			ev.X = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Y = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Width = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Height = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.damageHandler(ev)
+		}
+	case 2: // presentation_time
+		if i.presentationTimeHandler != nil {
+			ev := ExtImageCopyCaptureFrameV1PresentationTimeEvent{}
+			l := 0
+			_ = fd
+			ev.TvSecHi = client.Uint32(data[l : l+4])
+			l += 4
+			ev.TvSecLo = client.Uint32(data[l : l+4])
+			l += 4
+			ev.TvNsec = client.Uint32(data[l : l+4])
+			l += 4
+			i.presentationTimeHandler(ev)
+		}
+	case 3: // ready
+		if i.readyHandler != nil {
+			ev := ExtImageCopyCaptureFrameV1ReadyEvent{}
+			_ = fd
+			_ = data
+			i.readyHandler(ev)
+		}
+	case 4: // failed
+		if i.failedHandler != nil {
+			ev := ExtImageCopyCaptureFrameV1FailedEvent{}
+			l := 0
+			_ = fd
+			ev.Reason = client.Uint32(data[l : l+4])
+			l += 4
+			i.failedHandler(ev)
+		}
+	}
+}
+
 // ExtImageCopyCaptureCursorSessionV1: cursor capture session
 type ExtImageCopyCaptureCursorSessionV1 struct {
 	client.BaseProxy
+	enterHandler    ExtImageCopyCaptureCursorSessionV1EnterHandler
+	leaveHandler    ExtImageCopyCaptureCursorSessionV1LeaveHandler
+	positionHandler ExtImageCopyCaptureCursorSessionV1PositionHandler
+	hotspotHandler  ExtImageCopyCaptureCursorSessionV1HotspotHandler
 }
 
 // NewExtImageCopyCaptureCursorSessionV1 creates a new ExtImageCopyCaptureCursorSessionV1
@@ -411,3 +604,65 @@ type ExtImageCopyCaptureCursorSessionV1HotspotEvent struct {
 }
 
 type ExtImageCopyCaptureCursorSessionV1HotspotHandler func(ExtImageCopyCaptureCursorSessionV1HotspotEvent)
+
+// SetEnterHandler sets the handler for the enter event
+func (i *ExtImageCopyCaptureCursorSessionV1) SetEnterHandler(f ExtImageCopyCaptureCursorSessionV1EnterHandler) {
+	i.enterHandler = f
+}
+
+// SetLeaveHandler sets the handler for the leave event
+func (i *ExtImageCopyCaptureCursorSessionV1) SetLeaveHandler(f ExtImageCopyCaptureCursorSessionV1LeaveHandler) {
+	i.leaveHandler = f
+}
+
+// SetPositionHandler sets the handler for the position event
+func (i *ExtImageCopyCaptureCursorSessionV1) SetPositionHandler(f ExtImageCopyCaptureCursorSessionV1PositionHandler) {
+	i.positionHandler = f
+}
+
+// SetHotspotHandler sets the handler for the hotspot event
+func (i *ExtImageCopyCaptureCursorSessionV1) SetHotspotHandler(f ExtImageCopyCaptureCursorSessionV1HotspotHandler) {
+	i.hotspotHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ExtImageCopyCaptureCursorSessionV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // enter
+		if i.enterHandler != nil {
+			ev := ExtImageCopyCaptureCursorSessionV1EnterEvent{}
+			_ = fd
+			_ = data
+			i.enterHandler(ev)
+		}
+	case 1: // leave
+		if i.leaveHandler != nil {
+			ev := ExtImageCopyCaptureCursorSessionV1LeaveEvent{}
+			_ = fd
+			_ = data
+			i.leaveHandler(ev)
+		}
+	case 2: // position
+		if i.positionHandler != nil {
+			ev := ExtImageCopyCaptureCursorSessionV1PositionEvent{}
+			l := 0
+			_ = fd
+			ev.X = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Y = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.positionHandler(ev)
+		}
+	case 3: // hotspot
+		if i.hotspotHandler != nil {
+			ev := ExtImageCopyCaptureCursorSessionV1HotspotEvent{}
+			l := 0
+			_ = fd
+			ev.X = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Y = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.hotspotHandler(ev)
+		}
+	}
+}

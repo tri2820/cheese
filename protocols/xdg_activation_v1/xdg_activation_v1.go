@@ -93,6 +93,7 @@ func (i *XdgActivationV1) Activate(token string, surface *client.WlSurface) erro
 // XdgActivationTokenV1: an exported activation handle
 type XdgActivationTokenV1 struct {
 	client.BaseProxy
+	doneHandler XdgActivationTokenV1DoneHandler
 }
 
 // NewXdgActivationTokenV1 creates a new XdgActivationTokenV1
@@ -194,3 +195,26 @@ type XdgActivationTokenV1DoneEvent struct {
 }
 
 type XdgActivationTokenV1DoneHandler func(XdgActivationTokenV1DoneEvent)
+
+// SetDoneHandler sets the handler for the done event
+func (i *XdgActivationTokenV1) SetDoneHandler(f XdgActivationTokenV1DoneHandler) {
+	i.doneHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *XdgActivationTokenV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // done
+		if i.doneHandler != nil {
+			ev := XdgActivationTokenV1DoneEvent{}
+			l := 0
+			_ = fd
+			tokenRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			tokenLen := client.PaddedLen(tokenRawLen)
+			ev.Token = client.String(data[l : l+tokenLen])
+			l += tokenLen
+			i.doneHandler(ev)
+		}
+	}
+}

@@ -316,6 +316,14 @@ func generateInterface(w io.Writer, iface Interface, p Protocol) {
 	}
 	fmt.Fprintf(w, "type %s struct {\n", typeName)
 	fmt.Fprintf(w, "\t%sBaseProxy\n", clientPrefix)
+
+	// Add handler fields for each event
+	for _, event := range iface.Events {
+		handlerFieldName := strcase.ToLowerCamel(event.Name) + "Handler"
+		handlerTypeName := typeName + strcase.ToCamel(event.Name) + "Handler"
+		fmt.Fprintf(w, "\t%s %s\n", handlerFieldName, handlerTypeName)
+	}
+
 	fmt.Fprintf(w, "}\n\n")
 
 	// Constructor
@@ -340,6 +348,12 @@ func generateInterface(w io.Writer, iface Interface, p Protocol) {
 	for _, event := range iface.Events {
 		generateEvent(w, event, typeName, p)
 	}
+
+	// Generate SetHandler methods
+	generateSetHandlers(w, iface, typeName)
+
+	// Generate Dispatch method
+	generateDispatch(w, iface, typeName, p)
 }
 
 func generateEnum(w io.Writer, enum Enum, ifaceName string) {
@@ -594,6 +608,142 @@ func generateEvent(w io.Writer, event Event, ifaceName string, p Protocol) {
 	// Handler function type
 	handlerName := ifaceName + strcase.ToCamel(event.Name) + "Handler"
 	fmt.Fprintf(w, "type %s func(%s)\n\n", handlerName, eventName)
+}
+
+func generateSetHandlers(w io.Writer, iface Interface, ifaceName string) {
+	for _, event := range iface.Events {
+		eventName := strcase.ToCamel(event.Name)
+		handlerFieldName := strcase.ToLowerCamel(event.Name) + "Handler"
+		handlerTypeName := ifaceName + eventName + "Handler"
+
+		fmt.Fprintf(w, "// Set%sHandler sets the handler for the %s event\n", eventName, event.Name)
+		fmt.Fprintf(w, "func (i *%s) Set%sHandler(f %s) {\n", ifaceName, eventName, handlerTypeName)
+		fmt.Fprintf(w, "\ti.%s = f\n", handlerFieldName)
+		fmt.Fprintf(w, "}\n\n")
+	}
+}
+
+func generateDispatch(w io.Writer, iface Interface, ifaceName string, p Protocol) {
+	// Skip if no events
+	if len(iface.Events) == 0 {
+		return
+	}
+
+	// Determine prefix for client package references
+	clientPrefix := "client."
+	if packageName == "client" {
+		clientPrefix = ""
+	}
+
+	fmt.Fprintf(w, "// Dispatch handles incoming events\n")
+	fmt.Fprintf(w, "func (i *%s) Dispatch(opcode uint32, fd int, data []byte) {\n", ifaceName)
+	fmt.Fprintf(w, "\tswitch opcode {\n")
+
+	for opcode, event := range iface.Events {
+		eventName := strcase.ToCamel(event.Name)
+		handlerFieldName := strcase.ToLowerCamel(event.Name) + "Handler"
+		eventStructName := ifaceName + eventName + "Event"
+
+		fmt.Fprintf(w, "\tcase %d: // %s\n", opcode, event.Name)
+		fmt.Fprintf(w, "\t\tif i.%s != nil {\n", handlerFieldName)
+
+		// Unmarshal event data
+		fmt.Fprintf(w, "\t\t\tev := %s{}\n", eventStructName)
+
+		// Check if any args will actually use `l`
+		needsL := false
+		usesFd := false
+		usesData := false
+		for _, arg := range event.Args {
+			if arg.Type == "fd" {
+				usesFd = true
+			} else {
+				needsL = true
+				usesData = true
+			}
+		}
+
+		if needsL {
+			fmt.Fprintf(w, "\t\t\tl := 0\n")
+		}
+
+		// Suppress unused variable warnings if needed
+		if !usesFd {
+			fmt.Fprintf(w, "\t\t\t_ = fd\n")
+		}
+		if !usesData {
+			fmt.Fprintf(w, "\t\t\t_ = data\n")
+		}
+
+		for _, arg := range event.Args {
+			fieldName := strcase.ToCamel(arg.Name)
+			generateEventArgUnmarshal(w, arg, fieldName, "ev", clientPrefix, p)
+		}
+
+		// Call handler
+		fmt.Fprintf(w, "\t\t\ti.%s(ev)\n", handlerFieldName)
+		fmt.Fprintf(w, "\t\t}\n")
+	}
+
+	fmt.Fprintf(w, "\t}\n")
+	fmt.Fprintf(w, "}\n\n")
+}
+
+func generateEventArgUnmarshal(w io.Writer, arg Arg, fieldName string, structVar string, clientPrefix string, p Protocol) {
+	paramName := escapeGoKeyword(arg.Name)
+
+	switch arg.Type {
+	case "uint":
+		fmt.Fprintf(w, "\t\t\t%s.%s = %sUint32(data[l : l+4])\n", structVar, fieldName, clientPrefix)
+		fmt.Fprintf(w, "\t\t\tl += 4\n")
+	case "int":
+		fmt.Fprintf(w, "\t\t\t%s.%s = int32(%sUint32(data[l : l+4]))\n", structVar, fieldName, clientPrefix)
+		fmt.Fprintf(w, "\t\t\tl += 4\n")
+	case "fixed":
+		fmt.Fprintf(w, "\t\t\t%s.%s = %sFixed(data[l : l+4])\n", structVar, fieldName, clientPrefix)
+		fmt.Fprintf(w, "\t\t\tl += 4\n")
+	case "string":
+		if arg.AllowNull {
+			fmt.Fprintf(w, "\t\t\t%sRawLen := int(%sUint32(data[l : l+4]))\n", paramName, clientPrefix)
+			fmt.Fprintf(w, "\t\t\tl += 4\n")
+			fmt.Fprintf(w, "\t\t\tif %sRawLen > 0 {\n", paramName)
+			fmt.Fprintf(w, "\t\t\t\t%sLen := %sPaddedLen(%sRawLen)\n", paramName, clientPrefix, paramName)
+			fmt.Fprintf(w, "\t\t\t\t%sStr := %sString(data[l : l+%sLen])\n", paramName, clientPrefix, paramName)
+			fmt.Fprintf(w, "\t\t\t\t%s.%s = &%sStr\n", structVar, fieldName, paramName)
+			fmt.Fprintf(w, "\t\t\t\tl += %sLen\n", paramName)
+			fmt.Fprintf(w, "\t\t\t}\n")
+		} else {
+			fmt.Fprintf(w, "\t\t\t%sRawLen := int(%sUint32(data[l : l+4]))\n", paramName, clientPrefix)
+			fmt.Fprintf(w, "\t\t\tl += 4\n")
+			fmt.Fprintf(w, "\t\t\t%sLen := %sPaddedLen(%sRawLen)\n", paramName, clientPrefix, paramName)
+			fmt.Fprintf(w, "\t\t\t%s.%s = %sString(data[l : l+%sLen])\n", structVar, fieldName, clientPrefix, paramName)
+			fmt.Fprintf(w, "\t\t\tl += %sLen\n", paramName)
+		}
+	case "object", "new_id":
+		fmt.Fprintf(w, "\t\t\t%sID := %sUint32(data[l : l+4])\n", paramName, clientPrefix)
+		fmt.Fprintf(w, "\t\t\tl += 4\n")
+
+		// Get the typed proxy from context
+		if arg.Interface != "" {
+			goType := mapWaylandType(arg.Type, arg.Interface, arg.AllowNull, p)
+			if arg.AllowNull {
+				fmt.Fprintf(w, "\t\t\tif %sID != 0 {\n", paramName)
+				fmt.Fprintf(w, "\t\t\t\t%s.%s = i.Context().GetProxy(%sID).(%s)\n", structVar, fieldName, paramName, goType)
+				fmt.Fprintf(w, "\t\t\t}\n")
+			} else {
+				fmt.Fprintf(w, "\t\t\t%s.%s = i.Context().GetProxy(%sID).(%s)\n", structVar, fieldName, paramName, goType)
+			}
+		} else {
+			fmt.Fprintf(w, "\t\t\t%s.%s = i.Context().GetProxy(%sID)\n", structVar, fieldName, paramName)
+		}
+	case "array":
+		fmt.Fprintf(w, "\t\t\t%sLen := int(%sUint32(data[l : l+4]))\n", paramName, clientPrefix)
+		fmt.Fprintf(w, "\t\t\tl += 4\n")
+		fmt.Fprintf(w, "\t\t\t%s.%s = data[l : l+%sLen]\n", structVar, fieldName, paramName)
+		fmt.Fprintf(w, "\t\t\tl += %sPaddedLen(%sLen)\n", clientPrefix, paramName)
+	case "fd":
+		fmt.Fprintf(w, "\t\t\t%s.%s = uintptr(fd)\n", structVar, fieldName)
+	}
 }
 
 func writeCopyright(w io.Writer, copyright string) {

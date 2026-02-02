@@ -75,6 +75,7 @@ func (i *ZxdgDecorationManagerV1) GetToplevelDecoration(toplevel client.Proxy) (
 // ZxdgToplevelDecorationV1: decoration object for a toplevel surface
 type ZxdgToplevelDecorationV1 struct {
 	client.BaseProxy
+	configureHandler ZxdgToplevelDecorationV1ConfigureHandler
 }
 
 // NewZxdgToplevelDecorationV1 creates a new ZxdgToplevelDecorationV1
@@ -152,3 +153,23 @@ type ZxdgToplevelDecorationV1ConfigureEvent struct {
 }
 
 type ZxdgToplevelDecorationV1ConfigureHandler func(ZxdgToplevelDecorationV1ConfigureEvent)
+
+// SetConfigureHandler sets the handler for the configure event
+func (i *ZxdgToplevelDecorationV1) SetConfigureHandler(f ZxdgToplevelDecorationV1ConfigureHandler) {
+	i.configureHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZxdgToplevelDecorationV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // configure
+		if i.configureHandler != nil {
+			ev := ZxdgToplevelDecorationV1ConfigureEvent{}
+			l := 0
+			_ = fd
+			ev.Mode = client.Uint32(data[l : l+4])
+			l += 4
+			i.configureHandler(ev)
+		}
+	}
+}

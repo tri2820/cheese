@@ -35,6 +35,11 @@ import (
 // WpColorManagerV1: color manager singleton
 type WpColorManagerV1 struct {
 	client.BaseProxy
+	supportedIntentHandler         WpColorManagerV1SupportedIntentHandler
+	supportedFeatureHandler        WpColorManagerV1SupportedFeatureHandler
+	supportedTfNamedHandler        WpColorManagerV1SupportedTfNamedHandler
+	supportedPrimariesNamedHandler WpColorManagerV1SupportedPrimariesNamedHandler
+	doneHandler                    WpColorManagerV1DoneHandler
 }
 
 // NewWpColorManagerV1 creates a new WpColorManagerV1
@@ -289,9 +294,84 @@ type WpColorManagerV1DoneEvent struct {
 
 type WpColorManagerV1DoneHandler func(WpColorManagerV1DoneEvent)
 
+// SetSupportedIntentHandler sets the handler for the supported_intent event
+func (i *WpColorManagerV1) SetSupportedIntentHandler(f WpColorManagerV1SupportedIntentHandler) {
+	i.supportedIntentHandler = f
+}
+
+// SetSupportedFeatureHandler sets the handler for the supported_feature event
+func (i *WpColorManagerV1) SetSupportedFeatureHandler(f WpColorManagerV1SupportedFeatureHandler) {
+	i.supportedFeatureHandler = f
+}
+
+// SetSupportedTfNamedHandler sets the handler for the supported_tf_named event
+func (i *WpColorManagerV1) SetSupportedTfNamedHandler(f WpColorManagerV1SupportedTfNamedHandler) {
+	i.supportedTfNamedHandler = f
+}
+
+// SetSupportedPrimariesNamedHandler sets the handler for the supported_primaries_named event
+func (i *WpColorManagerV1) SetSupportedPrimariesNamedHandler(f WpColorManagerV1SupportedPrimariesNamedHandler) {
+	i.supportedPrimariesNamedHandler = f
+}
+
+// SetDoneHandler sets the handler for the done event
+func (i *WpColorManagerV1) SetDoneHandler(f WpColorManagerV1DoneHandler) {
+	i.doneHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WpColorManagerV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // supported_intent
+		if i.supportedIntentHandler != nil {
+			ev := WpColorManagerV1SupportedIntentEvent{}
+			l := 0
+			_ = fd
+			ev.RenderIntent = client.Uint32(data[l : l+4])
+			l += 4
+			i.supportedIntentHandler(ev)
+		}
+	case 1: // supported_feature
+		if i.supportedFeatureHandler != nil {
+			ev := WpColorManagerV1SupportedFeatureEvent{}
+			l := 0
+			_ = fd
+			ev.Feature = client.Uint32(data[l : l+4])
+			l += 4
+			i.supportedFeatureHandler(ev)
+		}
+	case 2: // supported_tf_named
+		if i.supportedTfNamedHandler != nil {
+			ev := WpColorManagerV1SupportedTfNamedEvent{}
+			l := 0
+			_ = fd
+			ev.Tf = client.Uint32(data[l : l+4])
+			l += 4
+			i.supportedTfNamedHandler(ev)
+		}
+	case 3: // supported_primaries_named
+		if i.supportedPrimariesNamedHandler != nil {
+			ev := WpColorManagerV1SupportedPrimariesNamedEvent{}
+			l := 0
+			_ = fd
+			ev.Primaries = client.Uint32(data[l : l+4])
+			l += 4
+			i.supportedPrimariesNamedHandler(ev)
+		}
+	case 4: // done
+		if i.doneHandler != nil {
+			ev := WpColorManagerV1DoneEvent{}
+			_ = fd
+			_ = data
+			i.doneHandler(ev)
+		}
+	}
+}
+
 // WpColorManagementOutputV1: output color properties
 type WpColorManagementOutputV1 struct {
 	client.BaseProxy
+	imageDescriptionChangedHandler WpColorManagementOutputV1ImageDescriptionChangedHandler
 }
 
 // NewWpColorManagementOutputV1 creates a new WpColorManagementOutputV1
@@ -338,6 +418,24 @@ type WpColorManagementOutputV1ImageDescriptionChangedEvent struct {
 }
 
 type WpColorManagementOutputV1ImageDescriptionChangedHandler func(WpColorManagementOutputV1ImageDescriptionChangedEvent)
+
+// SetImageDescriptionChangedHandler sets the handler for the image_description_changed event
+func (i *WpColorManagementOutputV1) SetImageDescriptionChangedHandler(f WpColorManagementOutputV1ImageDescriptionChangedHandler) {
+	i.imageDescriptionChangedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WpColorManagementOutputV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // image_description_changed
+		if i.imageDescriptionChangedHandler != nil {
+			ev := WpColorManagementOutputV1ImageDescriptionChangedEvent{}
+			_ = fd
+			_ = data
+			i.imageDescriptionChangedHandler(ev)
+		}
+	}
+}
 
 // WpColorManagementSurfaceV1: color management extension to a surface
 type WpColorManagementSurfaceV1 struct {
@@ -410,6 +508,8 @@ func (i *WpColorManagementSurfaceV1) UnsetImageDescription() error {
 // WpColorManagementSurfaceFeedbackV1: color management extension to a surface
 type WpColorManagementSurfaceFeedbackV1 struct {
 	client.BaseProxy
+	preferredChangedHandler  WpColorManagementSurfaceFeedbackV1PreferredChangedHandler
+	preferredChanged2Handler WpColorManagementSurfaceFeedbackV1PreferredChanged2Handler
 }
 
 // NewWpColorManagementSurfaceFeedbackV1 creates a new WpColorManagementSurfaceFeedbackV1
@@ -490,6 +590,42 @@ type WpColorManagementSurfaceFeedbackV1PreferredChanged2Event struct {
 }
 
 type WpColorManagementSurfaceFeedbackV1PreferredChanged2Handler func(WpColorManagementSurfaceFeedbackV1PreferredChanged2Event)
+
+// SetPreferredChangedHandler sets the handler for the preferred_changed event
+func (i *WpColorManagementSurfaceFeedbackV1) SetPreferredChangedHandler(f WpColorManagementSurfaceFeedbackV1PreferredChangedHandler) {
+	i.preferredChangedHandler = f
+}
+
+// SetPreferredChanged2Handler sets the handler for the preferred_changed2 event
+func (i *WpColorManagementSurfaceFeedbackV1) SetPreferredChanged2Handler(f WpColorManagementSurfaceFeedbackV1PreferredChanged2Handler) {
+	i.preferredChanged2Handler = f
+}
+
+// Dispatch handles incoming events
+func (i *WpColorManagementSurfaceFeedbackV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // preferred_changed
+		if i.preferredChangedHandler != nil {
+			ev := WpColorManagementSurfaceFeedbackV1PreferredChangedEvent{}
+			l := 0
+			_ = fd
+			ev.Identity = client.Uint32(data[l : l+4])
+			l += 4
+			i.preferredChangedHandler(ev)
+		}
+	case 1: // preferred_changed2
+		if i.preferredChanged2Handler != nil {
+			ev := WpColorManagementSurfaceFeedbackV1PreferredChanged2Event{}
+			l := 0
+			_ = fd
+			ev.IdentityHi = client.Uint32(data[l : l+4])
+			l += 4
+			ev.IdentityLo = client.Uint32(data[l : l+4])
+			l += 4
+			i.preferredChanged2Handler(ev)
+		}
+	}
+}
 
 // WpImageDescriptionCreatorIccV1: holder of image description ICC information
 type WpImageDescriptionCreatorIccV1 struct {
@@ -774,6 +910,9 @@ func (i *WpImageDescriptionCreatorParamsV1) SetMaxFall(max_fall uint32) error {
 // WpImageDescriptionV1: Colorimetric image description
 type WpImageDescriptionV1 struct {
 	client.BaseProxy
+	failedHandler WpImageDescriptionV1FailedHandler
+	readyHandler  WpImageDescriptionV1ReadyHandler
+	ready2Handler WpImageDescriptionV1Ready2Handler
 }
 
 // NewWpImageDescriptionV1 creates a new WpImageDescriptionV1
@@ -856,9 +995,75 @@ type WpImageDescriptionV1Ready2Event struct {
 
 type WpImageDescriptionV1Ready2Handler func(WpImageDescriptionV1Ready2Event)
 
+// SetFailedHandler sets the handler for the failed event
+func (i *WpImageDescriptionV1) SetFailedHandler(f WpImageDescriptionV1FailedHandler) {
+	i.failedHandler = f
+}
+
+// SetReadyHandler sets the handler for the ready event
+func (i *WpImageDescriptionV1) SetReadyHandler(f WpImageDescriptionV1ReadyHandler) {
+	i.readyHandler = f
+}
+
+// SetReady2Handler sets the handler for the ready2 event
+func (i *WpImageDescriptionV1) SetReady2Handler(f WpImageDescriptionV1Ready2Handler) {
+	i.ready2Handler = f
+}
+
+// Dispatch handles incoming events
+func (i *WpImageDescriptionV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // failed
+		if i.failedHandler != nil {
+			ev := WpImageDescriptionV1FailedEvent{}
+			l := 0
+			_ = fd
+			ev.Cause = client.Uint32(data[l : l+4])
+			l += 4
+			msgRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			msgLen := client.PaddedLen(msgRawLen)
+			ev.Msg = client.String(data[l : l+msgLen])
+			l += msgLen
+			i.failedHandler(ev)
+		}
+	case 1: // ready
+		if i.readyHandler != nil {
+			ev := WpImageDescriptionV1ReadyEvent{}
+			l := 0
+			_ = fd
+			ev.Identity = client.Uint32(data[l : l+4])
+			l += 4
+			i.readyHandler(ev)
+		}
+	case 2: // ready2
+		if i.ready2Handler != nil {
+			ev := WpImageDescriptionV1Ready2Event{}
+			l := 0
+			_ = fd
+			ev.IdentityHi = client.Uint32(data[l : l+4])
+			l += 4
+			ev.IdentityLo = client.Uint32(data[l : l+4])
+			l += 4
+			i.ready2Handler(ev)
+		}
+	}
+}
+
 // WpImageDescriptionInfoV1: Colorimetric image description information
 type WpImageDescriptionInfoV1 struct {
 	client.BaseProxy
+	doneHandler            WpImageDescriptionInfoV1DoneHandler
+	iccFileHandler         WpImageDescriptionInfoV1IccFileHandler
+	primariesHandler       WpImageDescriptionInfoV1PrimariesHandler
+	primariesNamedHandler  WpImageDescriptionInfoV1PrimariesNamedHandler
+	tfPowerHandler         WpImageDescriptionInfoV1TfPowerHandler
+	tfNamedHandler         WpImageDescriptionInfoV1TfNamedHandler
+	luminancesHandler      WpImageDescriptionInfoV1LuminancesHandler
+	targetPrimariesHandler WpImageDescriptionInfoV1TargetPrimariesHandler
+	targetLuminanceHandler WpImageDescriptionInfoV1TargetLuminanceHandler
+	targetMaxCllHandler    WpImageDescriptionInfoV1TargetMaxCllHandler
+	targetMaxFallHandler   WpImageDescriptionInfoV1TargetMaxFallHandler
 }
 
 // NewWpImageDescriptionInfoV1 creates a new WpImageDescriptionInfoV1
@@ -961,6 +1166,198 @@ type WpImageDescriptionInfoV1TargetMaxFallEvent struct {
 }
 
 type WpImageDescriptionInfoV1TargetMaxFallHandler func(WpImageDescriptionInfoV1TargetMaxFallEvent)
+
+// SetDoneHandler sets the handler for the done event
+func (i *WpImageDescriptionInfoV1) SetDoneHandler(f WpImageDescriptionInfoV1DoneHandler) {
+	i.doneHandler = f
+}
+
+// SetIccFileHandler sets the handler for the icc_file event
+func (i *WpImageDescriptionInfoV1) SetIccFileHandler(f WpImageDescriptionInfoV1IccFileHandler) {
+	i.iccFileHandler = f
+}
+
+// SetPrimariesHandler sets the handler for the primaries event
+func (i *WpImageDescriptionInfoV1) SetPrimariesHandler(f WpImageDescriptionInfoV1PrimariesHandler) {
+	i.primariesHandler = f
+}
+
+// SetPrimariesNamedHandler sets the handler for the primaries_named event
+func (i *WpImageDescriptionInfoV1) SetPrimariesNamedHandler(f WpImageDescriptionInfoV1PrimariesNamedHandler) {
+	i.primariesNamedHandler = f
+}
+
+// SetTfPowerHandler sets the handler for the tf_power event
+func (i *WpImageDescriptionInfoV1) SetTfPowerHandler(f WpImageDescriptionInfoV1TfPowerHandler) {
+	i.tfPowerHandler = f
+}
+
+// SetTfNamedHandler sets the handler for the tf_named event
+func (i *WpImageDescriptionInfoV1) SetTfNamedHandler(f WpImageDescriptionInfoV1TfNamedHandler) {
+	i.tfNamedHandler = f
+}
+
+// SetLuminancesHandler sets the handler for the luminances event
+func (i *WpImageDescriptionInfoV1) SetLuminancesHandler(f WpImageDescriptionInfoV1LuminancesHandler) {
+	i.luminancesHandler = f
+}
+
+// SetTargetPrimariesHandler sets the handler for the target_primaries event
+func (i *WpImageDescriptionInfoV1) SetTargetPrimariesHandler(f WpImageDescriptionInfoV1TargetPrimariesHandler) {
+	i.targetPrimariesHandler = f
+}
+
+// SetTargetLuminanceHandler sets the handler for the target_luminance event
+func (i *WpImageDescriptionInfoV1) SetTargetLuminanceHandler(f WpImageDescriptionInfoV1TargetLuminanceHandler) {
+	i.targetLuminanceHandler = f
+}
+
+// SetTargetMaxCllHandler sets the handler for the target_max_cll event
+func (i *WpImageDescriptionInfoV1) SetTargetMaxCllHandler(f WpImageDescriptionInfoV1TargetMaxCllHandler) {
+	i.targetMaxCllHandler = f
+}
+
+// SetTargetMaxFallHandler sets the handler for the target_max_fall event
+func (i *WpImageDescriptionInfoV1) SetTargetMaxFallHandler(f WpImageDescriptionInfoV1TargetMaxFallHandler) {
+	i.targetMaxFallHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WpImageDescriptionInfoV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // done
+		if i.doneHandler != nil {
+			ev := WpImageDescriptionInfoV1DoneEvent{}
+			_ = fd
+			_ = data
+			i.doneHandler(ev)
+		}
+	case 1: // icc_file
+		if i.iccFileHandler != nil {
+			ev := WpImageDescriptionInfoV1IccFileEvent{}
+			l := 0
+			ev.Icc = uintptr(fd)
+			ev.IccSize = client.Uint32(data[l : l+4])
+			l += 4
+			i.iccFileHandler(ev)
+		}
+	case 2: // primaries
+		if i.primariesHandler != nil {
+			ev := WpImageDescriptionInfoV1PrimariesEvent{}
+			l := 0
+			_ = fd
+			ev.RX = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.RY = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.GX = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.GY = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.BX = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.BY = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.WX = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.WY = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.primariesHandler(ev)
+		}
+	case 3: // primaries_named
+		if i.primariesNamedHandler != nil {
+			ev := WpImageDescriptionInfoV1PrimariesNamedEvent{}
+			l := 0
+			_ = fd
+			ev.Primaries = client.Uint32(data[l : l+4])
+			l += 4
+			i.primariesNamedHandler(ev)
+		}
+	case 4: // tf_power
+		if i.tfPowerHandler != nil {
+			ev := WpImageDescriptionInfoV1TfPowerEvent{}
+			l := 0
+			_ = fd
+			ev.Eexp = client.Uint32(data[l : l+4])
+			l += 4
+			i.tfPowerHandler(ev)
+		}
+	case 5: // tf_named
+		if i.tfNamedHandler != nil {
+			ev := WpImageDescriptionInfoV1TfNamedEvent{}
+			l := 0
+			_ = fd
+			ev.Tf = client.Uint32(data[l : l+4])
+			l += 4
+			i.tfNamedHandler(ev)
+		}
+	case 6: // luminances
+		if i.luminancesHandler != nil {
+			ev := WpImageDescriptionInfoV1LuminancesEvent{}
+			l := 0
+			_ = fd
+			ev.MinLum = client.Uint32(data[l : l+4])
+			l += 4
+			ev.MaxLum = client.Uint32(data[l : l+4])
+			l += 4
+			ev.ReferenceLum = client.Uint32(data[l : l+4])
+			l += 4
+			i.luminancesHandler(ev)
+		}
+	case 7: // target_primaries
+		if i.targetPrimariesHandler != nil {
+			ev := WpImageDescriptionInfoV1TargetPrimariesEvent{}
+			l := 0
+			_ = fd
+			ev.RX = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.RY = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.GX = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.GY = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.BX = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.BY = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.WX = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.WY = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.targetPrimariesHandler(ev)
+		}
+	case 8: // target_luminance
+		if i.targetLuminanceHandler != nil {
+			ev := WpImageDescriptionInfoV1TargetLuminanceEvent{}
+			l := 0
+			_ = fd
+			ev.MinLum = client.Uint32(data[l : l+4])
+			l += 4
+			ev.MaxLum = client.Uint32(data[l : l+4])
+			l += 4
+			i.targetLuminanceHandler(ev)
+		}
+	case 9: // target_max_cll
+		if i.targetMaxCllHandler != nil {
+			ev := WpImageDescriptionInfoV1TargetMaxCllEvent{}
+			l := 0
+			_ = fd
+			ev.MaxCll = client.Uint32(data[l : l+4])
+			l += 4
+			i.targetMaxCllHandler(ev)
+		}
+	case 10: // target_max_fall
+		if i.targetMaxFallHandler != nil {
+			ev := WpImageDescriptionInfoV1TargetMaxFallEvent{}
+			l := 0
+			_ = fd
+			ev.MaxFall = client.Uint32(data[l : l+4])
+			l += 4
+			i.targetMaxFallHandler(ev)
+		}
+	}
+}
 
 // WpImageDescriptionReferenceV1: Reference to an image description
 type WpImageDescriptionReferenceV1 struct {

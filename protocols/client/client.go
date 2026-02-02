@@ -32,3 +32,8 @@ type Proxy interface {
 	ID() uint32
 	Context() *Context
 }
+
+// Dispatcher interface for objects that can handle events
+type Dispatcher interface {
+	Dispatch(opcode uint32, fd int, data []byte)
+}

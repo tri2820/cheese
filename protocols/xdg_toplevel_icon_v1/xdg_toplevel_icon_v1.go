@@ -30,6 +30,8 @@ import (
 // XdgToplevelIconManagerV1: interface to manage toplevel icons
 type XdgToplevelIconManagerV1 struct {
 	client.BaseProxy
+	iconSizeHandler XdgToplevelIconManagerV1IconSizeHandler
+	doneHandler     XdgToplevelIconManagerV1DoneHandler
 }
 
 // NewXdgToplevelIconManagerV1 creates a new XdgToplevelIconManagerV1
@@ -106,6 +108,38 @@ type XdgToplevelIconManagerV1DoneEvent struct {
 }
 
 type XdgToplevelIconManagerV1DoneHandler func(XdgToplevelIconManagerV1DoneEvent)
+
+// SetIconSizeHandler sets the handler for the icon_size event
+func (i *XdgToplevelIconManagerV1) SetIconSizeHandler(f XdgToplevelIconManagerV1IconSizeHandler) {
+	i.iconSizeHandler = f
+}
+
+// SetDoneHandler sets the handler for the done event
+func (i *XdgToplevelIconManagerV1) SetDoneHandler(f XdgToplevelIconManagerV1DoneHandler) {
+	i.doneHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *XdgToplevelIconManagerV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // icon_size
+		if i.iconSizeHandler != nil {
+			ev := XdgToplevelIconManagerV1IconSizeEvent{}
+			l := 0
+			_ = fd
+			ev.Size = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.iconSizeHandler(ev)
+		}
+	case 1: // done
+		if i.doneHandler != nil {
+			ev := XdgToplevelIconManagerV1DoneEvent{}
+			_ = fd
+			_ = data
+			i.doneHandler(ev)
+		}
+	}
+}
 
 // XdgToplevelIconV1: a toplevel window icon
 type XdgToplevelIconV1 struct {

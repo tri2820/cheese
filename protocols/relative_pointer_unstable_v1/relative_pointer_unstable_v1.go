@@ -76,6 +76,7 @@ func (i *ZwpRelativePointerManagerV1) GetRelativePointer(pointer *client.WlPoint
 // ZwpRelativePointerV1: relative pointer object
 type ZwpRelativePointerV1 struct {
 	client.BaseProxy
+	relativeMotionHandler ZwpRelativePointerV1RelativeMotionHandler
 }
 
 // NewZwpRelativePointerV1 creates a new ZwpRelativePointerV1
@@ -111,3 +112,33 @@ type ZwpRelativePointerV1RelativeMotionEvent struct {
 }
 
 type ZwpRelativePointerV1RelativeMotionHandler func(ZwpRelativePointerV1RelativeMotionEvent)
+
+// SetRelativeMotionHandler sets the handler for the relative_motion event
+func (i *ZwpRelativePointerV1) SetRelativeMotionHandler(f ZwpRelativePointerV1RelativeMotionHandler) {
+	i.relativeMotionHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpRelativePointerV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // relative_motion
+		if i.relativeMotionHandler != nil {
+			ev := ZwpRelativePointerV1RelativeMotionEvent{}
+			l := 0
+			_ = fd
+			ev.UtimeHi = client.Uint32(data[l : l+4])
+			l += 4
+			ev.UtimeLo = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Dx = client.Fixed(data[l : l+4])
+			l += 4
+			ev.Dy = client.Fixed(data[l : l+4])
+			l += 4
+			ev.DxUnaccel = client.Fixed(data[l : l+4])
+			l += 4
+			ev.DyUnaccel = client.Fixed(data[l : l+4])
+			l += 4
+			i.relativeMotionHandler(ev)
+		}
+	}
+}

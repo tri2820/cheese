@@ -83,6 +83,8 @@ func (i *ZwpKeyboardShortcutsInhibitManagerV1) InhibitShortcuts(surface *client.
 // ZwpKeyboardShortcutsInhibitorV1: context object for keyboard shortcuts inhibitor
 type ZwpKeyboardShortcutsInhibitorV1 struct {
 	client.BaseProxy
+	activeHandler   ZwpKeyboardShortcutsInhibitorV1ActiveHandler
+	inactiveHandler ZwpKeyboardShortcutsInhibitorV1InactiveHandler
 }
 
 // NewZwpKeyboardShortcutsInhibitorV1 creates a new ZwpKeyboardShortcutsInhibitorV1
@@ -118,3 +120,33 @@ type ZwpKeyboardShortcutsInhibitorV1InactiveEvent struct {
 }
 
 type ZwpKeyboardShortcutsInhibitorV1InactiveHandler func(ZwpKeyboardShortcutsInhibitorV1InactiveEvent)
+
+// SetActiveHandler sets the handler for the active event
+func (i *ZwpKeyboardShortcutsInhibitorV1) SetActiveHandler(f ZwpKeyboardShortcutsInhibitorV1ActiveHandler) {
+	i.activeHandler = f
+}
+
+// SetInactiveHandler sets the handler for the inactive event
+func (i *ZwpKeyboardShortcutsInhibitorV1) SetInactiveHandler(f ZwpKeyboardShortcutsInhibitorV1InactiveHandler) {
+	i.inactiveHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpKeyboardShortcutsInhibitorV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // active
+		if i.activeHandler != nil {
+			ev := ZwpKeyboardShortcutsInhibitorV1ActiveEvent{}
+			_ = fd
+			_ = data
+			i.activeHandler(ev)
+		}
+	case 1: // inactive
+		if i.inactiveHandler != nil {
+			ev := ZwpKeyboardShortcutsInhibitorV1InactiveEvent{}
+			_ = fd
+			_ = data
+			i.inactiveHandler(ev)
+		}
+	}
+}

@@ -129,6 +129,7 @@ func (i *ZxdgImporterV2) ImportToplevel(handle string) (*ZxdgImportedV2, error) 
 // ZxdgExportedV2: an exported surface handle
 type ZxdgExportedV2 struct {
 	client.BaseProxy
+	handleHandler ZxdgExportedV2HandleHandler
 }
 
 // NewZxdgExportedV2 creates a new ZxdgExportedV2
@@ -160,9 +161,33 @@ type ZxdgExportedV2HandleEvent struct {
 
 type ZxdgExportedV2HandleHandler func(ZxdgExportedV2HandleEvent)
 
+// SetHandleHandler sets the handler for the handle event
+func (i *ZxdgExportedV2) SetHandleHandler(f ZxdgExportedV2HandleHandler) {
+	i.handleHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZxdgExportedV2) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // handle
+		if i.handleHandler != nil {
+			ev := ZxdgExportedV2HandleEvent{}
+			l := 0
+			_ = fd
+			handleRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			handleLen := client.PaddedLen(handleRawLen)
+			ev.Handle = client.String(data[l : l+handleLen])
+			l += handleLen
+			i.handleHandler(ev)
+		}
+	}
+}
+
 // ZxdgImportedV2: an imported surface handle
 type ZxdgImportedV2 struct {
 	client.BaseProxy
+	destroyedHandler ZxdgImportedV2DestroyedHandler
 }
 
 // NewZxdgImportedV2 creates a new ZxdgImportedV2
@@ -215,3 +240,21 @@ type ZxdgImportedV2DestroyedEvent struct {
 }
 
 type ZxdgImportedV2DestroyedHandler func(ZxdgImportedV2DestroyedEvent)
+
+// SetDestroyedHandler sets the handler for the destroyed event
+func (i *ZxdgImportedV2) SetDestroyedHandler(f ZxdgImportedV2DestroyedHandler) {
+	i.destroyedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZxdgImportedV2) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // destroyed
+		if i.destroyedHandler != nil {
+			ev := ZxdgImportedV2DestroyedEvent{}
+			_ = fd
+			_ = data
+			i.destroyedHandler(ev)
+		}
+	}
+}

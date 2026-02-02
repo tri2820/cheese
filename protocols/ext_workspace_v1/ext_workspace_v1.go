@@ -34,6 +34,10 @@ import (
 // ExtWorkspaceManagerV1: list and control workspaces
 type ExtWorkspaceManagerV1 struct {
 	client.BaseProxy
+	workspaceGroupHandler ExtWorkspaceManagerV1WorkspaceGroupHandler
+	workspaceHandler      ExtWorkspaceManagerV1WorkspaceHandler
+	doneHandler           ExtWorkspaceManagerV1DoneHandler
+	finishedHandler       ExtWorkspaceManagerV1FinishedHandler
 }
 
 // NewExtWorkspaceManagerV1 creates a new ExtWorkspaceManagerV1
@@ -97,9 +101,75 @@ type ExtWorkspaceManagerV1FinishedEvent struct {
 
 type ExtWorkspaceManagerV1FinishedHandler func(ExtWorkspaceManagerV1FinishedEvent)
 
+// SetWorkspaceGroupHandler sets the handler for the workspace_group event
+func (i *ExtWorkspaceManagerV1) SetWorkspaceGroupHandler(f ExtWorkspaceManagerV1WorkspaceGroupHandler) {
+	i.workspaceGroupHandler = f
+}
+
+// SetWorkspaceHandler sets the handler for the workspace event
+func (i *ExtWorkspaceManagerV1) SetWorkspaceHandler(f ExtWorkspaceManagerV1WorkspaceHandler) {
+	i.workspaceHandler = f
+}
+
+// SetDoneHandler sets the handler for the done event
+func (i *ExtWorkspaceManagerV1) SetDoneHandler(f ExtWorkspaceManagerV1DoneHandler) {
+	i.doneHandler = f
+}
+
+// SetFinishedHandler sets the handler for the finished event
+func (i *ExtWorkspaceManagerV1) SetFinishedHandler(f ExtWorkspaceManagerV1FinishedHandler) {
+	i.finishedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ExtWorkspaceManagerV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // workspace_group
+		if i.workspaceGroupHandler != nil {
+			ev := ExtWorkspaceManagerV1WorkspaceGroupEvent{}
+			l := 0
+			_ = fd
+			workspace_groupID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.WorkspaceGroup = i.Context().GetProxy(workspace_groupID).(*ExtWorkspaceGroupHandleV1)
+			i.workspaceGroupHandler(ev)
+		}
+	case 1: // workspace
+		if i.workspaceHandler != nil {
+			ev := ExtWorkspaceManagerV1WorkspaceEvent{}
+			l := 0
+			_ = fd
+			workspaceID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Workspace = i.Context().GetProxy(workspaceID).(*ExtWorkspaceHandleV1)
+			i.workspaceHandler(ev)
+		}
+	case 2: // done
+		if i.doneHandler != nil {
+			ev := ExtWorkspaceManagerV1DoneEvent{}
+			_ = fd
+			_ = data
+			i.doneHandler(ev)
+		}
+	case 3: // finished
+		if i.finishedHandler != nil {
+			ev := ExtWorkspaceManagerV1FinishedEvent{}
+			_ = fd
+			_ = data
+			i.finishedHandler(ev)
+		}
+	}
+}
+
 // ExtWorkspaceGroupHandleV1: a workspace group assigned to a set of outputs
 type ExtWorkspaceGroupHandleV1 struct {
 	client.BaseProxy
+	capabilitiesHandler   ExtWorkspaceGroupHandleV1CapabilitiesHandler
+	outputEnterHandler    ExtWorkspaceGroupHandleV1OutputEnterHandler
+	outputLeaveHandler    ExtWorkspaceGroupHandleV1OutputLeaveHandler
+	workspaceEnterHandler ExtWorkspaceGroupHandleV1WorkspaceEnterHandler
+	workspaceLeaveHandler ExtWorkspaceGroupHandleV1WorkspaceLeaveHandler
+	removedHandler        ExtWorkspaceGroupHandleV1RemovedHandler
 }
 
 // NewExtWorkspaceGroupHandleV1 creates a new ExtWorkspaceGroupHandleV1
@@ -188,9 +258,107 @@ type ExtWorkspaceGroupHandleV1RemovedEvent struct {
 
 type ExtWorkspaceGroupHandleV1RemovedHandler func(ExtWorkspaceGroupHandleV1RemovedEvent)
 
+// SetCapabilitiesHandler sets the handler for the capabilities event
+func (i *ExtWorkspaceGroupHandleV1) SetCapabilitiesHandler(f ExtWorkspaceGroupHandleV1CapabilitiesHandler) {
+	i.capabilitiesHandler = f
+}
+
+// SetOutputEnterHandler sets the handler for the output_enter event
+func (i *ExtWorkspaceGroupHandleV1) SetOutputEnterHandler(f ExtWorkspaceGroupHandleV1OutputEnterHandler) {
+	i.outputEnterHandler = f
+}
+
+// SetOutputLeaveHandler sets the handler for the output_leave event
+func (i *ExtWorkspaceGroupHandleV1) SetOutputLeaveHandler(f ExtWorkspaceGroupHandleV1OutputLeaveHandler) {
+	i.outputLeaveHandler = f
+}
+
+// SetWorkspaceEnterHandler sets the handler for the workspace_enter event
+func (i *ExtWorkspaceGroupHandleV1) SetWorkspaceEnterHandler(f ExtWorkspaceGroupHandleV1WorkspaceEnterHandler) {
+	i.workspaceEnterHandler = f
+}
+
+// SetWorkspaceLeaveHandler sets the handler for the workspace_leave event
+func (i *ExtWorkspaceGroupHandleV1) SetWorkspaceLeaveHandler(f ExtWorkspaceGroupHandleV1WorkspaceLeaveHandler) {
+	i.workspaceLeaveHandler = f
+}
+
+// SetRemovedHandler sets the handler for the removed event
+func (i *ExtWorkspaceGroupHandleV1) SetRemovedHandler(f ExtWorkspaceGroupHandleV1RemovedHandler) {
+	i.removedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ExtWorkspaceGroupHandleV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // capabilities
+		if i.capabilitiesHandler != nil {
+			ev := ExtWorkspaceGroupHandleV1CapabilitiesEvent{}
+			l := 0
+			_ = fd
+			ev.Capabilities = client.Uint32(data[l : l+4])
+			l += 4
+			i.capabilitiesHandler(ev)
+		}
+	case 1: // output_enter
+		if i.outputEnterHandler != nil {
+			ev := ExtWorkspaceGroupHandleV1OutputEnterEvent{}
+			l := 0
+			_ = fd
+			outputID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Output = i.Context().GetProxy(outputID).(*client.WlOutput)
+			i.outputEnterHandler(ev)
+		}
+	case 2: // output_leave
+		if i.outputLeaveHandler != nil {
+			ev := ExtWorkspaceGroupHandleV1OutputLeaveEvent{}
+			l := 0
+			_ = fd
+			outputID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Output = i.Context().GetProxy(outputID).(*client.WlOutput)
+			i.outputLeaveHandler(ev)
+		}
+	case 3: // workspace_enter
+		if i.workspaceEnterHandler != nil {
+			ev := ExtWorkspaceGroupHandleV1WorkspaceEnterEvent{}
+			l := 0
+			_ = fd
+			workspaceID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Workspace = i.Context().GetProxy(workspaceID).(*ExtWorkspaceHandleV1)
+			i.workspaceEnterHandler(ev)
+		}
+	case 4: // workspace_leave
+		if i.workspaceLeaveHandler != nil {
+			ev := ExtWorkspaceGroupHandleV1WorkspaceLeaveEvent{}
+			l := 0
+			_ = fd
+			workspaceID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Workspace = i.Context().GetProxy(workspaceID).(*ExtWorkspaceHandleV1)
+			i.workspaceLeaveHandler(ev)
+		}
+	case 5: // removed
+		if i.removedHandler != nil {
+			ev := ExtWorkspaceGroupHandleV1RemovedEvent{}
+			_ = fd
+			_ = data
+			i.removedHandler(ev)
+		}
+	}
+}
+
 // ExtWorkspaceHandleV1: a workspace handing a group of surfaces
 type ExtWorkspaceHandleV1 struct {
 	client.BaseProxy
+	idHandler           ExtWorkspaceHandleV1IdHandler
+	nameHandler         ExtWorkspaceHandleV1NameHandler
+	coordinatesHandler  ExtWorkspaceHandleV1CoordinatesHandler
+	stateHandler        ExtWorkspaceHandleV1StateHandler
+	capabilitiesHandler ExtWorkspaceHandleV1CapabilitiesHandler
+	removedHandler      ExtWorkspaceHandleV1RemovedHandler
 }
 
 // NewExtWorkspaceHandleV1 creates a new ExtWorkspaceHandleV1
@@ -331,3 +499,99 @@ type ExtWorkspaceHandleV1RemovedEvent struct {
 }
 
 type ExtWorkspaceHandleV1RemovedHandler func(ExtWorkspaceHandleV1RemovedEvent)
+
+// SetIdHandler sets the handler for the id event
+func (i *ExtWorkspaceHandleV1) SetIdHandler(f ExtWorkspaceHandleV1IdHandler) {
+	i.idHandler = f
+}
+
+// SetNameHandler sets the handler for the name event
+func (i *ExtWorkspaceHandleV1) SetNameHandler(f ExtWorkspaceHandleV1NameHandler) {
+	i.nameHandler = f
+}
+
+// SetCoordinatesHandler sets the handler for the coordinates event
+func (i *ExtWorkspaceHandleV1) SetCoordinatesHandler(f ExtWorkspaceHandleV1CoordinatesHandler) {
+	i.coordinatesHandler = f
+}
+
+// SetStateHandler sets the handler for the state event
+func (i *ExtWorkspaceHandleV1) SetStateHandler(f ExtWorkspaceHandleV1StateHandler) {
+	i.stateHandler = f
+}
+
+// SetCapabilitiesHandler sets the handler for the capabilities event
+func (i *ExtWorkspaceHandleV1) SetCapabilitiesHandler(f ExtWorkspaceHandleV1CapabilitiesHandler) {
+	i.capabilitiesHandler = f
+}
+
+// SetRemovedHandler sets the handler for the removed event
+func (i *ExtWorkspaceHandleV1) SetRemovedHandler(f ExtWorkspaceHandleV1RemovedHandler) {
+	i.removedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ExtWorkspaceHandleV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // id
+		if i.idHandler != nil {
+			ev := ExtWorkspaceHandleV1IdEvent{}
+			l := 0
+			_ = fd
+			idRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			idLen := client.PaddedLen(idRawLen)
+			ev.Id = client.String(data[l : l+idLen])
+			l += idLen
+			i.idHandler(ev)
+		}
+	case 1: // name
+		if i.nameHandler != nil {
+			ev := ExtWorkspaceHandleV1NameEvent{}
+			l := 0
+			_ = fd
+			nameRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			nameLen := client.PaddedLen(nameRawLen)
+			ev.Name = client.String(data[l : l+nameLen])
+			l += nameLen
+			i.nameHandler(ev)
+		}
+	case 2: // coordinates
+		if i.coordinatesHandler != nil {
+			ev := ExtWorkspaceHandleV1CoordinatesEvent{}
+			l := 0
+			_ = fd
+			coordinatesLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Coordinates = data[l : l+coordinatesLen]
+			l += client.PaddedLen(coordinatesLen)
+			i.coordinatesHandler(ev)
+		}
+	case 3: // state
+		if i.stateHandler != nil {
+			ev := ExtWorkspaceHandleV1StateEvent{}
+			l := 0
+			_ = fd
+			ev.State = client.Uint32(data[l : l+4])
+			l += 4
+			i.stateHandler(ev)
+		}
+	case 4: // capabilities
+		if i.capabilitiesHandler != nil {
+			ev := ExtWorkspaceHandleV1CapabilitiesEvent{}
+			l := 0
+			_ = fd
+			ev.Capabilities = client.Uint32(data[l : l+4])
+			l += 4
+			i.capabilitiesHandler(ev)
+		}
+	case 5: // removed
+		if i.removedHandler != nil {
+			ev := ExtWorkspaceHandleV1RemovedEvent{}
+			_ = fd
+			_ = data
+			i.removedHandler(ev)
+		}
+	}
+}

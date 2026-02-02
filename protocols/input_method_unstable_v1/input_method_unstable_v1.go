@@ -29,6 +29,12 @@ import (
 // ZwpInputMethodContextV1: input method context
 type ZwpInputMethodContextV1 struct {
 	client.BaseProxy
+	surroundingTextHandler   ZwpInputMethodContextV1SurroundingTextHandler
+	resetHandler             ZwpInputMethodContextV1ResetHandler
+	contentTypeHandler       ZwpInputMethodContextV1ContentTypeHandler
+	invokeActionHandler      ZwpInputMethodContextV1InvokeActionHandler
+	commitStateHandler       ZwpInputMethodContextV1CommitStateHandler
+	preferredLanguageHandler ZwpInputMethodContextV1PreferredLanguageHandler
 }
 
 // NewZwpInputMethodContextV1 creates a new ZwpInputMethodContextV1
@@ -343,9 +349,113 @@ type ZwpInputMethodContextV1PreferredLanguageEvent struct {
 
 type ZwpInputMethodContextV1PreferredLanguageHandler func(ZwpInputMethodContextV1PreferredLanguageEvent)
 
+// SetSurroundingTextHandler sets the handler for the surrounding_text event
+func (i *ZwpInputMethodContextV1) SetSurroundingTextHandler(f ZwpInputMethodContextV1SurroundingTextHandler) {
+	i.surroundingTextHandler = f
+}
+
+// SetResetHandler sets the handler for the reset event
+func (i *ZwpInputMethodContextV1) SetResetHandler(f ZwpInputMethodContextV1ResetHandler) {
+	i.resetHandler = f
+}
+
+// SetContentTypeHandler sets the handler for the content_type event
+func (i *ZwpInputMethodContextV1) SetContentTypeHandler(f ZwpInputMethodContextV1ContentTypeHandler) {
+	i.contentTypeHandler = f
+}
+
+// SetInvokeActionHandler sets the handler for the invoke_action event
+func (i *ZwpInputMethodContextV1) SetInvokeActionHandler(f ZwpInputMethodContextV1InvokeActionHandler) {
+	i.invokeActionHandler = f
+}
+
+// SetCommitStateHandler sets the handler for the commit_state event
+func (i *ZwpInputMethodContextV1) SetCommitStateHandler(f ZwpInputMethodContextV1CommitStateHandler) {
+	i.commitStateHandler = f
+}
+
+// SetPreferredLanguageHandler sets the handler for the preferred_language event
+func (i *ZwpInputMethodContextV1) SetPreferredLanguageHandler(f ZwpInputMethodContextV1PreferredLanguageHandler) {
+	i.preferredLanguageHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpInputMethodContextV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // surrounding_text
+		if i.surroundingTextHandler != nil {
+			ev := ZwpInputMethodContextV1SurroundingTextEvent{}
+			l := 0
+			_ = fd
+			textRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			textLen := client.PaddedLen(textRawLen)
+			ev.Text = client.String(data[l : l+textLen])
+			l += textLen
+			ev.Cursor = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Anchor = client.Uint32(data[l : l+4])
+			l += 4
+			i.surroundingTextHandler(ev)
+		}
+	case 1: // reset
+		if i.resetHandler != nil {
+			ev := ZwpInputMethodContextV1ResetEvent{}
+			_ = fd
+			_ = data
+			i.resetHandler(ev)
+		}
+	case 2: // content_type
+		if i.contentTypeHandler != nil {
+			ev := ZwpInputMethodContextV1ContentTypeEvent{}
+			l := 0
+			_ = fd
+			ev.Hint = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Purpose = client.Uint32(data[l : l+4])
+			l += 4
+			i.contentTypeHandler(ev)
+		}
+	case 3: // invoke_action
+		if i.invokeActionHandler != nil {
+			ev := ZwpInputMethodContextV1InvokeActionEvent{}
+			l := 0
+			_ = fd
+			ev.Button = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Index = client.Uint32(data[l : l+4])
+			l += 4
+			i.invokeActionHandler(ev)
+		}
+	case 4: // commit_state
+		if i.commitStateHandler != nil {
+			ev := ZwpInputMethodContextV1CommitStateEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			i.commitStateHandler(ev)
+		}
+	case 5: // preferred_language
+		if i.preferredLanguageHandler != nil {
+			ev := ZwpInputMethodContextV1PreferredLanguageEvent{}
+			l := 0
+			_ = fd
+			languageRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			languageLen := client.PaddedLen(languageRawLen)
+			ev.Language = client.String(data[l : l+languageLen])
+			l += languageLen
+			i.preferredLanguageHandler(ev)
+		}
+	}
+}
+
 // ZwpInputMethodV1: input method
 type ZwpInputMethodV1 struct {
 	client.BaseProxy
+	activateHandler   ZwpInputMethodV1ActivateHandler
+	deactivateHandler ZwpInputMethodV1DeactivateHandler
 }
 
 // NewZwpInputMethodV1 creates a new ZwpInputMethodV1
@@ -368,6 +478,42 @@ type ZwpInputMethodV1DeactivateEvent struct {
 }
 
 type ZwpInputMethodV1DeactivateHandler func(ZwpInputMethodV1DeactivateEvent)
+
+// SetActivateHandler sets the handler for the activate event
+func (i *ZwpInputMethodV1) SetActivateHandler(f ZwpInputMethodV1ActivateHandler) {
+	i.activateHandler = f
+}
+
+// SetDeactivateHandler sets the handler for the deactivate event
+func (i *ZwpInputMethodV1) SetDeactivateHandler(f ZwpInputMethodV1DeactivateHandler) {
+	i.deactivateHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpInputMethodV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // activate
+		if i.activateHandler != nil {
+			ev := ZwpInputMethodV1ActivateEvent{}
+			l := 0
+			_ = fd
+			idID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Id = i.Context().GetProxy(idID).(*ZwpInputMethodContextV1)
+			i.activateHandler(ev)
+		}
+	case 1: // deactivate
+		if i.deactivateHandler != nil {
+			ev := ZwpInputMethodV1DeactivateEvent{}
+			l := 0
+			_ = fd
+			contextID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Context = i.Context().GetProxy(contextID).(*ZwpInputMethodContextV1)
+			i.deactivateHandler(ev)
+		}
+	}
+}
 
 // ZwpInputPanelV1: interface for implementing keyboards
 type ZwpInputPanelV1 struct {

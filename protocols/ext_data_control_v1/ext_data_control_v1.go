@@ -98,6 +98,10 @@ func (i *ExtDataControlManagerV1) Destroy() error {
 // ExtDataControlDeviceV1: manage a data device for a seat
 type ExtDataControlDeviceV1 struct {
 	client.BaseProxy
+	dataOfferHandler        ExtDataControlDeviceV1DataOfferHandler
+	selectionHandler        ExtDataControlDeviceV1SelectionHandler
+	finishedHandler         ExtDataControlDeviceV1FinishedHandler
+	primarySelectionHandler ExtDataControlDeviceV1PrimarySelectionHandler
 }
 
 // NewExtDataControlDeviceV1 creates a new ExtDataControlDeviceV1
@@ -197,9 +201,78 @@ type ExtDataControlDeviceV1PrimarySelectionEvent struct {
 
 type ExtDataControlDeviceV1PrimarySelectionHandler func(ExtDataControlDeviceV1PrimarySelectionEvent)
 
+// SetDataOfferHandler sets the handler for the data_offer event
+func (i *ExtDataControlDeviceV1) SetDataOfferHandler(f ExtDataControlDeviceV1DataOfferHandler) {
+	i.dataOfferHandler = f
+}
+
+// SetSelectionHandler sets the handler for the selection event
+func (i *ExtDataControlDeviceV1) SetSelectionHandler(f ExtDataControlDeviceV1SelectionHandler) {
+	i.selectionHandler = f
+}
+
+// SetFinishedHandler sets the handler for the finished event
+func (i *ExtDataControlDeviceV1) SetFinishedHandler(f ExtDataControlDeviceV1FinishedHandler) {
+	i.finishedHandler = f
+}
+
+// SetPrimarySelectionHandler sets the handler for the primary_selection event
+func (i *ExtDataControlDeviceV1) SetPrimarySelectionHandler(f ExtDataControlDeviceV1PrimarySelectionHandler) {
+	i.primarySelectionHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ExtDataControlDeviceV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // data_offer
+		if i.dataOfferHandler != nil {
+			ev := ExtDataControlDeviceV1DataOfferEvent{}
+			l := 0
+			_ = fd
+			idID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Id = i.Context().GetProxy(idID).(*ExtDataControlOfferV1)
+			i.dataOfferHandler(ev)
+		}
+	case 1: // selection
+		if i.selectionHandler != nil {
+			ev := ExtDataControlDeviceV1SelectionEvent{}
+			l := 0
+			_ = fd
+			idID := client.Uint32(data[l : l+4])
+			l += 4
+			if idID != 0 {
+				ev.Id = i.Context().GetProxy(idID).(*ExtDataControlOfferV1)
+			}
+			i.selectionHandler(ev)
+		}
+	case 2: // finished
+		if i.finishedHandler != nil {
+			ev := ExtDataControlDeviceV1FinishedEvent{}
+			_ = fd
+			_ = data
+			i.finishedHandler(ev)
+		}
+	case 3: // primary_selection
+		if i.primarySelectionHandler != nil {
+			ev := ExtDataControlDeviceV1PrimarySelectionEvent{}
+			l := 0
+			_ = fd
+			idID := client.Uint32(data[l : l+4])
+			l += 4
+			if idID != 0 {
+				ev.Id = i.Context().GetProxy(idID).(*ExtDataControlOfferV1)
+			}
+			i.primarySelectionHandler(ev)
+		}
+	}
+}
+
 // ExtDataControlSourceV1: offer to transfer data
 type ExtDataControlSourceV1 struct {
 	client.BaseProxy
+	sendHandler      ExtDataControlSourceV1SendHandler
+	cancelledHandler ExtDataControlSourceV1CancelledHandler
 }
 
 // NewExtDataControlSourceV1 creates a new ExtDataControlSourceV1
@@ -261,9 +334,45 @@ type ExtDataControlSourceV1CancelledEvent struct {
 
 type ExtDataControlSourceV1CancelledHandler func(ExtDataControlSourceV1CancelledEvent)
 
+// SetSendHandler sets the handler for the send event
+func (i *ExtDataControlSourceV1) SetSendHandler(f ExtDataControlSourceV1SendHandler) {
+	i.sendHandler = f
+}
+
+// SetCancelledHandler sets the handler for the cancelled event
+func (i *ExtDataControlSourceV1) SetCancelledHandler(f ExtDataControlSourceV1CancelledHandler) {
+	i.cancelledHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ExtDataControlSourceV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // send
+		if i.sendHandler != nil {
+			ev := ExtDataControlSourceV1SendEvent{}
+			l := 0
+			mime_typeRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			mime_typeLen := client.PaddedLen(mime_typeRawLen)
+			ev.MimeType = client.String(data[l : l+mime_typeLen])
+			l += mime_typeLen
+			ev.Fd = uintptr(fd)
+			i.sendHandler(ev)
+		}
+	case 1: // cancelled
+		if i.cancelledHandler != nil {
+			ev := ExtDataControlSourceV1CancelledEvent{}
+			_ = fd
+			_ = data
+			i.cancelledHandler(ev)
+		}
+	}
+}
+
 // ExtDataControlOfferV1: offer to transfer data
 type ExtDataControlOfferV1 struct {
 	client.BaseProxy
+	offerHandler ExtDataControlOfferV1OfferHandler
 }
 
 // NewExtDataControlOfferV1 creates a new ExtDataControlOfferV1
@@ -312,3 +421,26 @@ type ExtDataControlOfferV1OfferEvent struct {
 }
 
 type ExtDataControlOfferV1OfferHandler func(ExtDataControlOfferV1OfferEvent)
+
+// SetOfferHandler sets the handler for the offer event
+func (i *ExtDataControlOfferV1) SetOfferHandler(f ExtDataControlOfferV1OfferHandler) {
+	i.offerHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ExtDataControlOfferV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // offer
+		if i.offerHandler != nil {
+			ev := ExtDataControlOfferV1OfferEvent{}
+			l := 0
+			_ = fd
+			mime_typeRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			mime_typeLen := client.PaddedLen(mime_typeRawLen)
+			ev.MimeType = client.String(data[l : l+mime_typeLen])
+			l += mime_typeLen
+			i.offerHandler(ev)
+		}
+	}
+}

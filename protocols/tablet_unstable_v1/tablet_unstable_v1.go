@@ -78,6 +78,8 @@ func (i *ZwpTabletManagerV1) Destroy() error {
 // ZwpTabletSeatV1: controller object for graphic tablet devices of a seat
 type ZwpTabletSeatV1 struct {
 	client.BaseProxy
+	tabletAddedHandler ZwpTabletSeatV1TabletAddedHandler
+	toolAddedHandler   ZwpTabletSeatV1ToolAddedHandler
 }
 
 // NewZwpTabletSeatV1 creates a new ZwpTabletSeatV1
@@ -116,9 +118,64 @@ type ZwpTabletSeatV1ToolAddedEvent struct {
 
 type ZwpTabletSeatV1ToolAddedHandler func(ZwpTabletSeatV1ToolAddedEvent)
 
+// SetTabletAddedHandler sets the handler for the tablet_added event
+func (i *ZwpTabletSeatV1) SetTabletAddedHandler(f ZwpTabletSeatV1TabletAddedHandler) {
+	i.tabletAddedHandler = f
+}
+
+// SetToolAddedHandler sets the handler for the tool_added event
+func (i *ZwpTabletSeatV1) SetToolAddedHandler(f ZwpTabletSeatV1ToolAddedHandler) {
+	i.toolAddedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpTabletSeatV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // tablet_added
+		if i.tabletAddedHandler != nil {
+			ev := ZwpTabletSeatV1TabletAddedEvent{}
+			l := 0
+			_ = fd
+			idID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Id = i.Context().GetProxy(idID).(*ZwpTabletV1)
+			i.tabletAddedHandler(ev)
+		}
+	case 1: // tool_added
+		if i.toolAddedHandler != nil {
+			ev := ZwpTabletSeatV1ToolAddedEvent{}
+			l := 0
+			_ = fd
+			idID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Id = i.Context().GetProxy(idID).(*ZwpTabletToolV1)
+			i.toolAddedHandler(ev)
+		}
+	}
+}
+
 // ZwpTabletToolV1: a physical tablet tool
 type ZwpTabletToolV1 struct {
 	client.BaseProxy
+	typeHandler            ZwpTabletToolV1TypeHandler
+	hardwareSerialHandler  ZwpTabletToolV1HardwareSerialHandler
+	hardwareIdWacomHandler ZwpTabletToolV1HardwareIdWacomHandler
+	capabilityHandler      ZwpTabletToolV1CapabilityHandler
+	doneHandler            ZwpTabletToolV1DoneHandler
+	removedHandler         ZwpTabletToolV1RemovedHandler
+	proximityInHandler     ZwpTabletToolV1ProximityInHandler
+	proximityOutHandler    ZwpTabletToolV1ProximityOutHandler
+	downHandler            ZwpTabletToolV1DownHandler
+	upHandler              ZwpTabletToolV1UpHandler
+	motionHandler          ZwpTabletToolV1MotionHandler
+	pressureHandler        ZwpTabletToolV1PressureHandler
+	distanceHandler        ZwpTabletToolV1DistanceHandler
+	tiltHandler            ZwpTabletToolV1TiltHandler
+	rotationHandler        ZwpTabletToolV1RotationHandler
+	sliderHandler          ZwpTabletToolV1SliderHandler
+	wheelHandler           ZwpTabletToolV1WheelHandler
+	buttonHandler          ZwpTabletToolV1ButtonHandler
+	frameHandler           ZwpTabletToolV1FrameHandler
 }
 
 // NewZwpTabletToolV1 creates a new ZwpTabletToolV1
@@ -348,9 +405,298 @@ type ZwpTabletToolV1FrameEvent struct {
 
 type ZwpTabletToolV1FrameHandler func(ZwpTabletToolV1FrameEvent)
 
+// SetTypeHandler sets the handler for the type event
+func (i *ZwpTabletToolV1) SetTypeHandler(f ZwpTabletToolV1TypeHandler) {
+	i.typeHandler = f
+}
+
+// SetHardwareSerialHandler sets the handler for the hardware_serial event
+func (i *ZwpTabletToolV1) SetHardwareSerialHandler(f ZwpTabletToolV1HardwareSerialHandler) {
+	i.hardwareSerialHandler = f
+}
+
+// SetHardwareIdWacomHandler sets the handler for the hardware_id_wacom event
+func (i *ZwpTabletToolV1) SetHardwareIdWacomHandler(f ZwpTabletToolV1HardwareIdWacomHandler) {
+	i.hardwareIdWacomHandler = f
+}
+
+// SetCapabilityHandler sets the handler for the capability event
+func (i *ZwpTabletToolV1) SetCapabilityHandler(f ZwpTabletToolV1CapabilityHandler) {
+	i.capabilityHandler = f
+}
+
+// SetDoneHandler sets the handler for the done event
+func (i *ZwpTabletToolV1) SetDoneHandler(f ZwpTabletToolV1DoneHandler) {
+	i.doneHandler = f
+}
+
+// SetRemovedHandler sets the handler for the removed event
+func (i *ZwpTabletToolV1) SetRemovedHandler(f ZwpTabletToolV1RemovedHandler) {
+	i.removedHandler = f
+}
+
+// SetProximityInHandler sets the handler for the proximity_in event
+func (i *ZwpTabletToolV1) SetProximityInHandler(f ZwpTabletToolV1ProximityInHandler) {
+	i.proximityInHandler = f
+}
+
+// SetProximityOutHandler sets the handler for the proximity_out event
+func (i *ZwpTabletToolV1) SetProximityOutHandler(f ZwpTabletToolV1ProximityOutHandler) {
+	i.proximityOutHandler = f
+}
+
+// SetDownHandler sets the handler for the down event
+func (i *ZwpTabletToolV1) SetDownHandler(f ZwpTabletToolV1DownHandler) {
+	i.downHandler = f
+}
+
+// SetUpHandler sets the handler for the up event
+func (i *ZwpTabletToolV1) SetUpHandler(f ZwpTabletToolV1UpHandler) {
+	i.upHandler = f
+}
+
+// SetMotionHandler sets the handler for the motion event
+func (i *ZwpTabletToolV1) SetMotionHandler(f ZwpTabletToolV1MotionHandler) {
+	i.motionHandler = f
+}
+
+// SetPressureHandler sets the handler for the pressure event
+func (i *ZwpTabletToolV1) SetPressureHandler(f ZwpTabletToolV1PressureHandler) {
+	i.pressureHandler = f
+}
+
+// SetDistanceHandler sets the handler for the distance event
+func (i *ZwpTabletToolV1) SetDistanceHandler(f ZwpTabletToolV1DistanceHandler) {
+	i.distanceHandler = f
+}
+
+// SetTiltHandler sets the handler for the tilt event
+func (i *ZwpTabletToolV1) SetTiltHandler(f ZwpTabletToolV1TiltHandler) {
+	i.tiltHandler = f
+}
+
+// SetRotationHandler sets the handler for the rotation event
+func (i *ZwpTabletToolV1) SetRotationHandler(f ZwpTabletToolV1RotationHandler) {
+	i.rotationHandler = f
+}
+
+// SetSliderHandler sets the handler for the slider event
+func (i *ZwpTabletToolV1) SetSliderHandler(f ZwpTabletToolV1SliderHandler) {
+	i.sliderHandler = f
+}
+
+// SetWheelHandler sets the handler for the wheel event
+func (i *ZwpTabletToolV1) SetWheelHandler(f ZwpTabletToolV1WheelHandler) {
+	i.wheelHandler = f
+}
+
+// SetButtonHandler sets the handler for the button event
+func (i *ZwpTabletToolV1) SetButtonHandler(f ZwpTabletToolV1ButtonHandler) {
+	i.buttonHandler = f
+}
+
+// SetFrameHandler sets the handler for the frame event
+func (i *ZwpTabletToolV1) SetFrameHandler(f ZwpTabletToolV1FrameHandler) {
+	i.frameHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpTabletToolV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // type
+		if i.typeHandler != nil {
+			ev := ZwpTabletToolV1TypeEvent{}
+			l := 0
+			_ = fd
+			ev.ToolType = client.Uint32(data[l : l+4])
+			l += 4
+			i.typeHandler(ev)
+		}
+	case 1: // hardware_serial
+		if i.hardwareSerialHandler != nil {
+			ev := ZwpTabletToolV1HardwareSerialEvent{}
+			l := 0
+			_ = fd
+			ev.HardwareSerialHi = client.Uint32(data[l : l+4])
+			l += 4
+			ev.HardwareSerialLo = client.Uint32(data[l : l+4])
+			l += 4
+			i.hardwareSerialHandler(ev)
+		}
+	case 2: // hardware_id_wacom
+		if i.hardwareIdWacomHandler != nil {
+			ev := ZwpTabletToolV1HardwareIdWacomEvent{}
+			l := 0
+			_ = fd
+			ev.HardwareIdHi = client.Uint32(data[l : l+4])
+			l += 4
+			ev.HardwareIdLo = client.Uint32(data[l : l+4])
+			l += 4
+			i.hardwareIdWacomHandler(ev)
+		}
+	case 3: // capability
+		if i.capabilityHandler != nil {
+			ev := ZwpTabletToolV1CapabilityEvent{}
+			l := 0
+			_ = fd
+			ev.Capability = client.Uint32(data[l : l+4])
+			l += 4
+			i.capabilityHandler(ev)
+		}
+	case 4: // done
+		if i.doneHandler != nil {
+			ev := ZwpTabletToolV1DoneEvent{}
+			_ = fd
+			_ = data
+			i.doneHandler(ev)
+		}
+	case 5: // removed
+		if i.removedHandler != nil {
+			ev := ZwpTabletToolV1RemovedEvent{}
+			_ = fd
+			_ = data
+			i.removedHandler(ev)
+		}
+	case 6: // proximity_in
+		if i.proximityInHandler != nil {
+			ev := ZwpTabletToolV1ProximityInEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			tabletID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Tablet = i.Context().GetProxy(tabletID).(*ZwpTabletV1)
+			surfaceID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Surface = i.Context().GetProxy(surfaceID).(*client.WlSurface)
+			i.proximityInHandler(ev)
+		}
+	case 7: // proximity_out
+		if i.proximityOutHandler != nil {
+			ev := ZwpTabletToolV1ProximityOutEvent{}
+			_ = fd
+			_ = data
+			i.proximityOutHandler(ev)
+		}
+	case 8: // down
+		if i.downHandler != nil {
+			ev := ZwpTabletToolV1DownEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			i.downHandler(ev)
+		}
+	case 9: // up
+		if i.upHandler != nil {
+			ev := ZwpTabletToolV1UpEvent{}
+			_ = fd
+			_ = data
+			i.upHandler(ev)
+		}
+	case 10: // motion
+		if i.motionHandler != nil {
+			ev := ZwpTabletToolV1MotionEvent{}
+			l := 0
+			_ = fd
+			ev.X = client.Fixed(data[l : l+4])
+			l += 4
+			ev.Y = client.Fixed(data[l : l+4])
+			l += 4
+			i.motionHandler(ev)
+		}
+	case 11: // pressure
+		if i.pressureHandler != nil {
+			ev := ZwpTabletToolV1PressureEvent{}
+			l := 0
+			_ = fd
+			ev.Pressure = client.Uint32(data[l : l+4])
+			l += 4
+			i.pressureHandler(ev)
+		}
+	case 12: // distance
+		if i.distanceHandler != nil {
+			ev := ZwpTabletToolV1DistanceEvent{}
+			l := 0
+			_ = fd
+			ev.Distance = client.Uint32(data[l : l+4])
+			l += 4
+			i.distanceHandler(ev)
+		}
+	case 13: // tilt
+		if i.tiltHandler != nil {
+			ev := ZwpTabletToolV1TiltEvent{}
+			l := 0
+			_ = fd
+			ev.TiltX = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.TiltY = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.tiltHandler(ev)
+		}
+	case 14: // rotation
+		if i.rotationHandler != nil {
+			ev := ZwpTabletToolV1RotationEvent{}
+			l := 0
+			_ = fd
+			ev.Degrees = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.rotationHandler(ev)
+		}
+	case 15: // slider
+		if i.sliderHandler != nil {
+			ev := ZwpTabletToolV1SliderEvent{}
+			l := 0
+			_ = fd
+			ev.Position = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.sliderHandler(ev)
+		}
+	case 16: // wheel
+		if i.wheelHandler != nil {
+			ev := ZwpTabletToolV1WheelEvent{}
+			l := 0
+			_ = fd
+			ev.Degrees = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Clicks = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.wheelHandler(ev)
+		}
+	case 17: // button
+		if i.buttonHandler != nil {
+			ev := ZwpTabletToolV1ButtonEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Button = client.Uint32(data[l : l+4])
+			l += 4
+			ev.State = client.Uint32(data[l : l+4])
+			l += 4
+			i.buttonHandler(ev)
+		}
+	case 18: // frame
+		if i.frameHandler != nil {
+			ev := ZwpTabletToolV1FrameEvent{}
+			l := 0
+			_ = fd
+			ev.Time = client.Uint32(data[l : l+4])
+			l += 4
+			i.frameHandler(ev)
+		}
+	}
+}
+
 // ZwpTabletV1: graphics tablet device
 type ZwpTabletV1 struct {
 	client.BaseProxy
+	nameHandler    ZwpTabletV1NameHandler
+	idHandler      ZwpTabletV1IdHandler
+	pathHandler    ZwpTabletV1PathHandler
+	doneHandler    ZwpTabletV1DoneHandler
+	removedHandler ZwpTabletV1RemovedHandler
 }
 
 // NewZwpTabletV1 creates a new ZwpTabletV1
@@ -408,3 +754,83 @@ type ZwpTabletV1RemovedEvent struct {
 }
 
 type ZwpTabletV1RemovedHandler func(ZwpTabletV1RemovedEvent)
+
+// SetNameHandler sets the handler for the name event
+func (i *ZwpTabletV1) SetNameHandler(f ZwpTabletV1NameHandler) {
+	i.nameHandler = f
+}
+
+// SetIdHandler sets the handler for the id event
+func (i *ZwpTabletV1) SetIdHandler(f ZwpTabletV1IdHandler) {
+	i.idHandler = f
+}
+
+// SetPathHandler sets the handler for the path event
+func (i *ZwpTabletV1) SetPathHandler(f ZwpTabletV1PathHandler) {
+	i.pathHandler = f
+}
+
+// SetDoneHandler sets the handler for the done event
+func (i *ZwpTabletV1) SetDoneHandler(f ZwpTabletV1DoneHandler) {
+	i.doneHandler = f
+}
+
+// SetRemovedHandler sets the handler for the removed event
+func (i *ZwpTabletV1) SetRemovedHandler(f ZwpTabletV1RemovedHandler) {
+	i.removedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpTabletV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // name
+		if i.nameHandler != nil {
+			ev := ZwpTabletV1NameEvent{}
+			l := 0
+			_ = fd
+			nameRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			nameLen := client.PaddedLen(nameRawLen)
+			ev.Name = client.String(data[l : l+nameLen])
+			l += nameLen
+			i.nameHandler(ev)
+		}
+	case 1: // id
+		if i.idHandler != nil {
+			ev := ZwpTabletV1IdEvent{}
+			l := 0
+			_ = fd
+			ev.Vid = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Pid = client.Uint32(data[l : l+4])
+			l += 4
+			i.idHandler(ev)
+		}
+	case 2: // path
+		if i.pathHandler != nil {
+			ev := ZwpTabletV1PathEvent{}
+			l := 0
+			_ = fd
+			pathRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			pathLen := client.PaddedLen(pathRawLen)
+			ev.Path = client.String(data[l : l+pathLen])
+			l += pathLen
+			i.pathHandler(ev)
+		}
+	case 3: // done
+		if i.doneHandler != nil {
+			ev := ZwpTabletV1DoneEvent{}
+			_ = fd
+			_ = data
+			i.doneHandler(ev)
+		}
+	case 4: // removed
+		if i.removedHandler != nil {
+			ev := ZwpTabletV1RemovedEvent{}
+			_ = fd
+			_ = data
+			i.removedHandler(ev)
+		}
+	}
+}

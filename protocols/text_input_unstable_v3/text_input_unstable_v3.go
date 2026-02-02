@@ -35,6 +35,12 @@ import (
 // ZwpTextInputV3: text input
 type ZwpTextInputV3 struct {
 	client.BaseProxy
+	enterHandler                 ZwpTextInputV3EnterHandler
+	leaveHandler                 ZwpTextInputV3LeaveHandler
+	preeditStringHandler         ZwpTextInputV3PreeditStringHandler
+	commitStringHandler          ZwpTextInputV3CommitStringHandler
+	deleteSurroundingTextHandler ZwpTextInputV3DeleteSurroundingTextHandler
+	doneHandler                  ZwpTextInputV3DoneHandler
 }
 
 // NewZwpTextInputV3 creates a new ZwpTextInputV3
@@ -267,6 +273,116 @@ type ZwpTextInputV3DoneEvent struct {
 }
 
 type ZwpTextInputV3DoneHandler func(ZwpTextInputV3DoneEvent)
+
+// SetEnterHandler sets the handler for the enter event
+func (i *ZwpTextInputV3) SetEnterHandler(f ZwpTextInputV3EnterHandler) {
+	i.enterHandler = f
+}
+
+// SetLeaveHandler sets the handler for the leave event
+func (i *ZwpTextInputV3) SetLeaveHandler(f ZwpTextInputV3LeaveHandler) {
+	i.leaveHandler = f
+}
+
+// SetPreeditStringHandler sets the handler for the preedit_string event
+func (i *ZwpTextInputV3) SetPreeditStringHandler(f ZwpTextInputV3PreeditStringHandler) {
+	i.preeditStringHandler = f
+}
+
+// SetCommitStringHandler sets the handler for the commit_string event
+func (i *ZwpTextInputV3) SetCommitStringHandler(f ZwpTextInputV3CommitStringHandler) {
+	i.commitStringHandler = f
+}
+
+// SetDeleteSurroundingTextHandler sets the handler for the delete_surrounding_text event
+func (i *ZwpTextInputV3) SetDeleteSurroundingTextHandler(f ZwpTextInputV3DeleteSurroundingTextHandler) {
+	i.deleteSurroundingTextHandler = f
+}
+
+// SetDoneHandler sets the handler for the done event
+func (i *ZwpTextInputV3) SetDoneHandler(f ZwpTextInputV3DoneHandler) {
+	i.doneHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpTextInputV3) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // enter
+		if i.enterHandler != nil {
+			ev := ZwpTextInputV3EnterEvent{}
+			l := 0
+			_ = fd
+			surfaceID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Surface = i.Context().GetProxy(surfaceID).(*client.WlSurface)
+			i.enterHandler(ev)
+		}
+	case 1: // leave
+		if i.leaveHandler != nil {
+			ev := ZwpTextInputV3LeaveEvent{}
+			l := 0
+			_ = fd
+			surfaceID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Surface = i.Context().GetProxy(surfaceID).(*client.WlSurface)
+			i.leaveHandler(ev)
+		}
+	case 2: // preedit_string
+		if i.preeditStringHandler != nil {
+			ev := ZwpTextInputV3PreeditStringEvent{}
+			l := 0
+			_ = fd
+			textRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			if textRawLen > 0 {
+				textLen := client.PaddedLen(textRawLen)
+				textStr := client.String(data[l : l+textLen])
+				ev.Text = &textStr
+				l += textLen
+			}
+			ev.CursorBegin = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.CursorEnd = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.preeditStringHandler(ev)
+		}
+	case 3: // commit_string
+		if i.commitStringHandler != nil {
+			ev := ZwpTextInputV3CommitStringEvent{}
+			l := 0
+			_ = fd
+			textRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			if textRawLen > 0 {
+				textLen := client.PaddedLen(textRawLen)
+				textStr := client.String(data[l : l+textLen])
+				ev.Text = &textStr
+				l += textLen
+			}
+			i.commitStringHandler(ev)
+		}
+	case 4: // delete_surrounding_text
+		if i.deleteSurroundingTextHandler != nil {
+			ev := ZwpTextInputV3DeleteSurroundingTextEvent{}
+			l := 0
+			_ = fd
+			ev.BeforeLength = client.Uint32(data[l : l+4])
+			l += 4
+			ev.AfterLength = client.Uint32(data[l : l+4])
+			l += 4
+			i.deleteSurroundingTextHandler(ev)
+		}
+	case 5: // done
+		if i.doneHandler != nil {
+			ev := ZwpTextInputV3DoneEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			i.doneHandler(ev)
+		}
+	}
+}
 
 // ZwpTextInputManagerV3: text input manager
 type ZwpTextInputManagerV3 struct {

@@ -113,6 +113,7 @@ func (i *ZwpInputTimestampsManagerV1) GetTouchTimestamps(touch *client.WlTouch) 
 // ZwpInputTimestampsV1: context object for input timestamps
 type ZwpInputTimestampsV1 struct {
 	client.BaseProxy
+	timestampHandler ZwpInputTimestampsV1TimestampHandler
 }
 
 // NewZwpInputTimestampsV1 creates a new ZwpInputTimestampsV1
@@ -145,3 +146,27 @@ type ZwpInputTimestampsV1TimestampEvent struct {
 }
 
 type ZwpInputTimestampsV1TimestampHandler func(ZwpInputTimestampsV1TimestampEvent)
+
+// SetTimestampHandler sets the handler for the timestamp event
+func (i *ZwpInputTimestampsV1) SetTimestampHandler(f ZwpInputTimestampsV1TimestampHandler) {
+	i.timestampHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpInputTimestampsV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // timestamp
+		if i.timestampHandler != nil {
+			ev := ZwpInputTimestampsV1TimestampEvent{}
+			l := 0
+			_ = fd
+			ev.TvSecHi = client.Uint32(data[l : l+4])
+			l += 4
+			ev.TvSecLo = client.Uint32(data[l : l+4])
+			l += 4
+			ev.TvNsec = client.Uint32(data[l : l+4])
+			l += 4
+			i.timestampHandler(ev)
+		}
+	}
+}

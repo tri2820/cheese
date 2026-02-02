@@ -34,6 +34,7 @@ import (
 // XdgWmBase: create desktop-style surfaces
 type XdgWmBase struct {
 	client.BaseProxy
+	pingHandler XdgWmBasePingHandler
 }
 
 // NewXdgWmBase creates a new XdgWmBase
@@ -128,6 +129,26 @@ type XdgWmBasePingEvent struct {
 }
 
 type XdgWmBasePingHandler func(XdgWmBasePingEvent)
+
+// SetPingHandler sets the handler for the ping event
+func (i *XdgWmBase) SetPingHandler(f XdgWmBasePingHandler) {
+	i.pingHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *XdgWmBase) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // ping
+		if i.pingHandler != nil {
+			ev := XdgWmBasePingEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			i.pingHandler(ev)
+		}
+	}
+}
 
 // XdgPositioner: child surface positioner
 type XdgPositioner struct {
@@ -359,6 +380,7 @@ func (i *XdgPositioner) SetParentConfigure(serial uint32) error {
 // XdgSurface: desktop user interface surface base interface
 type XdgSurface struct {
 	client.BaseProxy
+	configureHandler XdgSurfaceConfigureHandler
 }
 
 // NewXdgSurface creates a new XdgSurface
@@ -482,9 +504,33 @@ type XdgSurfaceConfigureEvent struct {
 
 type XdgSurfaceConfigureHandler func(XdgSurfaceConfigureEvent)
 
+// SetConfigureHandler sets the handler for the configure event
+func (i *XdgSurface) SetConfigureHandler(f XdgSurfaceConfigureHandler) {
+	i.configureHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *XdgSurface) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // configure
+		if i.configureHandler != nil {
+			ev := XdgSurfaceConfigureEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			i.configureHandler(ev)
+		}
+	}
+}
+
 // XdgToplevel: toplevel surface
 type XdgToplevel struct {
 	client.BaseProxy
+	configureHandler       XdgToplevelConfigureHandler
+	closeHandler           XdgToplevelCloseHandler
+	configureBoundsHandler XdgToplevelConfigureBoundsHandler
+	wmCapabilitiesHandler  XdgToplevelWmCapabilitiesHandler
 }
 
 // NewXdgToplevel creates a new XdgToplevel
@@ -818,9 +864,82 @@ type XdgToplevelWmCapabilitiesEvent struct {
 
 type XdgToplevelWmCapabilitiesHandler func(XdgToplevelWmCapabilitiesEvent)
 
+// SetConfigureHandler sets the handler for the configure event
+func (i *XdgToplevel) SetConfigureHandler(f XdgToplevelConfigureHandler) {
+	i.configureHandler = f
+}
+
+// SetCloseHandler sets the handler for the close event
+func (i *XdgToplevel) SetCloseHandler(f XdgToplevelCloseHandler) {
+	i.closeHandler = f
+}
+
+// SetConfigureBoundsHandler sets the handler for the configure_bounds event
+func (i *XdgToplevel) SetConfigureBoundsHandler(f XdgToplevelConfigureBoundsHandler) {
+	i.configureBoundsHandler = f
+}
+
+// SetWmCapabilitiesHandler sets the handler for the wm_capabilities event
+func (i *XdgToplevel) SetWmCapabilitiesHandler(f XdgToplevelWmCapabilitiesHandler) {
+	i.wmCapabilitiesHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *XdgToplevel) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // configure
+		if i.configureHandler != nil {
+			ev := XdgToplevelConfigureEvent{}
+			l := 0
+			_ = fd
+			ev.Width = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Height = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			statesLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.States = data[l : l+statesLen]
+			l += client.PaddedLen(statesLen)
+			i.configureHandler(ev)
+		}
+	case 1: // close
+		if i.closeHandler != nil {
+			ev := XdgToplevelCloseEvent{}
+			_ = fd
+			_ = data
+			i.closeHandler(ev)
+		}
+	case 2: // configure_bounds
+		if i.configureBoundsHandler != nil {
+			ev := XdgToplevelConfigureBoundsEvent{}
+			l := 0
+			_ = fd
+			ev.Width = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Height = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.configureBoundsHandler(ev)
+		}
+	case 3: // wm_capabilities
+		if i.wmCapabilitiesHandler != nil {
+			ev := XdgToplevelWmCapabilitiesEvent{}
+			l := 0
+			_ = fd
+			capabilitiesLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Capabilities = data[l : l+capabilitiesLen]
+			l += client.PaddedLen(capabilitiesLen)
+			i.wmCapabilitiesHandler(ev)
+		}
+	}
+}
+
 // XdgPopup: short-lived, popup surfaces for menus
 type XdgPopup struct {
 	client.BaseProxy
+	configureHandler    XdgPopupConfigureHandler
+	popupDoneHandler    XdgPopupPopupDoneHandler
+	repositionedHandler XdgPopupRepositionedHandler
 }
 
 // NewXdgPopup creates a new XdgPopup
@@ -909,3 +1028,55 @@ type XdgPopupRepositionedEvent struct {
 }
 
 type XdgPopupRepositionedHandler func(XdgPopupRepositionedEvent)
+
+// SetConfigureHandler sets the handler for the configure event
+func (i *XdgPopup) SetConfigureHandler(f XdgPopupConfigureHandler) {
+	i.configureHandler = f
+}
+
+// SetPopupDoneHandler sets the handler for the popup_done event
+func (i *XdgPopup) SetPopupDoneHandler(f XdgPopupPopupDoneHandler) {
+	i.popupDoneHandler = f
+}
+
+// SetRepositionedHandler sets the handler for the repositioned event
+func (i *XdgPopup) SetRepositionedHandler(f XdgPopupRepositionedHandler) {
+	i.repositionedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *XdgPopup) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // configure
+		if i.configureHandler != nil {
+			ev := XdgPopupConfigureEvent{}
+			l := 0
+			_ = fd
+			ev.X = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Y = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Width = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Height = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.configureHandler(ev)
+		}
+	case 1: // popup_done
+		if i.popupDoneHandler != nil {
+			ev := XdgPopupPopupDoneEvent{}
+			_ = fd
+			_ = data
+			i.popupDoneHandler(ev)
+		}
+	case 2: // repositioned
+		if i.repositionedHandler != nil {
+			ev := XdgPopupRepositionedEvent{}
+			l := 0
+			_ = fd
+			ev.Token = client.Uint32(data[l : l+4])
+			l += 4
+			i.repositionedHandler(ev)
+		}
+	}
+}

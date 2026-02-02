@@ -32,6 +32,7 @@ import (
 // ZxdgShellV6: create desktop-style surfaces
 type ZxdgShellV6 struct {
 	client.BaseProxy
+	pingHandler ZxdgShellV6PingHandler
 }
 
 // NewZxdgShellV6 creates a new ZxdgShellV6
@@ -125,6 +126,26 @@ type ZxdgShellV6PingEvent struct {
 }
 
 type ZxdgShellV6PingHandler func(ZxdgShellV6PingEvent)
+
+// SetPingHandler sets the handler for the ping event
+func (i *ZxdgShellV6) SetPingHandler(f ZxdgShellV6PingHandler) {
+	i.pingHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZxdgShellV6) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // ping
+		if i.pingHandler != nil {
+			ev := ZxdgShellV6PingEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			i.pingHandler(ev)
+		}
+	}
+}
 
 // ZxdgPositionerV6: child surface positioner
 type ZxdgPositionerV6 struct {
@@ -301,6 +322,7 @@ func (i *ZxdgPositionerV6) SetOffset(x int32, y int32) error {
 // ZxdgSurfaceV6: desktop user interface surface base interface
 type ZxdgSurfaceV6 struct {
 	client.BaseProxy
+	configureHandler ZxdgSurfaceV6ConfigureHandler
 }
 
 // NewZxdgSurfaceV6 creates a new ZxdgSurfaceV6
@@ -416,9 +438,31 @@ type ZxdgSurfaceV6ConfigureEvent struct {
 
 type ZxdgSurfaceV6ConfigureHandler func(ZxdgSurfaceV6ConfigureEvent)
 
+// SetConfigureHandler sets the handler for the configure event
+func (i *ZxdgSurfaceV6) SetConfigureHandler(f ZxdgSurfaceV6ConfigureHandler) {
+	i.configureHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZxdgSurfaceV6) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // configure
+		if i.configureHandler != nil {
+			ev := ZxdgSurfaceV6ConfigureEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			i.configureHandler(ev)
+		}
+	}
+}
+
 // ZxdgToplevelV6: toplevel surface
 type ZxdgToplevelV6 struct {
 	client.BaseProxy
+	configureHandler ZxdgToplevelV6ConfigureHandler
+	closeHandler     ZxdgToplevelV6CloseHandler
 }
 
 // NewZxdgToplevelV6 creates a new ZxdgToplevelV6
@@ -710,9 +754,49 @@ type ZxdgToplevelV6CloseEvent struct {
 
 type ZxdgToplevelV6CloseHandler func(ZxdgToplevelV6CloseEvent)
 
+// SetConfigureHandler sets the handler for the configure event
+func (i *ZxdgToplevelV6) SetConfigureHandler(f ZxdgToplevelV6ConfigureHandler) {
+	i.configureHandler = f
+}
+
+// SetCloseHandler sets the handler for the close event
+func (i *ZxdgToplevelV6) SetCloseHandler(f ZxdgToplevelV6CloseHandler) {
+	i.closeHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZxdgToplevelV6) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // configure
+		if i.configureHandler != nil {
+			ev := ZxdgToplevelV6ConfigureEvent{}
+			l := 0
+			_ = fd
+			ev.Width = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Height = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			statesLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.States = data[l : l+statesLen]
+			l += client.PaddedLen(statesLen)
+			i.configureHandler(ev)
+		}
+	case 1: // close
+		if i.closeHandler != nil {
+			ev := ZxdgToplevelV6CloseEvent{}
+			_ = fd
+			_ = data
+			i.closeHandler(ev)
+		}
+	}
+}
+
 // ZxdgPopupV6: short-lived, popup surfaces for menus
 type ZxdgPopupV6 struct {
 	client.BaseProxy
+	configureHandler ZxdgPopupV6ConfigureHandler
+	popupDoneHandler ZxdgPopupV6PopupDoneHandler
 }
 
 // NewZxdgPopupV6 creates a new ZxdgPopupV6
@@ -776,3 +860,41 @@ type ZxdgPopupV6PopupDoneEvent struct {
 }
 
 type ZxdgPopupV6PopupDoneHandler func(ZxdgPopupV6PopupDoneEvent)
+
+// SetConfigureHandler sets the handler for the configure event
+func (i *ZxdgPopupV6) SetConfigureHandler(f ZxdgPopupV6ConfigureHandler) {
+	i.configureHandler = f
+}
+
+// SetPopupDoneHandler sets the handler for the popup_done event
+func (i *ZxdgPopupV6) SetPopupDoneHandler(f ZxdgPopupV6PopupDoneHandler) {
+	i.popupDoneHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZxdgPopupV6) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // configure
+		if i.configureHandler != nil {
+			ev := ZxdgPopupV6ConfigureEvent{}
+			l := 0
+			_ = fd
+			ev.X = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Y = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Width = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Height = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.configureHandler(ev)
+		}
+	case 1: // popup_done
+		if i.popupDoneHandler != nil {
+			ev := ZxdgPopupV6PopupDoneEvent{}
+			_ = fd
+			_ = data
+			i.popupDoneHandler(ev)
+		}
+	}
+}

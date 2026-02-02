@@ -95,6 +95,9 @@ func (i *ZwpPointerGesturesV1) GetHoldGesture(pointer *client.WlPointer) (*ZwpPo
 // ZwpPointerGestureSwipeV1: a swipe gesture object
 type ZwpPointerGestureSwipeV1 struct {
 	client.BaseProxy
+	beginHandler  ZwpPointerGestureSwipeV1BeginHandler
+	updateHandler ZwpPointerGestureSwipeV1UpdateHandler
+	endHandler    ZwpPointerGestureSwipeV1EndHandler
 }
 
 // NewZwpPointerGestureSwipeV1 creates a new ZwpPointerGestureSwipeV1
@@ -147,9 +150,75 @@ type ZwpPointerGestureSwipeV1EndEvent struct {
 
 type ZwpPointerGestureSwipeV1EndHandler func(ZwpPointerGestureSwipeV1EndEvent)
 
+// SetBeginHandler sets the handler for the begin event
+func (i *ZwpPointerGestureSwipeV1) SetBeginHandler(f ZwpPointerGestureSwipeV1BeginHandler) {
+	i.beginHandler = f
+}
+
+// SetUpdateHandler sets the handler for the update event
+func (i *ZwpPointerGestureSwipeV1) SetUpdateHandler(f ZwpPointerGestureSwipeV1UpdateHandler) {
+	i.updateHandler = f
+}
+
+// SetEndHandler sets the handler for the end event
+func (i *ZwpPointerGestureSwipeV1) SetEndHandler(f ZwpPointerGestureSwipeV1EndHandler) {
+	i.endHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpPointerGestureSwipeV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // begin
+		if i.beginHandler != nil {
+			ev := ZwpPointerGestureSwipeV1BeginEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Time = client.Uint32(data[l : l+4])
+			l += 4
+			surfaceID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Surface = i.Context().GetProxy(surfaceID).(*client.WlSurface)
+			ev.Fingers = client.Uint32(data[l : l+4])
+			l += 4
+			i.beginHandler(ev)
+		}
+	case 1: // update
+		if i.updateHandler != nil {
+			ev := ZwpPointerGestureSwipeV1UpdateEvent{}
+			l := 0
+			_ = fd
+			ev.Time = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Dx = client.Fixed(data[l : l+4])
+			l += 4
+			ev.Dy = client.Fixed(data[l : l+4])
+			l += 4
+			i.updateHandler(ev)
+		}
+	case 2: // end
+		if i.endHandler != nil {
+			ev := ZwpPointerGestureSwipeV1EndEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Time = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Cancelled = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.endHandler(ev)
+		}
+	}
+}
+
 // ZwpPointerGesturePinchV1: a pinch gesture object
 type ZwpPointerGesturePinchV1 struct {
 	client.BaseProxy
+	beginHandler  ZwpPointerGesturePinchV1BeginHandler
+	updateHandler ZwpPointerGesturePinchV1UpdateHandler
+	endHandler    ZwpPointerGesturePinchV1EndHandler
 }
 
 // NewZwpPointerGesturePinchV1 creates a new ZwpPointerGesturePinchV1
@@ -204,9 +273,78 @@ type ZwpPointerGesturePinchV1EndEvent struct {
 
 type ZwpPointerGesturePinchV1EndHandler func(ZwpPointerGesturePinchV1EndEvent)
 
+// SetBeginHandler sets the handler for the begin event
+func (i *ZwpPointerGesturePinchV1) SetBeginHandler(f ZwpPointerGesturePinchV1BeginHandler) {
+	i.beginHandler = f
+}
+
+// SetUpdateHandler sets the handler for the update event
+func (i *ZwpPointerGesturePinchV1) SetUpdateHandler(f ZwpPointerGesturePinchV1UpdateHandler) {
+	i.updateHandler = f
+}
+
+// SetEndHandler sets the handler for the end event
+func (i *ZwpPointerGesturePinchV1) SetEndHandler(f ZwpPointerGesturePinchV1EndHandler) {
+	i.endHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpPointerGesturePinchV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // begin
+		if i.beginHandler != nil {
+			ev := ZwpPointerGesturePinchV1BeginEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Time = client.Uint32(data[l : l+4])
+			l += 4
+			surfaceID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Surface = i.Context().GetProxy(surfaceID).(*client.WlSurface)
+			ev.Fingers = client.Uint32(data[l : l+4])
+			l += 4
+			i.beginHandler(ev)
+		}
+	case 1: // update
+		if i.updateHandler != nil {
+			ev := ZwpPointerGesturePinchV1UpdateEvent{}
+			l := 0
+			_ = fd
+			ev.Time = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Dx = client.Fixed(data[l : l+4])
+			l += 4
+			ev.Dy = client.Fixed(data[l : l+4])
+			l += 4
+			ev.Scale = client.Fixed(data[l : l+4])
+			l += 4
+			ev.Rotation = client.Fixed(data[l : l+4])
+			l += 4
+			i.updateHandler(ev)
+		}
+	case 2: // end
+		if i.endHandler != nil {
+			ev := ZwpPointerGesturePinchV1EndEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Time = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Cancelled = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.endHandler(ev)
+		}
+	}
+}
+
 // ZwpPointerGestureHoldV1: a hold gesture object
 type ZwpPointerGestureHoldV1 struct {
 	client.BaseProxy
+	beginHandler ZwpPointerGestureHoldV1BeginHandler
+	endHandler   ZwpPointerGestureHoldV1EndHandler
 }
 
 // NewZwpPointerGestureHoldV1 creates a new ZwpPointerGestureHoldV1
@@ -249,3 +387,48 @@ type ZwpPointerGestureHoldV1EndEvent struct {
 }
 
 type ZwpPointerGestureHoldV1EndHandler func(ZwpPointerGestureHoldV1EndEvent)
+
+// SetBeginHandler sets the handler for the begin event
+func (i *ZwpPointerGestureHoldV1) SetBeginHandler(f ZwpPointerGestureHoldV1BeginHandler) {
+	i.beginHandler = f
+}
+
+// SetEndHandler sets the handler for the end event
+func (i *ZwpPointerGestureHoldV1) SetEndHandler(f ZwpPointerGestureHoldV1EndHandler) {
+	i.endHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpPointerGestureHoldV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // begin
+		if i.beginHandler != nil {
+			ev := ZwpPointerGestureHoldV1BeginEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Time = client.Uint32(data[l : l+4])
+			l += 4
+			surfaceID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Surface = i.Context().GetProxy(surfaceID).(*client.WlSurface)
+			ev.Fingers = client.Uint32(data[l : l+4])
+			l += 4
+			i.beginHandler(ev)
+		}
+	case 1: // end
+		if i.endHandler != nil {
+			ev := ZwpPointerGestureHoldV1EndEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Time = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Cancelled = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.endHandler(ev)
+		}
+	}
+}

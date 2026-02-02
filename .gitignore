@@ -27,3 +27,4 @@ result-*
 *.tmp
 *.bak
 .*.swp
+examples/rainbow/rainbow

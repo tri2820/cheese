@@ -29,6 +29,19 @@ import (
 // ZwpTextInputV1: text input
 type ZwpTextInputV1 struct {
 	client.BaseProxy
+	enterHandler                 ZwpTextInputV1EnterHandler
+	leaveHandler                 ZwpTextInputV1LeaveHandler
+	modifiersMapHandler          ZwpTextInputV1ModifiersMapHandler
+	inputPanelStateHandler       ZwpTextInputV1InputPanelStateHandler
+	preeditStringHandler         ZwpTextInputV1PreeditStringHandler
+	preeditStylingHandler        ZwpTextInputV1PreeditStylingHandler
+	preeditCursorHandler         ZwpTextInputV1PreeditCursorHandler
+	commitStringHandler          ZwpTextInputV1CommitStringHandler
+	cursorPositionHandler        ZwpTextInputV1CursorPositionHandler
+	deleteSurroundingTextHandler ZwpTextInputV1DeleteSurroundingTextHandler
+	keysymHandler                ZwpTextInputV1KeysymHandler
+	languageHandler              ZwpTextInputV1LanguageHandler
+	textDirectionHandler         ZwpTextInputV1TextDirectionHandler
 }
 
 // NewZwpTextInputV1 creates a new ZwpTextInputV1
@@ -384,6 +397,233 @@ type ZwpTextInputV1TextDirectionEvent struct {
 }
 
 type ZwpTextInputV1TextDirectionHandler func(ZwpTextInputV1TextDirectionEvent)
+
+// SetEnterHandler sets the handler for the enter event
+func (i *ZwpTextInputV1) SetEnterHandler(f ZwpTextInputV1EnterHandler) {
+	i.enterHandler = f
+}
+
+// SetLeaveHandler sets the handler for the leave event
+func (i *ZwpTextInputV1) SetLeaveHandler(f ZwpTextInputV1LeaveHandler) {
+	i.leaveHandler = f
+}
+
+// SetModifiersMapHandler sets the handler for the modifiers_map event
+func (i *ZwpTextInputV1) SetModifiersMapHandler(f ZwpTextInputV1ModifiersMapHandler) {
+	i.modifiersMapHandler = f
+}
+
+// SetInputPanelStateHandler sets the handler for the input_panel_state event
+func (i *ZwpTextInputV1) SetInputPanelStateHandler(f ZwpTextInputV1InputPanelStateHandler) {
+	i.inputPanelStateHandler = f
+}
+
+// SetPreeditStringHandler sets the handler for the preedit_string event
+func (i *ZwpTextInputV1) SetPreeditStringHandler(f ZwpTextInputV1PreeditStringHandler) {
+	i.preeditStringHandler = f
+}
+
+// SetPreeditStylingHandler sets the handler for the preedit_styling event
+func (i *ZwpTextInputV1) SetPreeditStylingHandler(f ZwpTextInputV1PreeditStylingHandler) {
+	i.preeditStylingHandler = f
+}
+
+// SetPreeditCursorHandler sets the handler for the preedit_cursor event
+func (i *ZwpTextInputV1) SetPreeditCursorHandler(f ZwpTextInputV1PreeditCursorHandler) {
+	i.preeditCursorHandler = f
+}
+
+// SetCommitStringHandler sets the handler for the commit_string event
+func (i *ZwpTextInputV1) SetCommitStringHandler(f ZwpTextInputV1CommitStringHandler) {
+	i.commitStringHandler = f
+}
+
+// SetCursorPositionHandler sets the handler for the cursor_position event
+func (i *ZwpTextInputV1) SetCursorPositionHandler(f ZwpTextInputV1CursorPositionHandler) {
+	i.cursorPositionHandler = f
+}
+
+// SetDeleteSurroundingTextHandler sets the handler for the delete_surrounding_text event
+func (i *ZwpTextInputV1) SetDeleteSurroundingTextHandler(f ZwpTextInputV1DeleteSurroundingTextHandler) {
+	i.deleteSurroundingTextHandler = f
+}
+
+// SetKeysymHandler sets the handler for the keysym event
+func (i *ZwpTextInputV1) SetKeysymHandler(f ZwpTextInputV1KeysymHandler) {
+	i.keysymHandler = f
+}
+
+// SetLanguageHandler sets the handler for the language event
+func (i *ZwpTextInputV1) SetLanguageHandler(f ZwpTextInputV1LanguageHandler) {
+	i.languageHandler = f
+}
+
+// SetTextDirectionHandler sets the handler for the text_direction event
+func (i *ZwpTextInputV1) SetTextDirectionHandler(f ZwpTextInputV1TextDirectionHandler) {
+	i.textDirectionHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpTextInputV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // enter
+		if i.enterHandler != nil {
+			ev := ZwpTextInputV1EnterEvent{}
+			l := 0
+			_ = fd
+			surfaceID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Surface = i.Context().GetProxy(surfaceID).(*client.WlSurface)
+			i.enterHandler(ev)
+		}
+	case 1: // leave
+		if i.leaveHandler != nil {
+			ev := ZwpTextInputV1LeaveEvent{}
+			_ = fd
+			_ = data
+			i.leaveHandler(ev)
+		}
+	case 2: // modifiers_map
+		if i.modifiersMapHandler != nil {
+			ev := ZwpTextInputV1ModifiersMapEvent{}
+			l := 0
+			_ = fd
+			map_Len := int(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Map = data[l : l+map_Len]
+			l += client.PaddedLen(map_Len)
+			i.modifiersMapHandler(ev)
+		}
+	case 3: // input_panel_state
+		if i.inputPanelStateHandler != nil {
+			ev := ZwpTextInputV1InputPanelStateEvent{}
+			l := 0
+			_ = fd
+			ev.State = client.Uint32(data[l : l+4])
+			l += 4
+			i.inputPanelStateHandler(ev)
+		}
+	case 4: // preedit_string
+		if i.preeditStringHandler != nil {
+			ev := ZwpTextInputV1PreeditStringEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			textRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			textLen := client.PaddedLen(textRawLen)
+			ev.Text = client.String(data[l : l+textLen])
+			l += textLen
+			commitRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			commitLen := client.PaddedLen(commitRawLen)
+			ev.Commit = client.String(data[l : l+commitLen])
+			l += commitLen
+			i.preeditStringHandler(ev)
+		}
+	case 5: // preedit_styling
+		if i.preeditStylingHandler != nil {
+			ev := ZwpTextInputV1PreeditStylingEvent{}
+			l := 0
+			_ = fd
+			ev.Index = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Length = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Style = client.Uint32(data[l : l+4])
+			l += 4
+			i.preeditStylingHandler(ev)
+		}
+	case 6: // preedit_cursor
+		if i.preeditCursorHandler != nil {
+			ev := ZwpTextInputV1PreeditCursorEvent{}
+			l := 0
+			_ = fd
+			ev.Index = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.preeditCursorHandler(ev)
+		}
+	case 7: // commit_string
+		if i.commitStringHandler != nil {
+			ev := ZwpTextInputV1CommitStringEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			textRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			textLen := client.PaddedLen(textRawLen)
+			ev.Text = client.String(data[l : l+textLen])
+			l += textLen
+			i.commitStringHandler(ev)
+		}
+	case 8: // cursor_position
+		if i.cursorPositionHandler != nil {
+			ev := ZwpTextInputV1CursorPositionEvent{}
+			l := 0
+			_ = fd
+			ev.Index = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Anchor = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			i.cursorPositionHandler(ev)
+		}
+	case 9: // delete_surrounding_text
+		if i.deleteSurroundingTextHandler != nil {
+			ev := ZwpTextInputV1DeleteSurroundingTextEvent{}
+			l := 0
+			_ = fd
+			ev.Index = int32(client.Uint32(data[l : l+4]))
+			l += 4
+			ev.Length = client.Uint32(data[l : l+4])
+			l += 4
+			i.deleteSurroundingTextHandler(ev)
+		}
+	case 10: // keysym
+		if i.keysymHandler != nil {
+			ev := ZwpTextInputV1KeysymEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Time = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Sym = client.Uint32(data[l : l+4])
+			l += 4
+			ev.State = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Modifiers = client.Uint32(data[l : l+4])
+			l += 4
+			i.keysymHandler(ev)
+		}
+	case 11: // language
+		if i.languageHandler != nil {
+			ev := ZwpTextInputV1LanguageEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			languageRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			languageLen := client.PaddedLen(languageRawLen)
+			ev.Language = client.String(data[l : l+languageLen])
+			l += languageLen
+			i.languageHandler(ev)
+		}
+	case 12: // text_direction
+		if i.textDirectionHandler != nil {
+			ev := ZwpTextInputV1TextDirectionEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Direction = client.Uint32(data[l : l+4])
+			l += 4
+			i.textDirectionHandler(ev)
+		}
+	}
+}
 
 // ZwpTextInputManagerV1: text input manager
 type ZwpTextInputManagerV1 struct {

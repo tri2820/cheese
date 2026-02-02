@@ -81,6 +81,7 @@ func (i *WpFractionalScaleManagerV1) GetFractionalScale(surface *client.WlSurfac
 // WpFractionalScaleV1: fractional scale interface to a wl_surface
 type WpFractionalScaleV1 struct {
 	client.BaseProxy
+	preferredScaleHandler WpFractionalScaleV1PreferredScaleHandler
 }
 
 // NewWpFractionalScaleV1 creates a new WpFractionalScaleV1
@@ -111,3 +112,23 @@ type WpFractionalScaleV1PreferredScaleEvent struct {
 }
 
 type WpFractionalScaleV1PreferredScaleHandler func(WpFractionalScaleV1PreferredScaleEvent)
+
+// SetPreferredScaleHandler sets the handler for the preferred_scale event
+func (i *WpFractionalScaleV1) SetPreferredScaleHandler(f WpFractionalScaleV1PreferredScaleHandler) {
+	i.preferredScaleHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WpFractionalScaleV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // preferred_scale
+		if i.preferredScaleHandler != nil {
+			ev := WpFractionalScaleV1PreferredScaleEvent{}
+			l := 0
+			_ = fd
+			ev.Scale = client.Uint32(data[l : l+4])
+			l += 4
+			i.preferredScaleHandler(ev)
+		}
+	}
+}

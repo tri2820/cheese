@@ -31,6 +31,10 @@ import (
 // WpDrmLeaseDeviceV1: lease device
 type WpDrmLeaseDeviceV1 struct {
 	client.BaseProxy
+	drmFdHandler     WpDrmLeaseDeviceV1DrmFdHandler
+	connectorHandler WpDrmLeaseDeviceV1ConnectorHandler
+	doneHandler      WpDrmLeaseDeviceV1DoneHandler
+	releasedHandler  WpDrmLeaseDeviceV1ReleasedHandler
 }
 
 // NewWpDrmLeaseDeviceV1 creates a new WpDrmLeaseDeviceV1
@@ -97,9 +101,71 @@ type WpDrmLeaseDeviceV1ReleasedEvent struct {
 
 type WpDrmLeaseDeviceV1ReleasedHandler func(WpDrmLeaseDeviceV1ReleasedEvent)
 
+// SetDrmFdHandler sets the handler for the drm_fd event
+func (i *WpDrmLeaseDeviceV1) SetDrmFdHandler(f WpDrmLeaseDeviceV1DrmFdHandler) {
+	i.drmFdHandler = f
+}
+
+// SetConnectorHandler sets the handler for the connector event
+func (i *WpDrmLeaseDeviceV1) SetConnectorHandler(f WpDrmLeaseDeviceV1ConnectorHandler) {
+	i.connectorHandler = f
+}
+
+// SetDoneHandler sets the handler for the done event
+func (i *WpDrmLeaseDeviceV1) SetDoneHandler(f WpDrmLeaseDeviceV1DoneHandler) {
+	i.doneHandler = f
+}
+
+// SetReleasedHandler sets the handler for the released event
+func (i *WpDrmLeaseDeviceV1) SetReleasedHandler(f WpDrmLeaseDeviceV1ReleasedHandler) {
+	i.releasedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WpDrmLeaseDeviceV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // drm_fd
+		if i.drmFdHandler != nil {
+			ev := WpDrmLeaseDeviceV1DrmFdEvent{}
+			_ = data
+			ev.Fd = uintptr(fd)
+			i.drmFdHandler(ev)
+		}
+	case 1: // connector
+		if i.connectorHandler != nil {
+			ev := WpDrmLeaseDeviceV1ConnectorEvent{}
+			l := 0
+			_ = fd
+			idID := client.Uint32(data[l : l+4])
+			l += 4
+			ev.Id = i.Context().GetProxy(idID).(*WpDrmLeaseConnectorV1)
+			i.connectorHandler(ev)
+		}
+	case 2: // done
+		if i.doneHandler != nil {
+			ev := WpDrmLeaseDeviceV1DoneEvent{}
+			_ = fd
+			_ = data
+			i.doneHandler(ev)
+		}
+	case 3: // released
+		if i.releasedHandler != nil {
+			ev := WpDrmLeaseDeviceV1ReleasedEvent{}
+			_ = fd
+			_ = data
+			i.releasedHandler(ev)
+		}
+	}
+}
+
 // WpDrmLeaseConnectorV1: a leasable DRM connector
 type WpDrmLeaseConnectorV1 struct {
 	client.BaseProxy
+	nameHandler        WpDrmLeaseConnectorV1NameHandler
+	descriptionHandler WpDrmLeaseConnectorV1DescriptionHandler
+	connectorIdHandler WpDrmLeaseConnectorV1ConnectorIdHandler
+	doneHandler        WpDrmLeaseConnectorV1DoneHandler
+	withdrawnHandler   WpDrmLeaseConnectorV1WithdrawnHandler
 }
 
 // NewWpDrmLeaseConnectorV1 creates a new WpDrmLeaseConnectorV1
@@ -156,6 +222,84 @@ type WpDrmLeaseConnectorV1WithdrawnEvent struct {
 }
 
 type WpDrmLeaseConnectorV1WithdrawnHandler func(WpDrmLeaseConnectorV1WithdrawnEvent)
+
+// SetNameHandler sets the handler for the name event
+func (i *WpDrmLeaseConnectorV1) SetNameHandler(f WpDrmLeaseConnectorV1NameHandler) {
+	i.nameHandler = f
+}
+
+// SetDescriptionHandler sets the handler for the description event
+func (i *WpDrmLeaseConnectorV1) SetDescriptionHandler(f WpDrmLeaseConnectorV1DescriptionHandler) {
+	i.descriptionHandler = f
+}
+
+// SetConnectorIdHandler sets the handler for the connector_id event
+func (i *WpDrmLeaseConnectorV1) SetConnectorIdHandler(f WpDrmLeaseConnectorV1ConnectorIdHandler) {
+	i.connectorIdHandler = f
+}
+
+// SetDoneHandler sets the handler for the done event
+func (i *WpDrmLeaseConnectorV1) SetDoneHandler(f WpDrmLeaseConnectorV1DoneHandler) {
+	i.doneHandler = f
+}
+
+// SetWithdrawnHandler sets the handler for the withdrawn event
+func (i *WpDrmLeaseConnectorV1) SetWithdrawnHandler(f WpDrmLeaseConnectorV1WithdrawnHandler) {
+	i.withdrawnHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WpDrmLeaseConnectorV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // name
+		if i.nameHandler != nil {
+			ev := WpDrmLeaseConnectorV1NameEvent{}
+			l := 0
+			_ = fd
+			nameRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			nameLen := client.PaddedLen(nameRawLen)
+			ev.Name = client.String(data[l : l+nameLen])
+			l += nameLen
+			i.nameHandler(ev)
+		}
+	case 1: // description
+		if i.descriptionHandler != nil {
+			ev := WpDrmLeaseConnectorV1DescriptionEvent{}
+			l := 0
+			_ = fd
+			descriptionRawLen := int(client.Uint32(data[l : l+4]))
+			l += 4
+			descriptionLen := client.PaddedLen(descriptionRawLen)
+			ev.Description = client.String(data[l : l+descriptionLen])
+			l += descriptionLen
+			i.descriptionHandler(ev)
+		}
+	case 2: // connector_id
+		if i.connectorIdHandler != nil {
+			ev := WpDrmLeaseConnectorV1ConnectorIdEvent{}
+			l := 0
+			_ = fd
+			ev.ConnectorId = client.Uint32(data[l : l+4])
+			l += 4
+			i.connectorIdHandler(ev)
+		}
+	case 3: // done
+		if i.doneHandler != nil {
+			ev := WpDrmLeaseConnectorV1DoneEvent{}
+			_ = fd
+			_ = data
+			i.doneHandler(ev)
+		}
+	case 4: // withdrawn
+		if i.withdrawnHandler != nil {
+			ev := WpDrmLeaseConnectorV1WithdrawnEvent{}
+			_ = fd
+			_ = data
+			i.withdrawnHandler(ev)
+		}
+	}
+}
 
 // WpDrmLeaseRequestV1: DRM lease request
 type WpDrmLeaseRequestV1 struct {
@@ -214,6 +358,8 @@ func (i *WpDrmLeaseRequestV1) Submit() (*WpDrmLeaseV1, error) {
 // WpDrmLeaseV1: a DRM lease
 type WpDrmLeaseV1 struct {
 	client.BaseProxy
+	leaseFdHandler  WpDrmLeaseV1LeaseFdHandler
+	finishedHandler WpDrmLeaseV1FinishedHandler
 }
 
 // NewWpDrmLeaseV1 creates a new WpDrmLeaseV1
@@ -250,3 +396,33 @@ type WpDrmLeaseV1FinishedEvent struct {
 }
 
 type WpDrmLeaseV1FinishedHandler func(WpDrmLeaseV1FinishedEvent)
+
+// SetLeaseFdHandler sets the handler for the lease_fd event
+func (i *WpDrmLeaseV1) SetLeaseFdHandler(f WpDrmLeaseV1LeaseFdHandler) {
+	i.leaseFdHandler = f
+}
+
+// SetFinishedHandler sets the handler for the finished event
+func (i *WpDrmLeaseV1) SetFinishedHandler(f WpDrmLeaseV1FinishedHandler) {
+	i.finishedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WpDrmLeaseV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // lease_fd
+		if i.leaseFdHandler != nil {
+			ev := WpDrmLeaseV1LeaseFdEvent{}
+			_ = data
+			ev.LeasedFd = uintptr(fd)
+			i.leaseFdHandler(ev)
+		}
+	case 1: // finished
+		if i.finishedHandler != nil {
+			ev := WpDrmLeaseV1FinishedEvent{}
+			_ = fd
+			_ = data
+			i.finishedHandler(ev)
+		}
+	}
+}

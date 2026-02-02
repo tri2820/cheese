@@ -32,6 +32,9 @@ import (
 // WpColorRepresentationManagerV1: color representation manager singleton
 type WpColorRepresentationManagerV1 struct {
 	client.BaseProxy
+	supportedAlphaModeHandler             WpColorRepresentationManagerV1SupportedAlphaModeHandler
+	supportedCoefficientsAndRangesHandler WpColorRepresentationManagerV1SupportedCoefficientsAndRangesHandler
+	doneHandler                           WpColorRepresentationManagerV1DoneHandler
 }
 
 // NewWpColorRepresentationManagerV1 creates a new WpColorRepresentationManagerV1
@@ -102,6 +105,54 @@ type WpColorRepresentationManagerV1DoneEvent struct {
 }
 
 type WpColorRepresentationManagerV1DoneHandler func(WpColorRepresentationManagerV1DoneEvent)
+
+// SetSupportedAlphaModeHandler sets the handler for the supported_alpha_mode event
+func (i *WpColorRepresentationManagerV1) SetSupportedAlphaModeHandler(f WpColorRepresentationManagerV1SupportedAlphaModeHandler) {
+	i.supportedAlphaModeHandler = f
+}
+
+// SetSupportedCoefficientsAndRangesHandler sets the handler for the supported_coefficients_and_ranges event
+func (i *WpColorRepresentationManagerV1) SetSupportedCoefficientsAndRangesHandler(f WpColorRepresentationManagerV1SupportedCoefficientsAndRangesHandler) {
+	i.supportedCoefficientsAndRangesHandler = f
+}
+
+// SetDoneHandler sets the handler for the done event
+func (i *WpColorRepresentationManagerV1) SetDoneHandler(f WpColorRepresentationManagerV1DoneHandler) {
+	i.doneHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WpColorRepresentationManagerV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // supported_alpha_mode
+		if i.supportedAlphaModeHandler != nil {
+			ev := WpColorRepresentationManagerV1SupportedAlphaModeEvent{}
+			l := 0
+			_ = fd
+			ev.AlphaMode = client.Uint32(data[l : l+4])
+			l += 4
+			i.supportedAlphaModeHandler(ev)
+		}
+	case 1: // supported_coefficients_and_ranges
+		if i.supportedCoefficientsAndRangesHandler != nil {
+			ev := WpColorRepresentationManagerV1SupportedCoefficientsAndRangesEvent{}
+			l := 0
+			_ = fd
+			ev.Coefficients = client.Uint32(data[l : l+4])
+			l += 4
+			ev.Range = client.Uint32(data[l : l+4])
+			l += 4
+			i.supportedCoefficientsAndRangesHandler(ev)
+		}
+	case 2: // done
+		if i.doneHandler != nil {
+			ev := WpColorRepresentationManagerV1DoneEvent{}
+			_ = fd
+			_ = data
+			i.doneHandler(ev)
+		}
+	}
+}
 
 // WpColorRepresentationSurfaceV1: color representation extension to a surface
 type WpColorRepresentationSurfaceV1 struct {

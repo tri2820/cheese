@@ -154,6 +154,8 @@ func (i *ZwpLinuxSurfaceSynchronizationV1) GetRelease() (*ZwpLinuxBufferReleaseV
 // ZwpLinuxBufferReleaseV1: buffer release explicit synchronization
 type ZwpLinuxBufferReleaseV1 struct {
 	client.BaseProxy
+	fencedReleaseHandler    ZwpLinuxBufferReleaseV1FencedReleaseHandler
+	immediateReleaseHandler ZwpLinuxBufferReleaseV1ImmediateReleaseHandler
 }
 
 // NewZwpLinuxBufferReleaseV1 creates a new ZwpLinuxBufferReleaseV1
@@ -175,3 +177,33 @@ type ZwpLinuxBufferReleaseV1ImmediateReleaseEvent struct {
 }
 
 type ZwpLinuxBufferReleaseV1ImmediateReleaseHandler func(ZwpLinuxBufferReleaseV1ImmediateReleaseEvent)
+
+// SetFencedReleaseHandler sets the handler for the fenced_release event
+func (i *ZwpLinuxBufferReleaseV1) SetFencedReleaseHandler(f ZwpLinuxBufferReleaseV1FencedReleaseHandler) {
+	i.fencedReleaseHandler = f
+}
+
+// SetImmediateReleaseHandler sets the handler for the immediate_release event
+func (i *ZwpLinuxBufferReleaseV1) SetImmediateReleaseHandler(f ZwpLinuxBufferReleaseV1ImmediateReleaseHandler) {
+	i.immediateReleaseHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ZwpLinuxBufferReleaseV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // fenced_release
+		if i.fencedReleaseHandler != nil {
+			ev := ZwpLinuxBufferReleaseV1FencedReleaseEvent{}
+			_ = data
+			ev.Fence = uintptr(fd)
+			i.fencedReleaseHandler(ev)
+		}
+	case 1: // immediate_release
+		if i.immediateReleaseHandler != nil {
+			ev := ZwpLinuxBufferReleaseV1ImmediateReleaseEvent{}
+			_ = fd
+			_ = data
+			i.immediateReleaseHandler(ev)
+		}
+	}
+}

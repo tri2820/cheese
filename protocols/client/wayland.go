@@ -33,6 +33,8 @@ import (
 // WlDisplay: core global object
 type WlDisplay struct {
 	BaseProxy
+	errorHandler    WlDisplayErrorHandler
+	deleteIdHandler WlDisplayDeleteIdHandler
 }
 
 // NewWlDisplay creates a new WlDisplay
@@ -102,9 +104,53 @@ type WlDisplayDeleteIdEvent struct {
 
 type WlDisplayDeleteIdHandler func(WlDisplayDeleteIdEvent)
 
+// SetErrorHandler sets the handler for the error event
+func (i *WlDisplay) SetErrorHandler(f WlDisplayErrorHandler) {
+	i.errorHandler = f
+}
+
+// SetDeleteIdHandler sets the handler for the delete_id event
+func (i *WlDisplay) SetDeleteIdHandler(f WlDisplayDeleteIdHandler) {
+	i.deleteIdHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WlDisplay) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // error
+		if i.errorHandler != nil {
+			ev := WlDisplayErrorEvent{}
+			l := 0
+			_ = fd
+			object_idID := Uint32(data[l : l+4])
+			l += 4
+			ev.ObjectId = i.Context().GetProxy(object_idID)
+			ev.Code = Uint32(data[l : l+4])
+			l += 4
+			messageRawLen := int(Uint32(data[l : l+4]))
+			l += 4
+			messageLen := PaddedLen(messageRawLen)
+			ev.Message = String(data[l : l+messageLen])
+			l += messageLen
+			i.errorHandler(ev)
+		}
+	case 1: // delete_id
+		if i.deleteIdHandler != nil {
+			ev := WlDisplayDeleteIdEvent{}
+			l := 0
+			_ = fd
+			ev.Id = Uint32(data[l : l+4])
+			l += 4
+			i.deleteIdHandler(ev)
+		}
+	}
+}
+
 // WlRegistry: global registry object
 type WlRegistry struct {
 	BaseProxy
+	globalHandler       WlRegistryGlobalHandler
+	globalRemoveHandler WlRegistryGlobalRemoveHandler
 }
 
 // NewWlRegistry creates a new WlRegistry
@@ -153,9 +199,51 @@ type WlRegistryGlobalRemoveEvent struct {
 
 type WlRegistryGlobalRemoveHandler func(WlRegistryGlobalRemoveEvent)
 
+// SetGlobalHandler sets the handler for the global event
+func (i *WlRegistry) SetGlobalHandler(f WlRegistryGlobalHandler) {
+	i.globalHandler = f
+}
+
+// SetGlobalRemoveHandler sets the handler for the global_remove event
+func (i *WlRegistry) SetGlobalRemoveHandler(f WlRegistryGlobalRemoveHandler) {
+	i.globalRemoveHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WlRegistry) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // global
+		if i.globalHandler != nil {
+			ev := WlRegistryGlobalEvent{}
+			l := 0
+			_ = fd
+			ev.Name = Uint32(data[l : l+4])
+			l += 4
+			interface_RawLen := int(Uint32(data[l : l+4]))
+			l += 4
+			interface_Len := PaddedLen(interface_RawLen)
+			ev.Interface = String(data[l : l+interface_Len])
+			l += interface_Len
+			ev.Version = Uint32(data[l : l+4])
+			l += 4
+			i.globalHandler(ev)
+		}
+	case 1: // global_remove
+		if i.globalRemoveHandler != nil {
+			ev := WlRegistryGlobalRemoveEvent{}
+			l := 0
+			_ = fd
+			ev.Name = Uint32(data[l : l+4])
+			l += 4
+			i.globalRemoveHandler(ev)
+		}
+	}
+}
+
 // WlCallback: callback object
 type WlCallback struct {
 	BaseProxy
+	doneHandler WlCallbackDoneHandler
 }
 
 // NewWlCallback creates a new WlCallback
@@ -171,6 +259,26 @@ type WlCallbackDoneEvent struct {
 }
 
 type WlCallbackDoneHandler func(WlCallbackDoneEvent)
+
+// SetDoneHandler sets the handler for the done event
+func (i *WlCallback) SetDoneHandler(f WlCallbackDoneHandler) {
+	i.doneHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WlCallback) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // done
+		if i.doneHandler != nil {
+			ev := WlCallbackDoneEvent{}
+			l := 0
+			_ = fd
+			ev.CallbackData = Uint32(data[l : l+4])
+			l += 4
+			i.doneHandler(ev)
+		}
+	}
+}
 
 // WlCompositor: the compositor singleton
 type WlCompositor struct {
@@ -291,6 +399,7 @@ func (i *WlShmPool) Resize(size int32) error {
 // WlShm: shared memory support
 type WlShm struct {
 	BaseProxy
+	formatHandler WlShmFormatHandler
 }
 
 // NewWlShm creates a new WlShm
@@ -480,9 +589,30 @@ type WlShmFormatEvent struct {
 
 type WlShmFormatHandler func(WlShmFormatEvent)
 
+// SetFormatHandler sets the handler for the format event
+func (i *WlShm) SetFormatHandler(f WlShmFormatHandler) {
+	i.formatHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WlShm) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // format
+		if i.formatHandler != nil {
+			ev := WlShmFormatEvent{}
+			l := 0
+			_ = fd
+			ev.Format = Uint32(data[l : l+4])
+			l += 4
+			i.formatHandler(ev)
+		}
+	}
+}
+
 // WlBuffer: content for a wl_surface
 type WlBuffer struct {
 	BaseProxy
+	releaseHandler WlBufferReleaseHandler
 }
 
 // NewWlBuffer creates a new WlBuffer
@@ -513,9 +643,30 @@ type WlBufferReleaseEvent struct {
 
 type WlBufferReleaseHandler func(WlBufferReleaseEvent)
 
+// SetReleaseHandler sets the handler for the release event
+func (i *WlBuffer) SetReleaseHandler(f WlBufferReleaseHandler) {
+	i.releaseHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WlBuffer) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // release
+		if i.releaseHandler != nil {
+			ev := WlBufferReleaseEvent{}
+			_ = fd
+			_ = data
+			i.releaseHandler(ev)
+		}
+	}
+}
+
 // WlDataOffer: offer to transfer data
 type WlDataOffer struct {
 	BaseProxy
+	offerHandler         WlDataOfferOfferHandler
+	sourceActionsHandler WlDataOfferSourceActionsHandler
+	actionHandler        WlDataOfferActionHandler
 }
 
 // NewWlDataOffer creates a new WlDataOffer
@@ -646,9 +797,66 @@ type WlDataOfferActionEvent struct {
 
 type WlDataOfferActionHandler func(WlDataOfferActionEvent)
 
+// SetOfferHandler sets the handler for the offer event
+func (i *WlDataOffer) SetOfferHandler(f WlDataOfferOfferHandler) {
+	i.offerHandler = f
+}
+
+// SetSourceActionsHandler sets the handler for the source_actions event
+func (i *WlDataOffer) SetSourceActionsHandler(f WlDataOfferSourceActionsHandler) {
+	i.sourceActionsHandler = f
+}
+
+// SetActionHandler sets the handler for the action event
+func (i *WlDataOffer) SetActionHandler(f WlDataOfferActionHandler) {
+	i.actionHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WlDataOffer) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // offer
+		if i.offerHandler != nil {
+			ev := WlDataOfferOfferEvent{}
+			l := 0
+			_ = fd
+			mime_typeRawLen := int(Uint32(data[l : l+4]))
+			l += 4
+			mime_typeLen := PaddedLen(mime_typeRawLen)
+			ev.MimeType = String(data[l : l+mime_typeLen])
+			l += mime_typeLen
+			i.offerHandler(ev)
+		}
+	case 1: // source_actions
+		if i.sourceActionsHandler != nil {
+			ev := WlDataOfferSourceActionsEvent{}
+			l := 0
+			_ = fd
+			ev.SourceActions = Uint32(data[l : l+4])
+			l += 4
+			i.sourceActionsHandler(ev)
+		}
+	case 2: // action
+		if i.actionHandler != nil {
+			ev := WlDataOfferActionEvent{}
+			l := 0
+			_ = fd
+			ev.DndAction = Uint32(data[l : l+4])
+			l += 4
+			i.actionHandler(ev)
+		}
+	}
+}
+
 // WlDataSource: offer to transfer data
 type WlDataSource struct {
 	BaseProxy
+	targetHandler           WlDataSourceTargetHandler
+	sendHandler             WlDataSourceSendHandler
+	cancelledHandler        WlDataSourceCancelledHandler
+	dndDropPerformedHandler WlDataSourceDndDropPerformedHandler
+	dndFinishedHandler      WlDataSourceDndFinishedHandler
+	actionHandler           WlDataSourceActionHandler
 }
 
 // NewWlDataSource creates a new WlDataSource
@@ -753,9 +961,108 @@ type WlDataSourceActionEvent struct {
 
 type WlDataSourceActionHandler func(WlDataSourceActionEvent)
 
+// SetTargetHandler sets the handler for the target event
+func (i *WlDataSource) SetTargetHandler(f WlDataSourceTargetHandler) {
+	i.targetHandler = f
+}
+
+// SetSendHandler sets the handler for the send event
+func (i *WlDataSource) SetSendHandler(f WlDataSourceSendHandler) {
+	i.sendHandler = f
+}
+
+// SetCancelledHandler sets the handler for the cancelled event
+func (i *WlDataSource) SetCancelledHandler(f WlDataSourceCancelledHandler) {
+	i.cancelledHandler = f
+}
+
+// SetDndDropPerformedHandler sets the handler for the dnd_drop_performed event
+func (i *WlDataSource) SetDndDropPerformedHandler(f WlDataSourceDndDropPerformedHandler) {
+	i.dndDropPerformedHandler = f
+}
+
+// SetDndFinishedHandler sets the handler for the dnd_finished event
+func (i *WlDataSource) SetDndFinishedHandler(f WlDataSourceDndFinishedHandler) {
+	i.dndFinishedHandler = f
+}
+
+// SetActionHandler sets the handler for the action event
+func (i *WlDataSource) SetActionHandler(f WlDataSourceActionHandler) {
+	i.actionHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WlDataSource) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // target
+		if i.targetHandler != nil {
+			ev := WlDataSourceTargetEvent{}
+			l := 0
+			_ = fd
+			mime_typeRawLen := int(Uint32(data[l : l+4]))
+			l += 4
+			if mime_typeRawLen > 0 {
+				mime_typeLen := PaddedLen(mime_typeRawLen)
+				mime_typeStr := String(data[l : l+mime_typeLen])
+				ev.MimeType = &mime_typeStr
+				l += mime_typeLen
+			}
+			i.targetHandler(ev)
+		}
+	case 1: // send
+		if i.sendHandler != nil {
+			ev := WlDataSourceSendEvent{}
+			l := 0
+			mime_typeRawLen := int(Uint32(data[l : l+4]))
+			l += 4
+			mime_typeLen := PaddedLen(mime_typeRawLen)
+			ev.MimeType = String(data[l : l+mime_typeLen])
+			l += mime_typeLen
+			ev.Fd = uintptr(fd)
+			i.sendHandler(ev)
+		}
+	case 2: // cancelled
+		if i.cancelledHandler != nil {
+			ev := WlDataSourceCancelledEvent{}
+			_ = fd
+			_ = data
+			i.cancelledHandler(ev)
+		}
+	case 3: // dnd_drop_performed
+		if i.dndDropPerformedHandler != nil {
+			ev := WlDataSourceDndDropPerformedEvent{}
+			_ = fd
+			_ = data
+			i.dndDropPerformedHandler(ev)
+		}
+	case 4: // dnd_finished
+		if i.dndFinishedHandler != nil {
+			ev := WlDataSourceDndFinishedEvent{}
+			_ = fd
+			_ = data
+			i.dndFinishedHandler(ev)
+		}
+	case 5: // action
+		if i.actionHandler != nil {
+			ev := WlDataSourceActionEvent{}
+			l := 0
+			_ = fd
+			ev.DndAction = Uint32(data[l : l+4])
+			l += 4
+			i.actionHandler(ev)
+		}
+	}
+}
+
 // WlDataDevice: data transfer device
 type WlDataDevice struct {
 	BaseProxy
+	dataOfferHandler WlDataDeviceDataOfferHandler
+	enterHandler     WlDataDeviceEnterHandler
+	leaveHandler     WlDataDeviceLeaveHandler
+	motionHandler    WlDataDeviceMotionHandler
+	dropHandler      WlDataDeviceDropHandler
+	selectionHandler WlDataDeviceSelectionHandler
 }
 
 // NewWlDataDevice creates a new WlDataDevice
@@ -888,6 +1195,112 @@ type WlDataDeviceSelectionEvent struct {
 
 type WlDataDeviceSelectionHandler func(WlDataDeviceSelectionEvent)
 
+// SetDataOfferHandler sets the handler for the data_offer event
+func (i *WlDataDevice) SetDataOfferHandler(f WlDataDeviceDataOfferHandler) {
+	i.dataOfferHandler = f
+}
+
+// SetEnterHandler sets the handler for the enter event
+func (i *WlDataDevice) SetEnterHandler(f WlDataDeviceEnterHandler) {
+	i.enterHandler = f
+}
+
+// SetLeaveHandler sets the handler for the leave event
+func (i *WlDataDevice) SetLeaveHandler(f WlDataDeviceLeaveHandler) {
+	i.leaveHandler = f
+}
+
+// SetMotionHandler sets the handler for the motion event
+func (i *WlDataDevice) SetMotionHandler(f WlDataDeviceMotionHandler) {
+	i.motionHandler = f
+}
+
+// SetDropHandler sets the handler for the drop event
+func (i *WlDataDevice) SetDropHandler(f WlDataDeviceDropHandler) {
+	i.dropHandler = f
+}
+
+// SetSelectionHandler sets the handler for the selection event
+func (i *WlDataDevice) SetSelectionHandler(f WlDataDeviceSelectionHandler) {
+	i.selectionHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WlDataDevice) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // data_offer
+		if i.dataOfferHandler != nil {
+			ev := WlDataDeviceDataOfferEvent{}
+			l := 0
+			_ = fd
+			idID := Uint32(data[l : l+4])
+			l += 4
+			ev.Id = i.Context().GetProxy(idID).(*WlDataOffer)
+			i.dataOfferHandler(ev)
+		}
+	case 1: // enter
+		if i.enterHandler != nil {
+			ev := WlDataDeviceEnterEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = Uint32(data[l : l+4])
+			l += 4
+			surfaceID := Uint32(data[l : l+4])
+			l += 4
+			ev.Surface = i.Context().GetProxy(surfaceID).(*WlSurface)
+			ev.X = Fixed(data[l : l+4])
+			l += 4
+			ev.Y = Fixed(data[l : l+4])
+			l += 4
+			idID := Uint32(data[l : l+4])
+			l += 4
+			if idID != 0 {
+				ev.Id = i.Context().GetProxy(idID).(*WlDataOffer)
+			}
+			i.enterHandler(ev)
+		}
+	case 2: // leave
+		if i.leaveHandler != nil {
+			ev := WlDataDeviceLeaveEvent{}
+			_ = fd
+			_ = data
+			i.leaveHandler(ev)
+		}
+	case 3: // motion
+		if i.motionHandler != nil {
+			ev := WlDataDeviceMotionEvent{}
+			l := 0
+			_ = fd
+			ev.Time = Uint32(data[l : l+4])
+			l += 4
+			ev.X = Fixed(data[l : l+4])
+			l += 4
+			ev.Y = Fixed(data[l : l+4])
+			l += 4
+			i.motionHandler(ev)
+		}
+	case 4: // drop
+		if i.dropHandler != nil {
+			ev := WlDataDeviceDropEvent{}
+			_ = fd
+			_ = data
+			i.dropHandler(ev)
+		}
+	case 5: // selection
+		if i.selectionHandler != nil {
+			ev := WlDataDeviceSelectionEvent{}
+			l := 0
+			_ = fd
+			idID := Uint32(data[l : l+4])
+			l += 4
+			if idID != 0 {
+				ev.Id = i.Context().GetProxy(idID).(*WlDataOffer)
+			}
+			i.selectionHandler(ev)
+		}
+	}
+}
+
 // WlDataDeviceManager: data transfer interface
 type WlDataDeviceManager struct {
 	BaseProxy
@@ -986,6 +1399,9 @@ func (i *WlShell) GetShellSurface(surface *WlSurface) (*WlShellSurface, error) {
 // WlShellSurface: desktop-style metadata interface
 type WlShellSurface struct {
 	BaseProxy
+	pingHandler      WlShellSurfacePingHandler
+	configureHandler WlShellSurfaceConfigureHandler
+	popupDoneHandler WlShellSurfacePopupDoneHandler
 }
 
 // NewWlShellSurface creates a new WlShellSurface
@@ -1245,9 +1661,63 @@ type WlShellSurfacePopupDoneEvent struct {
 
 type WlShellSurfacePopupDoneHandler func(WlShellSurfacePopupDoneEvent)
 
+// SetPingHandler sets the handler for the ping event
+func (i *WlShellSurface) SetPingHandler(f WlShellSurfacePingHandler) {
+	i.pingHandler = f
+}
+
+// SetConfigureHandler sets the handler for the configure event
+func (i *WlShellSurface) SetConfigureHandler(f WlShellSurfaceConfigureHandler) {
+	i.configureHandler = f
+}
+
+// SetPopupDoneHandler sets the handler for the popup_done event
+func (i *WlShellSurface) SetPopupDoneHandler(f WlShellSurfacePopupDoneHandler) {
+	i.popupDoneHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WlShellSurface) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // ping
+		if i.pingHandler != nil {
+			ev := WlShellSurfacePingEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = Uint32(data[l : l+4])
+			l += 4
+			i.pingHandler(ev)
+		}
+	case 1: // configure
+		if i.configureHandler != nil {
+			ev := WlShellSurfaceConfigureEvent{}
+			l := 0
+			_ = fd
+			ev.Edges = Uint32(data[l : l+4])
+			l += 4
+			ev.Width = int32(Uint32(data[l : l+4]))
+			l += 4
+			ev.Height = int32(Uint32(data[l : l+4]))
+			l += 4
+			i.configureHandler(ev)
+		}
+	case 2: // popup_done
+		if i.popupDoneHandler != nil {
+			ev := WlShellSurfacePopupDoneEvent{}
+			_ = fd
+			_ = data
+			i.popupDoneHandler(ev)
+		}
+	}
+}
+
 // WlSurface: an onscreen surface
 type WlSurface struct {
 	BaseProxy
+	enterHandler                    WlSurfaceEnterHandler
+	leaveHandler                    WlSurfaceLeaveHandler
+	preferredBufferScaleHandler     WlSurfacePreferredBufferScaleHandler
+	preferredBufferTransformHandler WlSurfacePreferredBufferTransformHandler
 }
 
 // NewWlSurface creates a new WlSurface
@@ -1503,9 +1973,75 @@ type WlSurfacePreferredBufferTransformEvent struct {
 
 type WlSurfacePreferredBufferTransformHandler func(WlSurfacePreferredBufferTransformEvent)
 
+// SetEnterHandler sets the handler for the enter event
+func (i *WlSurface) SetEnterHandler(f WlSurfaceEnterHandler) {
+	i.enterHandler = f
+}
+
+// SetLeaveHandler sets the handler for the leave event
+func (i *WlSurface) SetLeaveHandler(f WlSurfaceLeaveHandler) {
+	i.leaveHandler = f
+}
+
+// SetPreferredBufferScaleHandler sets the handler for the preferred_buffer_scale event
+func (i *WlSurface) SetPreferredBufferScaleHandler(f WlSurfacePreferredBufferScaleHandler) {
+	i.preferredBufferScaleHandler = f
+}
+
+// SetPreferredBufferTransformHandler sets the handler for the preferred_buffer_transform event
+func (i *WlSurface) SetPreferredBufferTransformHandler(f WlSurfacePreferredBufferTransformHandler) {
+	i.preferredBufferTransformHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WlSurface) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // enter
+		if i.enterHandler != nil {
+			ev := WlSurfaceEnterEvent{}
+			l := 0
+			_ = fd
+			outputID := Uint32(data[l : l+4])
+			l += 4
+			ev.Output = i.Context().GetProxy(outputID).(*WlOutput)
+			i.enterHandler(ev)
+		}
+	case 1: // leave
+		if i.leaveHandler != nil {
+			ev := WlSurfaceLeaveEvent{}
+			l := 0
+			_ = fd
+			outputID := Uint32(data[l : l+4])
+			l += 4
+			ev.Output = i.Context().GetProxy(outputID).(*WlOutput)
+			i.leaveHandler(ev)
+		}
+	case 2: // preferred_buffer_scale
+		if i.preferredBufferScaleHandler != nil {
+			ev := WlSurfacePreferredBufferScaleEvent{}
+			l := 0
+			_ = fd
+			ev.Factor = int32(Uint32(data[l : l+4]))
+			l += 4
+			i.preferredBufferScaleHandler(ev)
+		}
+	case 3: // preferred_buffer_transform
+		if i.preferredBufferTransformHandler != nil {
+			ev := WlSurfacePreferredBufferTransformEvent{}
+			l := 0
+			_ = fd
+			ev.Transform = Uint32(data[l : l+4])
+			l += 4
+			i.preferredBufferTransformHandler(ev)
+		}
+	}
+}
+
 // WlSeat: group of input devices
 type WlSeat struct {
 	BaseProxy
+	capabilitiesHandler WlSeatCapabilitiesHandler
+	nameHandler         WlSeatNameHandler
 }
 
 // NewWlSeat creates a new WlSeat
@@ -1611,9 +2147,57 @@ type WlSeatNameEvent struct {
 
 type WlSeatNameHandler func(WlSeatNameEvent)
 
+// SetCapabilitiesHandler sets the handler for the capabilities event
+func (i *WlSeat) SetCapabilitiesHandler(f WlSeatCapabilitiesHandler) {
+	i.capabilitiesHandler = f
+}
+
+// SetNameHandler sets the handler for the name event
+func (i *WlSeat) SetNameHandler(f WlSeatNameHandler) {
+	i.nameHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WlSeat) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // capabilities
+		if i.capabilitiesHandler != nil {
+			ev := WlSeatCapabilitiesEvent{}
+			l := 0
+			_ = fd
+			ev.Capabilities = Uint32(data[l : l+4])
+			l += 4
+			i.capabilitiesHandler(ev)
+		}
+	case 1: // name
+		if i.nameHandler != nil {
+			ev := WlSeatNameEvent{}
+			l := 0
+			_ = fd
+			nameRawLen := int(Uint32(data[l : l+4]))
+			l += 4
+			nameLen := PaddedLen(nameRawLen)
+			ev.Name = String(data[l : l+nameLen])
+			l += nameLen
+			i.nameHandler(ev)
+		}
+	}
+}
+
 // WlPointer: pointer input device
 type WlPointer struct {
 	BaseProxy
+	enterHandler                 WlPointerEnterHandler
+	leaveHandler                 WlPointerLeaveHandler
+	motionHandler                WlPointerMotionHandler
+	buttonHandler                WlPointerButtonHandler
+	axisHandler                  WlPointerAxisHandler
+	frameHandler                 WlPointerFrameHandler
+	axisSourceHandler            WlPointerAxisSourceHandler
+	axisStopHandler              WlPointerAxisStopHandler
+	axisDiscreteHandler          WlPointerAxisDiscreteHandler
+	axisValue120Handler          WlPointerAxisValue120Handler
+	axisRelativeDirectionHandler WlPointerAxisRelativeDirectionHandler
 }
 
 // NewWlPointer creates a new WlPointer
@@ -1796,9 +2380,205 @@ type WlPointerAxisRelativeDirectionEvent struct {
 
 type WlPointerAxisRelativeDirectionHandler func(WlPointerAxisRelativeDirectionEvent)
 
+// SetEnterHandler sets the handler for the enter event
+func (i *WlPointer) SetEnterHandler(f WlPointerEnterHandler) {
+	i.enterHandler = f
+}
+
+// SetLeaveHandler sets the handler for the leave event
+func (i *WlPointer) SetLeaveHandler(f WlPointerLeaveHandler) {
+	i.leaveHandler = f
+}
+
+// SetMotionHandler sets the handler for the motion event
+func (i *WlPointer) SetMotionHandler(f WlPointerMotionHandler) {
+	i.motionHandler = f
+}
+
+// SetButtonHandler sets the handler for the button event
+func (i *WlPointer) SetButtonHandler(f WlPointerButtonHandler) {
+	i.buttonHandler = f
+}
+
+// SetAxisHandler sets the handler for the axis event
+func (i *WlPointer) SetAxisHandler(f WlPointerAxisHandler) {
+	i.axisHandler = f
+}
+
+// SetFrameHandler sets the handler for the frame event
+func (i *WlPointer) SetFrameHandler(f WlPointerFrameHandler) {
+	i.frameHandler = f
+}
+
+// SetAxisSourceHandler sets the handler for the axis_source event
+func (i *WlPointer) SetAxisSourceHandler(f WlPointerAxisSourceHandler) {
+	i.axisSourceHandler = f
+}
+
+// SetAxisStopHandler sets the handler for the axis_stop event
+func (i *WlPointer) SetAxisStopHandler(f WlPointerAxisStopHandler) {
+	i.axisStopHandler = f
+}
+
+// SetAxisDiscreteHandler sets the handler for the axis_discrete event
+func (i *WlPointer) SetAxisDiscreteHandler(f WlPointerAxisDiscreteHandler) {
+	i.axisDiscreteHandler = f
+}
+
+// SetAxisValue120Handler sets the handler for the axis_value120 event
+func (i *WlPointer) SetAxisValue120Handler(f WlPointerAxisValue120Handler) {
+	i.axisValue120Handler = f
+}
+
+// SetAxisRelativeDirectionHandler sets the handler for the axis_relative_direction event
+func (i *WlPointer) SetAxisRelativeDirectionHandler(f WlPointerAxisRelativeDirectionHandler) {
+	i.axisRelativeDirectionHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WlPointer) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // enter
+		if i.enterHandler != nil {
+			ev := WlPointerEnterEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = Uint32(data[l : l+4])
+			l += 4
+			surfaceID := Uint32(data[l : l+4])
+			l += 4
+			ev.Surface = i.Context().GetProxy(surfaceID).(*WlSurface)
+			ev.SurfaceX = Fixed(data[l : l+4])
+			l += 4
+			ev.SurfaceY = Fixed(data[l : l+4])
+			l += 4
+			i.enterHandler(ev)
+		}
+	case 1: // leave
+		if i.leaveHandler != nil {
+			ev := WlPointerLeaveEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = Uint32(data[l : l+4])
+			l += 4
+			surfaceID := Uint32(data[l : l+4])
+			l += 4
+			ev.Surface = i.Context().GetProxy(surfaceID).(*WlSurface)
+			i.leaveHandler(ev)
+		}
+	case 2: // motion
+		if i.motionHandler != nil {
+			ev := WlPointerMotionEvent{}
+			l := 0
+			_ = fd
+			ev.Time = Uint32(data[l : l+4])
+			l += 4
+			ev.SurfaceX = Fixed(data[l : l+4])
+			l += 4
+			ev.SurfaceY = Fixed(data[l : l+4])
+			l += 4
+			i.motionHandler(ev)
+		}
+	case 3: // button
+		if i.buttonHandler != nil {
+			ev := WlPointerButtonEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = Uint32(data[l : l+4])
+			l += 4
+			ev.Time = Uint32(data[l : l+4])
+			l += 4
+			ev.Button = Uint32(data[l : l+4])
+			l += 4
+			ev.State = Uint32(data[l : l+4])
+			l += 4
+			i.buttonHandler(ev)
+		}
+	case 4: // axis
+		if i.axisHandler != nil {
+			ev := WlPointerAxisEvent{}
+			l := 0
+			_ = fd
+			ev.Time = Uint32(data[l : l+4])
+			l += 4
+			ev.Axis = Uint32(data[l : l+4])
+			l += 4
+			ev.Value = Fixed(data[l : l+4])
+			l += 4
+			i.axisHandler(ev)
+		}
+	case 5: // frame
+		if i.frameHandler != nil {
+			ev := WlPointerFrameEvent{}
+			_ = fd
+			_ = data
+			i.frameHandler(ev)
+		}
+	case 6: // axis_source
+		if i.axisSourceHandler != nil {
+			ev := WlPointerAxisSourceEvent{}
+			l := 0
+			_ = fd
+			ev.AxisSource = Uint32(data[l : l+4])
+			l += 4
+			i.axisSourceHandler(ev)
+		}
+	case 7: // axis_stop
+		if i.axisStopHandler != nil {
+			ev := WlPointerAxisStopEvent{}
+			l := 0
+			_ = fd
+			ev.Time = Uint32(data[l : l+4])
+			l += 4
+			ev.Axis = Uint32(data[l : l+4])
+			l += 4
+			i.axisStopHandler(ev)
+		}
+	case 8: // axis_discrete
+		if i.axisDiscreteHandler != nil {
+			ev := WlPointerAxisDiscreteEvent{}
+			l := 0
+			_ = fd
+			ev.Axis = Uint32(data[l : l+4])
+			l += 4
+			ev.Discrete = int32(Uint32(data[l : l+4]))
+			l += 4
+			i.axisDiscreteHandler(ev)
+		}
+	case 9: // axis_value120
+		if i.axisValue120Handler != nil {
+			ev := WlPointerAxisValue120Event{}
+			l := 0
+			_ = fd
+			ev.Axis = Uint32(data[l : l+4])
+			l += 4
+			ev.Value120 = int32(Uint32(data[l : l+4]))
+			l += 4
+			i.axisValue120Handler(ev)
+		}
+	case 10: // axis_relative_direction
+		if i.axisRelativeDirectionHandler != nil {
+			ev := WlPointerAxisRelativeDirectionEvent{}
+			l := 0
+			_ = fd
+			ev.Axis = Uint32(data[l : l+4])
+			l += 4
+			ev.Direction = Uint32(data[l : l+4])
+			l += 4
+			i.axisRelativeDirectionHandler(ev)
+		}
+	}
+}
+
 // WlKeyboard: keyboard input device
 type WlKeyboard struct {
 	BaseProxy
+	keymapHandler     WlKeyboardKeymapHandler
+	enterHandler      WlKeyboardEnterHandler
+	leaveHandler      WlKeyboardLeaveHandler
+	keyHandler        WlKeyboardKeyHandler
+	modifiersHandler  WlKeyboardModifiersHandler
+	repeatInfoHandler WlKeyboardRepeatInfoHandler
 }
 
 // NewWlKeyboard creates a new WlKeyboard
@@ -1895,9 +2675,134 @@ type WlKeyboardRepeatInfoEvent struct {
 
 type WlKeyboardRepeatInfoHandler func(WlKeyboardRepeatInfoEvent)
 
+// SetKeymapHandler sets the handler for the keymap event
+func (i *WlKeyboard) SetKeymapHandler(f WlKeyboardKeymapHandler) {
+	i.keymapHandler = f
+}
+
+// SetEnterHandler sets the handler for the enter event
+func (i *WlKeyboard) SetEnterHandler(f WlKeyboardEnterHandler) {
+	i.enterHandler = f
+}
+
+// SetLeaveHandler sets the handler for the leave event
+func (i *WlKeyboard) SetLeaveHandler(f WlKeyboardLeaveHandler) {
+	i.leaveHandler = f
+}
+
+// SetKeyHandler sets the handler for the key event
+func (i *WlKeyboard) SetKeyHandler(f WlKeyboardKeyHandler) {
+	i.keyHandler = f
+}
+
+// SetModifiersHandler sets the handler for the modifiers event
+func (i *WlKeyboard) SetModifiersHandler(f WlKeyboardModifiersHandler) {
+	i.modifiersHandler = f
+}
+
+// SetRepeatInfoHandler sets the handler for the repeat_info event
+func (i *WlKeyboard) SetRepeatInfoHandler(f WlKeyboardRepeatInfoHandler) {
+	i.repeatInfoHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WlKeyboard) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // keymap
+		if i.keymapHandler != nil {
+			ev := WlKeyboardKeymapEvent{}
+			l := 0
+			ev.Format = Uint32(data[l : l+4])
+			l += 4
+			ev.Fd = uintptr(fd)
+			ev.Size = Uint32(data[l : l+4])
+			l += 4
+			i.keymapHandler(ev)
+		}
+	case 1: // enter
+		if i.enterHandler != nil {
+			ev := WlKeyboardEnterEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = Uint32(data[l : l+4])
+			l += 4
+			surfaceID := Uint32(data[l : l+4])
+			l += 4
+			ev.Surface = i.Context().GetProxy(surfaceID).(*WlSurface)
+			keysLen := int(Uint32(data[l : l+4]))
+			l += 4
+			ev.Keys = data[l : l+keysLen]
+			l += PaddedLen(keysLen)
+			i.enterHandler(ev)
+		}
+	case 2: // leave
+		if i.leaveHandler != nil {
+			ev := WlKeyboardLeaveEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = Uint32(data[l : l+4])
+			l += 4
+			surfaceID := Uint32(data[l : l+4])
+			l += 4
+			ev.Surface = i.Context().GetProxy(surfaceID).(*WlSurface)
+			i.leaveHandler(ev)
+		}
+	case 3: // key
+		if i.keyHandler != nil {
+			ev := WlKeyboardKeyEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = Uint32(data[l : l+4])
+			l += 4
+			ev.Time = Uint32(data[l : l+4])
+			l += 4
+			ev.Key = Uint32(data[l : l+4])
+			l += 4
+			ev.State = Uint32(data[l : l+4])
+			l += 4
+			i.keyHandler(ev)
+		}
+	case 4: // modifiers
+		if i.modifiersHandler != nil {
+			ev := WlKeyboardModifiersEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = Uint32(data[l : l+4])
+			l += 4
+			ev.ModsDepressed = Uint32(data[l : l+4])
+			l += 4
+			ev.ModsLatched = Uint32(data[l : l+4])
+			l += 4
+			ev.ModsLocked = Uint32(data[l : l+4])
+			l += 4
+			ev.Group = Uint32(data[l : l+4])
+			l += 4
+			i.modifiersHandler(ev)
+		}
+	case 5: // repeat_info
+		if i.repeatInfoHandler != nil {
+			ev := WlKeyboardRepeatInfoEvent{}
+			l := 0
+			_ = fd
+			ev.Rate = int32(Uint32(data[l : l+4]))
+			l += 4
+			ev.Delay = int32(Uint32(data[l : l+4]))
+			l += 4
+			i.repeatInfoHandler(ev)
+		}
+	}
+}
+
 // WlTouch: touchscreen input device
 type WlTouch struct {
 	BaseProxy
+	downHandler        WlTouchDownHandler
+	upHandler          WlTouchUpHandler
+	motionHandler      WlTouchMotionHandler
+	frameHandler       WlTouchFrameHandler
+	cancelHandler      WlTouchCancelHandler
+	shapeHandler       WlTouchShapeHandler
+	orientationHandler WlTouchOrientationHandler
 }
 
 // NewWlTouch creates a new WlTouch
@@ -1982,9 +2887,142 @@ type WlTouchOrientationEvent struct {
 
 type WlTouchOrientationHandler func(WlTouchOrientationEvent)
 
+// SetDownHandler sets the handler for the down event
+func (i *WlTouch) SetDownHandler(f WlTouchDownHandler) {
+	i.downHandler = f
+}
+
+// SetUpHandler sets the handler for the up event
+func (i *WlTouch) SetUpHandler(f WlTouchUpHandler) {
+	i.upHandler = f
+}
+
+// SetMotionHandler sets the handler for the motion event
+func (i *WlTouch) SetMotionHandler(f WlTouchMotionHandler) {
+	i.motionHandler = f
+}
+
+// SetFrameHandler sets the handler for the frame event
+func (i *WlTouch) SetFrameHandler(f WlTouchFrameHandler) {
+	i.frameHandler = f
+}
+
+// SetCancelHandler sets the handler for the cancel event
+func (i *WlTouch) SetCancelHandler(f WlTouchCancelHandler) {
+	i.cancelHandler = f
+}
+
+// SetShapeHandler sets the handler for the shape event
+func (i *WlTouch) SetShapeHandler(f WlTouchShapeHandler) {
+	i.shapeHandler = f
+}
+
+// SetOrientationHandler sets the handler for the orientation event
+func (i *WlTouch) SetOrientationHandler(f WlTouchOrientationHandler) {
+	i.orientationHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WlTouch) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // down
+		if i.downHandler != nil {
+			ev := WlTouchDownEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = Uint32(data[l : l+4])
+			l += 4
+			ev.Time = Uint32(data[l : l+4])
+			l += 4
+			surfaceID := Uint32(data[l : l+4])
+			l += 4
+			ev.Surface = i.Context().GetProxy(surfaceID).(*WlSurface)
+			ev.Id = int32(Uint32(data[l : l+4]))
+			l += 4
+			ev.X = Fixed(data[l : l+4])
+			l += 4
+			ev.Y = Fixed(data[l : l+4])
+			l += 4
+			i.downHandler(ev)
+		}
+	case 1: // up
+		if i.upHandler != nil {
+			ev := WlTouchUpEvent{}
+			l := 0
+			_ = fd
+			ev.Serial = Uint32(data[l : l+4])
+			l += 4
+			ev.Time = Uint32(data[l : l+4])
+			l += 4
+			ev.Id = int32(Uint32(data[l : l+4]))
+			l += 4
+			i.upHandler(ev)
+		}
+	case 2: // motion
+		if i.motionHandler != nil {
+			ev := WlTouchMotionEvent{}
+			l := 0
+			_ = fd
+			ev.Time = Uint32(data[l : l+4])
+			l += 4
+			ev.Id = int32(Uint32(data[l : l+4]))
+			l += 4
+			ev.X = Fixed(data[l : l+4])
+			l += 4
+			ev.Y = Fixed(data[l : l+4])
+			l += 4
+			i.motionHandler(ev)
+		}
+	case 3: // frame
+		if i.frameHandler != nil {
+			ev := WlTouchFrameEvent{}
+			_ = fd
+			_ = data
+			i.frameHandler(ev)
+		}
+	case 4: // cancel
+		if i.cancelHandler != nil {
+			ev := WlTouchCancelEvent{}
+			_ = fd
+			_ = data
+			i.cancelHandler(ev)
+		}
+	case 5: // shape
+		if i.shapeHandler != nil {
+			ev := WlTouchShapeEvent{}
+			l := 0
+			_ = fd
+			ev.Id = int32(Uint32(data[l : l+4]))
+			l += 4
+			ev.Major = Fixed(data[l : l+4])
+			l += 4
+			ev.Minor = Fixed(data[l : l+4])
+			l += 4
+			i.shapeHandler(ev)
+		}
+	case 6: // orientation
+		if i.orientationHandler != nil {
+			ev := WlTouchOrientationEvent{}
+			l := 0
+			_ = fd
+			ev.Id = int32(Uint32(data[l : l+4]))
+			l += 4
+			ev.Orientation = Fixed(data[l : l+4])
+			l += 4
+			i.orientationHandler(ev)
+		}
+	}
+}
+
 // WlOutput: compositor output region
 type WlOutput struct {
 	BaseProxy
+	geometryHandler    WlOutputGeometryHandler
+	modeHandler        WlOutputModeHandler
+	doneHandler        WlOutputDoneHandler
+	scaleHandler       WlOutputScaleHandler
+	nameHandler        WlOutputNameHandler
+	descriptionHandler WlOutputDescriptionHandler
 }
 
 // NewWlOutput creates a new WlOutput
@@ -2093,6 +3131,126 @@ type WlOutputDescriptionEvent struct {
 }
 
 type WlOutputDescriptionHandler func(WlOutputDescriptionEvent)
+
+// SetGeometryHandler sets the handler for the geometry event
+func (i *WlOutput) SetGeometryHandler(f WlOutputGeometryHandler) {
+	i.geometryHandler = f
+}
+
+// SetModeHandler sets the handler for the mode event
+func (i *WlOutput) SetModeHandler(f WlOutputModeHandler) {
+	i.modeHandler = f
+}
+
+// SetDoneHandler sets the handler for the done event
+func (i *WlOutput) SetDoneHandler(f WlOutputDoneHandler) {
+	i.doneHandler = f
+}
+
+// SetScaleHandler sets the handler for the scale event
+func (i *WlOutput) SetScaleHandler(f WlOutputScaleHandler) {
+	i.scaleHandler = f
+}
+
+// SetNameHandler sets the handler for the name event
+func (i *WlOutput) SetNameHandler(f WlOutputNameHandler) {
+	i.nameHandler = f
+}
+
+// SetDescriptionHandler sets the handler for the description event
+func (i *WlOutput) SetDescriptionHandler(f WlOutputDescriptionHandler) {
+	i.descriptionHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *WlOutput) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // geometry
+		if i.geometryHandler != nil {
+			ev := WlOutputGeometryEvent{}
+			l := 0
+			_ = fd
+			ev.X = int32(Uint32(data[l : l+4]))
+			l += 4
+			ev.Y = int32(Uint32(data[l : l+4]))
+			l += 4
+			ev.PhysicalWidth = int32(Uint32(data[l : l+4]))
+			l += 4
+			ev.PhysicalHeight = int32(Uint32(data[l : l+4]))
+			l += 4
+			ev.Subpixel = int32(Uint32(data[l : l+4]))
+			l += 4
+			makeRawLen := int(Uint32(data[l : l+4]))
+			l += 4
+			makeLen := PaddedLen(makeRawLen)
+			ev.Make = String(data[l : l+makeLen])
+			l += makeLen
+			modelRawLen := int(Uint32(data[l : l+4]))
+			l += 4
+			modelLen := PaddedLen(modelRawLen)
+			ev.Model = String(data[l : l+modelLen])
+			l += modelLen
+			ev.Transform = int32(Uint32(data[l : l+4]))
+			l += 4
+			i.geometryHandler(ev)
+		}
+	case 1: // mode
+		if i.modeHandler != nil {
+			ev := WlOutputModeEvent{}
+			l := 0
+			_ = fd
+			ev.Flags = Uint32(data[l : l+4])
+			l += 4
+			ev.Width = int32(Uint32(data[l : l+4]))
+			l += 4
+			ev.Height = int32(Uint32(data[l : l+4]))
+			l += 4
+			ev.Refresh = int32(Uint32(data[l : l+4]))
+			l += 4
+			i.modeHandler(ev)
+		}
+	case 2: // done
+		if i.doneHandler != nil {
+			ev := WlOutputDoneEvent{}
+			_ = fd
+			_ = data
+			i.doneHandler(ev)
+		}
+	case 3: // scale
+		if i.scaleHandler != nil {
+			ev := WlOutputScaleEvent{}
+			l := 0
+			_ = fd
+			ev.Factor = int32(Uint32(data[l : l+4]))
+			l += 4
+			i.scaleHandler(ev)
+		}
+	case 4: // name
+		if i.nameHandler != nil {
+			ev := WlOutputNameEvent{}
+			l := 0
+			_ = fd
+			nameRawLen := int(Uint32(data[l : l+4]))
+			l += 4
+			nameLen := PaddedLen(nameRawLen)
+			ev.Name = String(data[l : l+nameLen])
+			l += nameLen
+			i.nameHandler(ev)
+		}
+	case 5: // description
+		if i.descriptionHandler != nil {
+			ev := WlOutputDescriptionEvent{}
+			l := 0
+			_ = fd
+			descriptionRawLen := int(Uint32(data[l : l+4]))
+			l += 4
+			descriptionLen := PaddedLen(descriptionRawLen)
+			ev.Description = String(data[l : l+descriptionLen])
+			l += descriptionLen
+			i.descriptionHandler(ev)
+		}
+	}
+}
 
 // WlRegion: region interface
 type WlRegion struct {

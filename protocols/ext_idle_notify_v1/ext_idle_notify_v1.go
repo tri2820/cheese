@@ -99,6 +99,8 @@ func (i *ExtIdleNotifierV1) GetInputIdleNotification(timeout uint32, seat *clien
 // ExtIdleNotificationV1: idle notification
 type ExtIdleNotificationV1 struct {
 	client.BaseProxy
+	idledHandler   ExtIdleNotificationV1IdledHandler
+	resumedHandler ExtIdleNotificationV1ResumedHandler
 }
 
 // NewExtIdleNotificationV1 creates a new ExtIdleNotificationV1
@@ -134,3 +136,33 @@ type ExtIdleNotificationV1ResumedEvent struct {
 }
 
 type ExtIdleNotificationV1ResumedHandler func(ExtIdleNotificationV1ResumedEvent)
+
+// SetIdledHandler sets the handler for the idled event
+func (i *ExtIdleNotificationV1) SetIdledHandler(f ExtIdleNotificationV1IdledHandler) {
+	i.idledHandler = f
+}
+
+// SetResumedHandler sets the handler for the resumed event
+func (i *ExtIdleNotificationV1) SetResumedHandler(f ExtIdleNotificationV1ResumedHandler) {
+	i.resumedHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ExtIdleNotificationV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // idled
+		if i.idledHandler != nil {
+			ev := ExtIdleNotificationV1IdledEvent{}
+			_ = fd
+			_ = data
+			i.idledHandler(ev)
+		}
+	case 1: // resumed
+		if i.resumedHandler != nil {
+			ev := ExtIdleNotificationV1ResumedEvent{}
+			_ = fd
+			_ = data
+			i.resumedHandler(ev)
+		}
+	}
+}

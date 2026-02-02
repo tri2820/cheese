@@ -32,6 +32,7 @@ import (
 // ExtBackgroundEffectManagerV1: background effect factory
 type ExtBackgroundEffectManagerV1 struct {
 	client.BaseProxy
+	capabilitiesHandler ExtBackgroundEffectManagerV1CapabilitiesHandler
 }
 
 // NewExtBackgroundEffectManagerV1 creates a new ExtBackgroundEffectManagerV1
@@ -93,6 +94,26 @@ type ExtBackgroundEffectManagerV1CapabilitiesEvent struct {
 }
 
 type ExtBackgroundEffectManagerV1CapabilitiesHandler func(ExtBackgroundEffectManagerV1CapabilitiesEvent)
+
+// SetCapabilitiesHandler sets the handler for the capabilities event
+func (i *ExtBackgroundEffectManagerV1) SetCapabilitiesHandler(f ExtBackgroundEffectManagerV1CapabilitiesHandler) {
+	i.capabilitiesHandler = f
+}
+
+// Dispatch handles incoming events
+func (i *ExtBackgroundEffectManagerV1) Dispatch(opcode uint32, fd int, data []byte) {
+	switch opcode {
+	case 0: // capabilities
+		if i.capabilitiesHandler != nil {
+			ev := ExtBackgroundEffectManagerV1CapabilitiesEvent{}
+			l := 0
+			_ = fd
+			ev.Flags = client.Uint32(data[l : l+4])
+			l += 4
+			i.capabilitiesHandler(ev)
+		}
+	}
+}
 
 // ExtBackgroundEffectSurfaceV1: background effects for a surface
 type ExtBackgroundEffectSurfaceV1 struct {
