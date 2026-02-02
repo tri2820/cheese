@@ -52,7 +52,7 @@ const (
 )
 
 // CreateSession: capture an image capture source
-func (i *ExtImageCopyCaptureManagerV1) CreateSession(source client.Proxy, options uint32) (*ExtImageCopyCaptureSessionV1, error) {
+func (i *ExtImageCopyCaptureManagerV1) CreateSession(source client.Proxy, options ExtImageCopyCaptureManagerV1Options) (*ExtImageCopyCaptureSessionV1, error) {
 	session := NewExtImageCopyCaptureSessionV1(i.Context())
 	const opcode = 0
 	const _reqBufLen = 8 + 4 + 4 + 4
@@ -174,7 +174,7 @@ type ExtImageCopyCaptureSessionV1BufferSizeHandler func(ExtImageCopyCaptureSessi
 
 // ExtImageCopyCaptureSessionV1ShmFormatEvent: shm buffer format
 type ExtImageCopyCaptureSessionV1ShmFormatEvent struct {
-	Format uint32
+	Format WlShmFormat
 }
 
 type ExtImageCopyCaptureSessionV1ShmFormatHandler func(ExtImageCopyCaptureSessionV1ShmFormatEvent)
@@ -255,7 +255,7 @@ func (i *ExtImageCopyCaptureSessionV1) Dispatch(opcode uint32, fd int, data []by
 			ev := ExtImageCopyCaptureSessionV1ShmFormatEvent{}
 			l := 0
 			_ = fd
-			ev.Format = client.Uint32(data[l : l+4])
+			ev.Format = WlShmFormat(client.Uint32(data[l : l+4]))
 			l += 4
 			i.shmFormatHandler(ev)
 		}
@@ -402,7 +402,7 @@ func (i *ExtImageCopyCaptureFrameV1) Capture() error {
 
 // ExtImageCopyCaptureFrameV1TransformEvent: buffer transform
 type ExtImageCopyCaptureFrameV1TransformEvent struct {
-	Transform uint32
+	Transform WlOutputTransform
 }
 
 type ExtImageCopyCaptureFrameV1TransformHandler func(ExtImageCopyCaptureFrameV1TransformEvent)
@@ -434,7 +434,7 @@ type ExtImageCopyCaptureFrameV1ReadyHandler func(ExtImageCopyCaptureFrameV1Ready
 
 // ExtImageCopyCaptureFrameV1FailedEvent: capture failed
 type ExtImageCopyCaptureFrameV1FailedEvent struct {
-	Reason uint32
+	Reason ExtImageCopyCaptureFrameV1FailureReason
 }
 
 type ExtImageCopyCaptureFrameV1FailedHandler func(ExtImageCopyCaptureFrameV1FailedEvent)
@@ -472,7 +472,7 @@ func (i *ExtImageCopyCaptureFrameV1) Dispatch(opcode uint32, fd int, data []byte
 			ev := ExtImageCopyCaptureFrameV1TransformEvent{}
 			l := 0
 			_ = fd
-			ev.Transform = client.Uint32(data[l : l+4])
+			ev.Transform = WlOutputTransform(client.Uint32(data[l : l+4]))
 			l += 4
 			i.transformHandler(ev)
 		}
@@ -516,7 +516,7 @@ func (i *ExtImageCopyCaptureFrameV1) Dispatch(opcode uint32, fd int, data []byte
 			ev := ExtImageCopyCaptureFrameV1FailedEvent{}
 			l := 0
 			_ = fd
-			ev.Reason = client.Uint32(data[l : l+4])
+			ev.Reason = ExtImageCopyCaptureFrameV1FailureReason(client.Uint32(data[l : l+4]))
 			l += 4
 			i.failedHandler(ev)
 		}

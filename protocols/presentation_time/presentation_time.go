@@ -148,7 +148,7 @@ type WpPresentationFeedbackPresentedEvent struct {
 	Refresh uint32
 	SeqHi   uint32
 	SeqLo   uint32
-	Flags   uint32
+	Flags   WpPresentationFeedbackKind
 }
 
 type WpPresentationFeedbackPresentedHandler func(WpPresentationFeedbackPresentedEvent)
@@ -204,7 +204,7 @@ func (i *WpPresentationFeedback) Dispatch(opcode uint32, fd int, data []byte) {
 			l += 4
 			ev.SeqLo = client.Uint32(data[l : l+4])
 			l += 4
-			ev.Flags = client.Uint32(data[l : l+4])
+			ev.Flags = WpPresentationFeedbackKind(client.Uint32(data[l : l+4]))
 			l += 4
 			i.presentedHandler(ev)
 		}

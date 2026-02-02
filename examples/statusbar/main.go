@@ -46,7 +46,7 @@ func handle(err error) {
 // Event handlers for Display
 
 func (d *Display) handleShmFormat(ev client.WlShmFormatEvent) {
-	if ev.Format == uint32(client.WlShmFormatXrgb8888) {
+	if ev.Format == client.WlShmFormatXrgb8888 {
 		d.hasXrgb = true
 	}
 }
@@ -156,7 +156,7 @@ func createShmBuffer(sb *StatusBar, buffer *Buffer, width int, height int, forma
 		return err
 	}
 
-	buf, err := pool.CreateBuffer(0, int32(width), int32(height), int32(stride), uint32(format))
+	buf, err := pool.CreateBuffer(0, int32(width), int32(height), int32(stride), format)
 	if err != nil {
 		return err
 	}
@@ -258,7 +258,7 @@ func createStatusBar(d *Display, width, height int) *StatusBar {
 	layerSurf, err := d.layerShell.GetLayerSurface(
 		sb.surface,
 		d.output, // nil for any output, or specific output
-		uint32(wlr_layer_shell_unstable_v1.ZwlrLayerShellV1LayerTop),
+		wlr_layer_shell_unstable_v1.ZwlrLayerShellV1LayerTop,  // ← No cast needed!
 		"statusbar",
 	)
 	if err != nil {
@@ -276,7 +276,7 @@ func createStatusBar(d *Display, width, height int) *StatusBar {
 		wlr_layer_shell_unstable_v1.ZwlrLayerSurfaceV1AnchorLeft |
 		wlr_layer_shell_unstable_v1.ZwlrLayerSurfaceV1AnchorRight
 
-	handle(sb.layerSurface.SetAnchor(uint32(anchor)))
+	handle(sb.layerSurface.SetAnchor(anchor))  // ← No cast needed!
 	handle(sb.layerSurface.SetSize(0, uint32(height))) // width=0 means "full width"
 	handle(sb.layerSurface.SetExclusiveZone(int32(height))) // Reserve space
 

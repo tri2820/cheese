@@ -90,7 +90,7 @@ func (i *ExtBackgroundEffectManagerV1) GetBackgroundEffect(surface *client.WlSur
 
 // ExtBackgroundEffectManagerV1CapabilitiesEvent: capabilities of the compositor
 type ExtBackgroundEffectManagerV1CapabilitiesEvent struct {
-	Flags uint32
+	Flags ExtBackgroundEffectManagerV1Capability
 }
 
 type ExtBackgroundEffectManagerV1CapabilitiesHandler func(ExtBackgroundEffectManagerV1CapabilitiesEvent)
@@ -108,7 +108,7 @@ func (i *ExtBackgroundEffectManagerV1) Dispatch(opcode uint32, fd int, data []by
 			ev := ExtBackgroundEffectManagerV1CapabilitiesEvent{}
 			l := 0
 			_ = fd
-			ev.Flags = client.Uint32(data[l : l+4])
+			ev.Flags = ExtBackgroundEffectManagerV1Capability(client.Uint32(data[l : l+4]))
 			l += 4
 			i.capabilitiesHandler(ev)
 		}

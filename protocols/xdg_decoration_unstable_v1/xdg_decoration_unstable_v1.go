@@ -118,7 +118,7 @@ func (i *ZxdgToplevelDecorationV1) Destroy() error {
 }
 
 // SetMode: set the decoration mode
-func (i *ZxdgToplevelDecorationV1) SetMode(mode uint32) error {
+func (i *ZxdgToplevelDecorationV1) SetMode(mode ZxdgToplevelDecorationV1Mode) error {
 	const opcode = 1
 	const _reqBufLen = 8 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -149,7 +149,7 @@ func (i *ZxdgToplevelDecorationV1) UnsetMode() error {
 
 // ZxdgToplevelDecorationV1ConfigureEvent: notify a decoration mode change
 type ZxdgToplevelDecorationV1ConfigureEvent struct {
-	Mode uint32
+	Mode ZxdgToplevelDecorationV1Mode
 }
 
 type ZxdgToplevelDecorationV1ConfigureHandler func(ZxdgToplevelDecorationV1ConfigureEvent)
@@ -167,7 +167,7 @@ func (i *ZxdgToplevelDecorationV1) Dispatch(opcode uint32, fd int, data []byte) 
 			ev := ZxdgToplevelDecorationV1ConfigureEvent{}
 			l := 0
 			_ = fd
-			ev.Mode = client.Uint32(data[l : l+4])
+			ev.Mode = ZxdgToplevelDecorationV1Mode(client.Uint32(data[l : l+4]))
 			l += 4
 			i.configureHandler(ev)
 		}

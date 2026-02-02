@@ -262,28 +262,28 @@ func (i *WpColorManagerV1) GetImageDescription(reference *WpImageDescriptionRefe
 
 // WpColorManagerV1SupportedIntentEvent: supported rendering intent
 type WpColorManagerV1SupportedIntentEvent struct {
-	RenderIntent uint32
+	RenderIntent WpColorManagerV1RenderIntent
 }
 
 type WpColorManagerV1SupportedIntentHandler func(WpColorManagerV1SupportedIntentEvent)
 
 // WpColorManagerV1SupportedFeatureEvent: supported features
 type WpColorManagerV1SupportedFeatureEvent struct {
-	Feature uint32
+	Feature WpColorManagerV1Feature
 }
 
 type WpColorManagerV1SupportedFeatureHandler func(WpColorManagerV1SupportedFeatureEvent)
 
 // WpColorManagerV1SupportedTfNamedEvent: supported named transfer characteristic
 type WpColorManagerV1SupportedTfNamedEvent struct {
-	Tf uint32
+	Tf WpColorManagerV1TransferFunction
 }
 
 type WpColorManagerV1SupportedTfNamedHandler func(WpColorManagerV1SupportedTfNamedEvent)
 
 // WpColorManagerV1SupportedPrimariesNamedEvent: supported named primaries
 type WpColorManagerV1SupportedPrimariesNamedEvent struct {
-	Primaries uint32
+	Primaries WpColorManagerV1Primaries
 }
 
 type WpColorManagerV1SupportedPrimariesNamedHandler func(WpColorManagerV1SupportedPrimariesNamedEvent)
@@ -327,7 +327,7 @@ func (i *WpColorManagerV1) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := WpColorManagerV1SupportedIntentEvent{}
 			l := 0
 			_ = fd
-			ev.RenderIntent = client.Uint32(data[l : l+4])
+			ev.RenderIntent = WpColorManagerV1RenderIntent(client.Uint32(data[l : l+4]))
 			l += 4
 			i.supportedIntentHandler(ev)
 		}
@@ -336,7 +336,7 @@ func (i *WpColorManagerV1) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := WpColorManagerV1SupportedFeatureEvent{}
 			l := 0
 			_ = fd
-			ev.Feature = client.Uint32(data[l : l+4])
+			ev.Feature = WpColorManagerV1Feature(client.Uint32(data[l : l+4]))
 			l += 4
 			i.supportedFeatureHandler(ev)
 		}
@@ -345,7 +345,7 @@ func (i *WpColorManagerV1) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := WpColorManagerV1SupportedTfNamedEvent{}
 			l := 0
 			_ = fd
-			ev.Tf = client.Uint32(data[l : l+4])
+			ev.Tf = WpColorManagerV1TransferFunction(client.Uint32(data[l : l+4]))
 			l += 4
 			i.supportedTfNamedHandler(ev)
 		}
@@ -354,7 +354,7 @@ func (i *WpColorManagerV1) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := WpColorManagerV1SupportedPrimariesNamedEvent{}
 			l := 0
 			_ = fd
-			ev.Primaries = client.Uint32(data[l : l+4])
+			ev.Primaries = WpColorManagerV1Primaries(client.Uint32(data[l : l+4]))
 			l += 4
 			i.supportedPrimariesNamedHandler(ev)
 		}
@@ -474,7 +474,7 @@ func (i *WpColorManagementSurfaceV1) Destroy() error {
 }
 
 // SetImageDescription: set the surface image description
-func (i *WpColorManagementSurfaceV1) SetImageDescription(image_description *WpImageDescriptionV1, render_intent uint32) error {
+func (i *WpColorManagementSurfaceV1) SetImageDescription(image_description *WpImageDescriptionV1, render_intent WpColorManagerV1RenderIntent) error {
 	const opcode = 1
 	const _reqBufLen = 8 + 4 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -730,7 +730,7 @@ func (i *WpImageDescriptionCreatorParamsV1) Create() (*WpImageDescriptionV1, err
 }
 
 // SetTfNamed: named transfer characteristic
-func (i *WpImageDescriptionCreatorParamsV1) SetTfNamed(tf uint32) error {
+func (i *WpImageDescriptionCreatorParamsV1) SetTfNamed(tf WpColorManagerV1TransferFunction) error {
 	const opcode = 1
 	const _reqBufLen = 8 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -762,7 +762,7 @@ func (i *WpImageDescriptionCreatorParamsV1) SetTfPower(eexp uint32) error {
 }
 
 // SetPrimariesNamed: named primaries
-func (i *WpImageDescriptionCreatorParamsV1) SetPrimariesNamed(primaries uint32) error {
+func (i *WpImageDescriptionCreatorParamsV1) SetPrimariesNamed(primaries WpColorManagerV1Primaries) error {
 	const opcode = 3
 	const _reqBufLen = 8 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -974,7 +974,7 @@ func (i *WpImageDescriptionV1) GetInformation() (*WpImageDescriptionInfoV1, erro
 
 // WpImageDescriptionV1FailedEvent: graceful error on creating the image description
 type WpImageDescriptionV1FailedEvent struct {
-	Cause uint32
+	Cause WpImageDescriptionV1Cause
 	Msg   string
 }
 
@@ -1018,7 +1018,7 @@ func (i *WpImageDescriptionV1) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := WpImageDescriptionV1FailedEvent{}
 			l := 0
 			_ = fd
-			ev.Cause = client.Uint32(data[l : l+4])
+			ev.Cause = WpImageDescriptionV1Cause(client.Uint32(data[l : l+4]))
 			l += 4
 			msgRawLen := int(client.Uint32(data[l : l+4]))
 			l += 4
@@ -1103,7 +1103,7 @@ type WpImageDescriptionInfoV1PrimariesHandler func(WpImageDescriptionInfoV1Prima
 
 // WpImageDescriptionInfoV1PrimariesNamedEvent: named primaries
 type WpImageDescriptionInfoV1PrimariesNamedEvent struct {
-	Primaries uint32
+	Primaries WpColorManagerV1Primaries
 }
 
 type WpImageDescriptionInfoV1PrimariesNamedHandler func(WpImageDescriptionInfoV1PrimariesNamedEvent)
@@ -1117,7 +1117,7 @@ type WpImageDescriptionInfoV1TfPowerHandler func(WpImageDescriptionInfoV1TfPower
 
 // WpImageDescriptionInfoV1TfNamedEvent: named transfer characteristic
 type WpImageDescriptionInfoV1TfNamedEvent struct {
-	Tf uint32
+	Tf WpColorManagerV1TransferFunction
 }
 
 type WpImageDescriptionInfoV1TfNamedHandler func(WpImageDescriptionInfoV1TfNamedEvent)
@@ -1269,7 +1269,7 @@ func (i *WpImageDescriptionInfoV1) Dispatch(opcode uint32, fd int, data []byte) 
 			ev := WpImageDescriptionInfoV1PrimariesNamedEvent{}
 			l := 0
 			_ = fd
-			ev.Primaries = client.Uint32(data[l : l+4])
+			ev.Primaries = WpColorManagerV1Primaries(client.Uint32(data[l : l+4]))
 			l += 4
 			i.primariesNamedHandler(ev)
 		}
@@ -1287,7 +1287,7 @@ func (i *WpImageDescriptionInfoV1) Dispatch(opcode uint32, fd int, data []byte) 
 			ev := WpImageDescriptionInfoV1TfNamedEvent{}
 			l := 0
 			_ = fd
-			ev.Tf = client.Uint32(data[l : l+4])
+			ev.Tf = WpColorManagerV1TransferFunction(client.Uint32(data[l : l+4]))
 			l += 4
 			i.tfNamedHandler(ev)
 		}

@@ -339,7 +339,7 @@ func NewWlShmPool(ctx *Context) *WlShmPool {
 }
 
 // CreateBuffer: create a buffer from the pool
-func (i *WlShmPool) CreateBuffer(offset int32, width int32, height int32, stride int32, format uint32) (*WlBuffer, error) {
+func (i *WlShmPool) CreateBuffer(offset int32, width int32, height int32, stride int32, format WlShmFormat) (*WlBuffer, error) {
 	id := NewWlBuffer(i.Context())
 	const opcode = 0
 	const _reqBufLen = 8 + 4 + 4 + 4 + 4 + 4 + 4
@@ -584,7 +584,7 @@ func (i *WlShm) Release() error {
 
 // WlShmFormatEvent: pixel format description
 type WlShmFormatEvent struct {
-	Format uint32
+	Format WlShmFormat
 }
 
 type WlShmFormatHandler func(WlShmFormatEvent)
@@ -602,7 +602,7 @@ func (i *WlShm) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := WlShmFormatEvent{}
 			l := 0
 			_ = fd
-			ev.Format = Uint32(data[l : l+4])
+			ev.Format = WlShmFormat(Uint32(data[l : l+4]))
 			l += 4
 			i.formatHandler(ev)
 		}
@@ -759,7 +759,7 @@ func (i *WlDataOffer) Finish() error {
 }
 
 // SetActions: set the available/preferred drag-and-drop actions
-func (i *WlDataOffer) SetActions(dnd_actions uint32, preferred_action uint32) error {
+func (i *WlDataOffer) SetActions(dnd_actions WlDataDeviceManagerDndAction, preferred_action WlDataDeviceManagerDndAction) error {
 	const opcode = 4
 	const _reqBufLen = 8 + 4 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -785,14 +785,14 @@ type WlDataOfferOfferHandler func(WlDataOfferOfferEvent)
 
 // WlDataOfferSourceActionsEvent: notify the source-side available actions
 type WlDataOfferSourceActionsEvent struct {
-	SourceActions uint32
+	SourceActions WlDataDeviceManagerDndAction
 }
 
 type WlDataOfferSourceActionsHandler func(WlDataOfferSourceActionsEvent)
 
 // WlDataOfferActionEvent: notify the selected action
 type WlDataOfferActionEvent struct {
-	DndAction uint32
+	DndAction WlDataDeviceManagerDndAction
 }
 
 type WlDataOfferActionHandler func(WlDataOfferActionEvent)
@@ -832,7 +832,7 @@ func (i *WlDataOffer) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := WlDataOfferSourceActionsEvent{}
 			l := 0
 			_ = fd
-			ev.SourceActions = Uint32(data[l : l+4])
+			ev.SourceActions = WlDataDeviceManagerDndAction(Uint32(data[l : l+4]))
 			l += 4
 			i.sourceActionsHandler(ev)
 		}
@@ -841,7 +841,7 @@ func (i *WlDataOffer) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := WlDataOfferActionEvent{}
 			l := 0
 			_ = fd
-			ev.DndAction = Uint32(data[l : l+4])
+			ev.DndAction = WlDataDeviceManagerDndAction(Uint32(data[l : l+4]))
 			l += 4
 			i.actionHandler(ev)
 		}
@@ -906,7 +906,7 @@ func (i *WlDataSource) Destroy() error {
 }
 
 // SetActions: set the available drag-and-drop actions
-func (i *WlDataSource) SetActions(dnd_actions uint32) error {
+func (i *WlDataSource) SetActions(dnd_actions WlDataDeviceManagerDndAction) error {
 	const opcode = 2
 	const _reqBufLen = 8 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -956,7 +956,7 @@ type WlDataSourceDndFinishedHandler func(WlDataSourceDndFinishedEvent)
 
 // WlDataSourceActionEvent: notify the selected action
 type WlDataSourceActionEvent struct {
-	DndAction uint32
+	DndAction WlDataDeviceManagerDndAction
 }
 
 type WlDataSourceActionHandler func(WlDataSourceActionEvent)
@@ -1047,7 +1047,7 @@ func (i *WlDataSource) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := WlDataSourceActionEvent{}
 			l := 0
 			_ = fd
-			ev.DndAction = Uint32(data[l : l+4])
+			ev.DndAction = WlDataDeviceManagerDndAction(Uint32(data[l : l+4]))
 			l += 4
 			i.actionHandler(ev)
 		}
@@ -1478,7 +1478,7 @@ func (i *WlShellSurface) Move(seat *WlSeat, serial uint32) error {
 }
 
 // Resize: start an interactive resize
-func (i *WlShellSurface) Resize(seat *WlSeat, serial uint32, edges uint32) error {
+func (i *WlShellSurface) Resize(seat *WlSeat, serial uint32, edges WlShellSurfaceResize) error {
 	const opcode = 2
 	const _reqBufLen = 8 + 4 + 4 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -1512,7 +1512,7 @@ func (i *WlShellSurface) SetToplevel() error {
 }
 
 // SetTransient: make the surface a transient surface
-func (i *WlShellSurface) SetTransient(parent *WlSurface, x int32, y int32, flags uint32) error {
+func (i *WlShellSurface) SetTransient(parent *WlSurface, x int32, y int32, flags WlShellSurfaceTransient) error {
 	const opcode = 4
 	const _reqBufLen = 8 + 4 + 4 + 4 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -1534,7 +1534,7 @@ func (i *WlShellSurface) SetTransient(parent *WlSurface, x int32, y int32, flags
 }
 
 // SetFullscreen: make the surface a fullscreen surface
-func (i *WlShellSurface) SetFullscreen(method uint32, framerate uint32, output *WlOutput) error {
+func (i *WlShellSurface) SetFullscreen(method WlShellSurfaceFullscreenMethod, framerate uint32, output *WlOutput) error {
 	const opcode = 5
 	const _reqBufLen = 8 + 4 + 4 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -1559,7 +1559,7 @@ func (i *WlShellSurface) SetFullscreen(method uint32, framerate uint32, output *
 }
 
 // SetPopup: make the surface a popup surface
-func (i *WlShellSurface) SetPopup(seat *WlSeat, serial uint32, parent *WlSurface, x int32, y int32, flags uint32) error {
+func (i *WlShellSurface) SetPopup(seat *WlSeat, serial uint32, parent *WlSurface, x int32, y int32, flags WlShellSurfaceTransient) error {
 	const opcode = 6
 	const _reqBufLen = 8 + 4 + 4 + 4 + 4 + 4 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -1648,7 +1648,7 @@ type WlShellSurfacePingHandler func(WlShellSurfacePingEvent)
 
 // WlShellSurfaceConfigureEvent: suggest resize
 type WlShellSurfaceConfigureEvent struct {
-	Edges  uint32
+	Edges  WlShellSurfaceResize
 	Width  int32
 	Height int32
 }
@@ -1693,7 +1693,7 @@ func (i *WlShellSurface) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := WlShellSurfaceConfigureEvent{}
 			l := 0
 			_ = fd
-			ev.Edges = Uint32(data[l : l+4])
+			ev.Edges = WlShellSurfaceResize(Uint32(data[l : l+4]))
 			l += 4
 			ev.Width = int32(Uint32(data[l : l+4]))
 			l += 4
@@ -1874,7 +1874,7 @@ func (i *WlSurface) Commit() error {
 }
 
 // SetBufferTransform: sets the buffer transformation
-func (i *WlSurface) SetBufferTransform(transform int32) error {
+func (i *WlSurface) SetBufferTransform(transform WlOutputTransform) error {
 	const opcode = 7
 	const _reqBufLen = 8 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -1968,7 +1968,7 @@ type WlSurfacePreferredBufferScaleHandler func(WlSurfacePreferredBufferScaleEven
 
 // WlSurfacePreferredBufferTransformEvent: preferred buffer transform for the surface
 type WlSurfacePreferredBufferTransformEvent struct {
-	Transform uint32
+	Transform WlOutputTransform
 }
 
 type WlSurfacePreferredBufferTransformHandler func(WlSurfacePreferredBufferTransformEvent)
@@ -2030,7 +2030,7 @@ func (i *WlSurface) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := WlSurfacePreferredBufferTransformEvent{}
 			l := 0
 			_ = fd
-			ev.Transform = Uint32(data[l : l+4])
+			ev.Transform = WlOutputTransform(Uint32(data[l : l+4]))
 			l += 4
 			i.preferredBufferTransformHandler(ev)
 		}
@@ -2135,7 +2135,7 @@ func (i *WlSeat) Release() error {
 
 // WlSeatCapabilitiesEvent: seat capabilities changed
 type WlSeatCapabilitiesEvent struct {
-	Capabilities uint32
+	Capabilities WlSeatCapability
 }
 
 type WlSeatCapabilitiesHandler func(WlSeatCapabilitiesEvent)
@@ -2165,7 +2165,7 @@ func (i *WlSeat) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := WlSeatCapabilitiesEvent{}
 			l := 0
 			_ = fd
-			ev.Capabilities = Uint32(data[l : l+4])
+			ev.Capabilities = WlSeatCapability(Uint32(data[l : l+4]))
 			l += 4
 			i.capabilitiesHandler(ev)
 		}
@@ -2321,7 +2321,7 @@ type WlPointerButtonEvent struct {
 	Serial uint32
 	Time   uint32
 	Button uint32
-	State  uint32
+	State  WlPointerButtonState
 }
 
 type WlPointerButtonHandler func(WlPointerButtonEvent)
@@ -2329,7 +2329,7 @@ type WlPointerButtonHandler func(WlPointerButtonEvent)
 // WlPointerAxisEvent: axis event
 type WlPointerAxisEvent struct {
 	Time  uint32
-	Axis  uint32
+	Axis  WlPointerAxis
 	Value float64
 }
 
@@ -2343,7 +2343,7 @@ type WlPointerFrameHandler func(WlPointerFrameEvent)
 
 // WlPointerAxisSourceEvent: axis source event
 type WlPointerAxisSourceEvent struct {
-	AxisSource uint32
+	AxisSource WlPointerAxisSource
 }
 
 type WlPointerAxisSourceHandler func(WlPointerAxisSourceEvent)
@@ -2351,14 +2351,14 @@ type WlPointerAxisSourceHandler func(WlPointerAxisSourceEvent)
 // WlPointerAxisStopEvent: axis stop event
 type WlPointerAxisStopEvent struct {
 	Time uint32
-	Axis uint32
+	Axis WlPointerAxis
 }
 
 type WlPointerAxisStopHandler func(WlPointerAxisStopEvent)
 
 // WlPointerAxisDiscreteEvent: axis click event
 type WlPointerAxisDiscreteEvent struct {
-	Axis     uint32
+	Axis     WlPointerAxis
 	Discrete int32
 }
 
@@ -2366,7 +2366,7 @@ type WlPointerAxisDiscreteHandler func(WlPointerAxisDiscreteEvent)
 
 // WlPointerAxisValue120Event: axis high-resolution scroll event
 type WlPointerAxisValue120Event struct {
-	Axis     uint32
+	Axis     WlPointerAxis
 	Value120 int32
 }
 
@@ -2374,8 +2374,8 @@ type WlPointerAxisValue120Handler func(WlPointerAxisValue120Event)
 
 // WlPointerAxisRelativeDirectionEvent: axis relative physical direction event
 type WlPointerAxisRelativeDirectionEvent struct {
-	Axis      uint32
-	Direction uint32
+	Axis      WlPointerAxis
+	Direction WlPointerAxisRelativeDirection
 }
 
 type WlPointerAxisRelativeDirectionHandler func(WlPointerAxisRelativeDirectionEvent)
@@ -2490,7 +2490,7 @@ func (i *WlPointer) Dispatch(opcode uint32, fd int, data []byte) {
 			l += 4
 			ev.Button = Uint32(data[l : l+4])
 			l += 4
-			ev.State = Uint32(data[l : l+4])
+			ev.State = WlPointerButtonState(Uint32(data[l : l+4]))
 			l += 4
 			i.buttonHandler(ev)
 		}
@@ -2501,7 +2501,7 @@ func (i *WlPointer) Dispatch(opcode uint32, fd int, data []byte) {
 			_ = fd
 			ev.Time = Uint32(data[l : l+4])
 			l += 4
-			ev.Axis = Uint32(data[l : l+4])
+			ev.Axis = WlPointerAxis(Uint32(data[l : l+4]))
 			l += 4
 			ev.Value = Fixed(data[l : l+4])
 			l += 4
@@ -2519,7 +2519,7 @@ func (i *WlPointer) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := WlPointerAxisSourceEvent{}
 			l := 0
 			_ = fd
-			ev.AxisSource = Uint32(data[l : l+4])
+			ev.AxisSource = WlPointerAxisSource(Uint32(data[l : l+4]))
 			l += 4
 			i.axisSourceHandler(ev)
 		}
@@ -2530,7 +2530,7 @@ func (i *WlPointer) Dispatch(opcode uint32, fd int, data []byte) {
 			_ = fd
 			ev.Time = Uint32(data[l : l+4])
 			l += 4
-			ev.Axis = Uint32(data[l : l+4])
+			ev.Axis = WlPointerAxis(Uint32(data[l : l+4]))
 			l += 4
 			i.axisStopHandler(ev)
 		}
@@ -2539,7 +2539,7 @@ func (i *WlPointer) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := WlPointerAxisDiscreteEvent{}
 			l := 0
 			_ = fd
-			ev.Axis = Uint32(data[l : l+4])
+			ev.Axis = WlPointerAxis(Uint32(data[l : l+4]))
 			l += 4
 			ev.Discrete = int32(Uint32(data[l : l+4]))
 			l += 4
@@ -2550,7 +2550,7 @@ func (i *WlPointer) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := WlPointerAxisValue120Event{}
 			l := 0
 			_ = fd
-			ev.Axis = Uint32(data[l : l+4])
+			ev.Axis = WlPointerAxis(Uint32(data[l : l+4]))
 			l += 4
 			ev.Value120 = int32(Uint32(data[l : l+4]))
 			l += 4
@@ -2561,9 +2561,9 @@ func (i *WlPointer) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := WlPointerAxisRelativeDirectionEvent{}
 			l := 0
 			_ = fd
-			ev.Axis = Uint32(data[l : l+4])
+			ev.Axis = WlPointerAxis(Uint32(data[l : l+4]))
 			l += 4
-			ev.Direction = Uint32(data[l : l+4])
+			ev.Direction = WlPointerAxisRelativeDirection(Uint32(data[l : l+4]))
 			l += 4
 			i.axisRelativeDirectionHandler(ev)
 		}
@@ -2622,7 +2622,7 @@ func (i *WlKeyboard) Release() error {
 
 // WlKeyboardKeymapEvent: keyboard mapping
 type WlKeyboardKeymapEvent struct {
-	Format uint32
+	Format WlKeyboardKeymapFormat
 	Fd     uintptr
 	Size   uint32
 }
@@ -2651,7 +2651,7 @@ type WlKeyboardKeyEvent struct {
 	Serial uint32
 	Time   uint32
 	Key    uint32
-	State  uint32
+	State  WlKeyboardKeyState
 }
 
 type WlKeyboardKeyHandler func(WlKeyboardKeyEvent)
@@ -2712,7 +2712,7 @@ func (i *WlKeyboard) Dispatch(opcode uint32, fd int, data []byte) {
 		if i.keymapHandler != nil {
 			ev := WlKeyboardKeymapEvent{}
 			l := 0
-			ev.Format = Uint32(data[l : l+4])
+			ev.Format = WlKeyboardKeymapFormat(Uint32(data[l : l+4]))
 			l += 4
 			ev.Fd = uintptr(fd)
 			ev.Size = Uint32(data[l : l+4])
@@ -2758,7 +2758,7 @@ func (i *WlKeyboard) Dispatch(opcode uint32, fd int, data []byte) {
 			l += 4
 			ev.Key = Uint32(data[l : l+4])
 			l += 4
-			ev.State = Uint32(data[l : l+4])
+			ev.State = WlKeyboardKeyState(Uint32(data[l : l+4]))
 			l += 4
 			i.keyHandler(ev)
 		}
@@ -3087,17 +3087,17 @@ type WlOutputGeometryEvent struct {
 	Y              int32
 	PhysicalWidth  int32
 	PhysicalHeight int32
-	Subpixel       int32
+	Subpixel       WlOutputSubpixel
 	Make           string
 	Model          string
-	Transform      int32
+	Transform      WlOutputTransform
 }
 
 type WlOutputGeometryHandler func(WlOutputGeometryEvent)
 
 // WlOutputModeEvent: advertise available modes for the output
 type WlOutputModeEvent struct {
-	Flags   uint32
+	Flags   WlOutputMode
 	Width   int32
 	Height  int32
 	Refresh int32
@@ -3178,7 +3178,7 @@ func (i *WlOutput) Dispatch(opcode uint32, fd int, data []byte) {
 			l += 4
 			ev.PhysicalHeight = int32(Uint32(data[l : l+4]))
 			l += 4
-			ev.Subpixel = int32(Uint32(data[l : l+4]))
+			ev.Subpixel = WlOutputSubpixel(int32(Uint32(data[l : l+4])))
 			l += 4
 			makeRawLen := int(Uint32(data[l : l+4]))
 			l += 4
@@ -3190,7 +3190,7 @@ func (i *WlOutput) Dispatch(opcode uint32, fd int, data []byte) {
 			modelLen := PaddedLen(modelRawLen)
 			ev.Model = String(data[l : l+modelLen])
 			l += modelLen
-			ev.Transform = int32(Uint32(data[l : l+4]))
+			ev.Transform = WlOutputTransform(int32(Uint32(data[l : l+4])))
 			l += 4
 			i.geometryHandler(ev)
 		}
@@ -3199,7 +3199,7 @@ func (i *WlOutput) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := WlOutputModeEvent{}
 			l := 0
 			_ = fd
-			ev.Flags = Uint32(data[l : l+4])
+			ev.Flags = WlOutputMode(Uint32(data[l : l+4]))
 			l += 4
 			ev.Width = int32(Uint32(data[l : l+4]))
 			l += 4

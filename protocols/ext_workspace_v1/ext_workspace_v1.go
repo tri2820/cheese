@@ -219,7 +219,7 @@ func (i *ExtWorkspaceGroupHandleV1) Destroy() error {
 
 // ExtWorkspaceGroupHandleV1CapabilitiesEvent: compositor capabilities
 type ExtWorkspaceGroupHandleV1CapabilitiesEvent struct {
-	Capabilities uint32
+	Capabilities ExtWorkspaceGroupHandleV1GroupCapabilities
 }
 
 type ExtWorkspaceGroupHandleV1CapabilitiesHandler func(ExtWorkspaceGroupHandleV1CapabilitiesEvent)
@@ -296,7 +296,7 @@ func (i *ExtWorkspaceGroupHandleV1) Dispatch(opcode uint32, fd int, data []byte)
 			ev := ExtWorkspaceGroupHandleV1CapabilitiesEvent{}
 			l := 0
 			_ = fd
-			ev.Capabilities = client.Uint32(data[l : l+4])
+			ev.Capabilities = ExtWorkspaceGroupHandleV1GroupCapabilities(client.Uint32(data[l : l+4]))
 			l += 4
 			i.capabilitiesHandler(ev)
 		}
@@ -482,14 +482,14 @@ type ExtWorkspaceHandleV1CoordinatesHandler func(ExtWorkspaceHandleV1Coordinates
 
 // ExtWorkspaceHandleV1StateEvent: the state of the workspace changed
 type ExtWorkspaceHandleV1StateEvent struct {
-	State uint32
+	State ExtWorkspaceHandleV1State
 }
 
 type ExtWorkspaceHandleV1StateHandler func(ExtWorkspaceHandleV1StateEvent)
 
 // ExtWorkspaceHandleV1CapabilitiesEvent: compositor capabilities
 type ExtWorkspaceHandleV1CapabilitiesEvent struct {
-	Capabilities uint32
+	Capabilities ExtWorkspaceHandleV1WorkspaceCapabilities
 }
 
 type ExtWorkspaceHandleV1CapabilitiesHandler func(ExtWorkspaceHandleV1CapabilitiesEvent)
@@ -573,7 +573,7 @@ func (i *ExtWorkspaceHandleV1) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := ExtWorkspaceHandleV1StateEvent{}
 			l := 0
 			_ = fd
-			ev.State = client.Uint32(data[l : l+4])
+			ev.State = ExtWorkspaceHandleV1State(client.Uint32(data[l : l+4]))
 			l += 4
 			i.stateHandler(ev)
 		}
@@ -582,7 +582,7 @@ func (i *ExtWorkspaceHandleV1) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := ExtWorkspaceHandleV1CapabilitiesEvent{}
 			l := 0
 			_ = fd
-			ev.Capabilities = client.Uint32(data[l : l+4])
+			ev.Capabilities = ExtWorkspaceHandleV1WorkspaceCapabilities(client.Uint32(data[l : l+4]))
 			l += 4
 			i.capabilitiesHandler(ev)
 		}

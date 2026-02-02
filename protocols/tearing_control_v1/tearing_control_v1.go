@@ -99,7 +99,7 @@ const (
 )
 
 // SetPresentationHint: set presentation hint
-func (i *WpTearingControlV1) SetPresentationHint(hint uint32) error {
+func (i *WpTearingControlV1) SetPresentationHint(hint WpTearingControlV1PresentationHint) error {
 	const opcode = 0
 	const _reqBufLen = 8 + 4
 	var _reqBuf [_reqBufLen]byte

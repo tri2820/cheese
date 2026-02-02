@@ -160,7 +160,7 @@ func (i *ZwpTextInputV3) SetSurroundingText(text string, cursor int32, anchor in
 }
 
 // SetTextChangeCause: indicates the cause of surrounding text change
-func (i *ZwpTextInputV3) SetTextChangeCause(cause uint32) error {
+func (i *ZwpTextInputV3) SetTextChangeCause(cause ZwpTextInputV3ChangeCause) error {
 	const opcode = 4
 	const _reqBufLen = 8 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -176,7 +176,7 @@ func (i *ZwpTextInputV3) SetTextChangeCause(cause uint32) error {
 }
 
 // SetContentType: set content purpose and hint
-func (i *ZwpTextInputV3) SetContentType(hint uint32, purpose uint32) error {
+func (i *ZwpTextInputV3) SetContentType(hint ZwpTextInputV3ContentHint, purpose ZwpTextInputV3ContentPurpose) error {
 	const opcode = 5
 	const _reqBufLen = 8 + 4 + 4
 	var _reqBuf [_reqBufLen]byte

@@ -87,15 +87,15 @@ func (i *WpColorRepresentationManagerV1) GetSurface(surface *client.WlSurface) (
 
 // WpColorRepresentationManagerV1SupportedAlphaModeEvent: supported alpha modes
 type WpColorRepresentationManagerV1SupportedAlphaModeEvent struct {
-	AlphaMode uint32
+	AlphaMode WpColorRepresentationSurfaceV1AlphaMode
 }
 
 type WpColorRepresentationManagerV1SupportedAlphaModeHandler func(WpColorRepresentationManagerV1SupportedAlphaModeEvent)
 
 // WpColorRepresentationManagerV1SupportedCoefficientsAndRangesEvent: supported matrix coefficients and ranges
 type WpColorRepresentationManagerV1SupportedCoefficientsAndRangesEvent struct {
-	Coefficients uint32
-	Range        uint32
+	Coefficients WpColorRepresentationSurfaceV1Coefficients
+	Range        WpColorRepresentationSurfaceV1Range
 }
 
 type WpColorRepresentationManagerV1SupportedCoefficientsAndRangesHandler func(WpColorRepresentationManagerV1SupportedCoefficientsAndRangesEvent)
@@ -129,7 +129,7 @@ func (i *WpColorRepresentationManagerV1) Dispatch(opcode uint32, fd int, data []
 			ev := WpColorRepresentationManagerV1SupportedAlphaModeEvent{}
 			l := 0
 			_ = fd
-			ev.AlphaMode = client.Uint32(data[l : l+4])
+			ev.AlphaMode = WpColorRepresentationSurfaceV1AlphaMode(client.Uint32(data[l : l+4]))
 			l += 4
 			i.supportedAlphaModeHandler(ev)
 		}
@@ -138,9 +138,9 @@ func (i *WpColorRepresentationManagerV1) Dispatch(opcode uint32, fd int, data []
 			ev := WpColorRepresentationManagerV1SupportedCoefficientsAndRangesEvent{}
 			l := 0
 			_ = fd
-			ev.Coefficients = client.Uint32(data[l : l+4])
+			ev.Coefficients = WpColorRepresentationSurfaceV1Coefficients(client.Uint32(data[l : l+4]))
 			l += 4
-			ev.Range = client.Uint32(data[l : l+4])
+			ev.Range = WpColorRepresentationSurfaceV1Range(client.Uint32(data[l : l+4]))
 			l += 4
 			i.supportedCoefficientsAndRangesHandler(ev)
 		}
@@ -236,7 +236,7 @@ func (i *WpColorRepresentationSurfaceV1) Destroy() error {
 }
 
 // SetAlphaMode: set the surface alpha mode
-func (i *WpColorRepresentationSurfaceV1) SetAlphaMode(alpha_mode uint32) error {
+func (i *WpColorRepresentationSurfaceV1) SetAlphaMode(alpha_mode WpColorRepresentationSurfaceV1AlphaMode) error {
 	const opcode = 1
 	const _reqBufLen = 8 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -252,7 +252,7 @@ func (i *WpColorRepresentationSurfaceV1) SetAlphaMode(alpha_mode uint32) error {
 }
 
 // SetCoefficientsAndRange: set the matrix coefficients and range
-func (i *WpColorRepresentationSurfaceV1) SetCoefficientsAndRange(coefficients uint32, range_ uint32) error {
+func (i *WpColorRepresentationSurfaceV1) SetCoefficientsAndRange(coefficients WpColorRepresentationSurfaceV1Coefficients, range_ WpColorRepresentationSurfaceV1Range) error {
 	const opcode = 2
 	const _reqBufLen = 8 + 4 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -270,7 +270,7 @@ func (i *WpColorRepresentationSurfaceV1) SetCoefficientsAndRange(coefficients ui
 }
 
 // SetChromaLocation: set the chroma location
-func (i *WpColorRepresentationSurfaceV1) SetChromaLocation(chroma_location uint32) error {
+func (i *WpColorRepresentationSurfaceV1) SetChromaLocation(chroma_location WpColorRepresentationSurfaceV1ChromaLocation) error {
 	const opcode = 3
 	const _reqBufLen = 8 + 4
 	var _reqBuf [_reqBufLen]byte

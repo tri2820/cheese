@@ -269,7 +269,7 @@ func (i *ZwpTabletToolV1) Destroy() error {
 
 // ZwpTabletToolV1TypeEvent: tool type
 type ZwpTabletToolV1TypeEvent struct {
-	ToolType uint32
+	ToolType ZwpTabletToolV1Type
 }
 
 type ZwpTabletToolV1TypeHandler func(ZwpTabletToolV1TypeEvent)
@@ -292,7 +292,7 @@ type ZwpTabletToolV1HardwareIdWacomHandler func(ZwpTabletToolV1HardwareIdWacomEv
 
 // ZwpTabletToolV1CapabilityEvent: tool capability notification
 type ZwpTabletToolV1CapabilityEvent struct {
-	Capability uint32
+	Capability ZwpTabletToolV1Capability
 }
 
 type ZwpTabletToolV1CapabilityHandler func(ZwpTabletToolV1CapabilityEvent)
@@ -393,7 +393,7 @@ type ZwpTabletToolV1WheelHandler func(ZwpTabletToolV1WheelEvent)
 type ZwpTabletToolV1ButtonEvent struct {
 	Serial uint32
 	Button uint32
-	State  uint32
+	State  ZwpTabletToolV1ButtonState
 }
 
 type ZwpTabletToolV1ButtonHandler func(ZwpTabletToolV1ButtonEvent)
@@ -508,7 +508,7 @@ func (i *ZwpTabletToolV1) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := ZwpTabletToolV1TypeEvent{}
 			l := 0
 			_ = fd
-			ev.ToolType = client.Uint32(data[l : l+4])
+			ev.ToolType = ZwpTabletToolV1Type(client.Uint32(data[l : l+4]))
 			l += 4
 			i.typeHandler(ev)
 		}
@@ -539,7 +539,7 @@ func (i *ZwpTabletToolV1) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := ZwpTabletToolV1CapabilityEvent{}
 			l := 0
 			_ = fd
-			ev.Capability = client.Uint32(data[l : l+4])
+			ev.Capability = ZwpTabletToolV1Capability(client.Uint32(data[l : l+4]))
 			l += 4
 			i.capabilityHandler(ev)
 		}
@@ -673,7 +673,7 @@ func (i *ZwpTabletToolV1) Dispatch(opcode uint32, fd int, data []byte) {
 			l += 4
 			ev.Button = client.Uint32(data[l : l+4])
 			l += 4
-			ev.State = client.Uint32(data[l : l+4])
+			ev.State = ZwpTabletToolV1ButtonState(client.Uint32(data[l : l+4]))
 			l += 4
 			i.buttonHandler(ev)
 		}

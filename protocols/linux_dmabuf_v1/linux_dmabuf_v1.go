@@ -239,7 +239,7 @@ func (i *ZwpLinuxBufferParamsV1) Add(fd uintptr, plane_idx uint32, offset uint32
 }
 
 // Create: create a wl_buffer from the given dmabufs
-func (i *ZwpLinuxBufferParamsV1) Create(width int32, height int32, format uint32, flags uint32) error {
+func (i *ZwpLinuxBufferParamsV1) Create(width int32, height int32, format uint32, flags ZwpLinuxBufferParamsV1Flags) error {
 	const opcode = 2
 	const _reqBufLen = 8 + 4 + 4 + 4 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -261,7 +261,7 @@ func (i *ZwpLinuxBufferParamsV1) Create(width int32, height int32, format uint32
 }
 
 // CreateImmed: immediately create a wl_buffer from the given dmabufs
-func (i *ZwpLinuxBufferParamsV1) CreateImmed(width int32, height int32, format uint32, flags uint32) (*client.WlBuffer, error) {
+func (i *ZwpLinuxBufferParamsV1) CreateImmed(width int32, height int32, format uint32, flags ZwpLinuxBufferParamsV1Flags) (*client.WlBuffer, error) {
 	buffer_id := client.NewWlBuffer(i.Context())
 	const opcode = 3
 	const _reqBufLen = 8 + 4 + 4 + 4 + 4 + 4
@@ -414,7 +414,7 @@ type ZwpLinuxDmabufFeedbackV1TrancheFormatsHandler func(ZwpLinuxDmabufFeedbackV1
 
 // ZwpLinuxDmabufFeedbackV1TrancheFlagsEvent: tranche flags
 type ZwpLinuxDmabufFeedbackV1TrancheFlagsEvent struct {
-	Flags uint32
+	Flags ZwpLinuxDmabufFeedbackV1TrancheFlags
 }
 
 type ZwpLinuxDmabufFeedbackV1TrancheFlagsHandler func(ZwpLinuxDmabufFeedbackV1TrancheFlagsEvent)
@@ -518,7 +518,7 @@ func (i *ZwpLinuxDmabufFeedbackV1) Dispatch(opcode uint32, fd int, data []byte) 
 			ev := ZwpLinuxDmabufFeedbackV1TrancheFlagsEvent{}
 			l := 0
 			_ = fd
-			ev.Flags = client.Uint32(data[l : l+4])
+			ev.Flags = ZwpLinuxDmabufFeedbackV1TrancheFlags(client.Uint32(data[l : l+4]))
 			l += 4
 			i.trancheFlagsHandler(ev)
 		}

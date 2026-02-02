@@ -208,7 +208,7 @@ func (i *ZwpTextInputV1) SetSurroundingText(text string, cursor uint32, anchor u
 }
 
 // SetContentType: set content purpose and hint
-func (i *ZwpTextInputV1) SetContentType(hint uint32, purpose uint32) error {
+func (i *ZwpTextInputV1) SetContentType(hint ZwpTextInputV1ContentHint, purpose ZwpTextInputV1ContentPurpose) error {
 	const opcode = 6
 	const _reqBufLen = 8 + 4 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -335,7 +335,7 @@ type ZwpTextInputV1PreeditStringHandler func(ZwpTextInputV1PreeditStringEvent)
 type ZwpTextInputV1PreeditStylingEvent struct {
 	Index  uint32
 	Length uint32
-	Style  uint32
+	Style  ZwpTextInputV1PreeditStyle
 }
 
 type ZwpTextInputV1PreeditStylingHandler func(ZwpTextInputV1PreeditStylingEvent)
@@ -393,7 +393,7 @@ type ZwpTextInputV1LanguageHandler func(ZwpTextInputV1LanguageEvent)
 // ZwpTextInputV1TextDirectionEvent: text direction
 type ZwpTextInputV1TextDirectionEvent struct {
 	Serial    uint32
-	Direction uint32
+	Direction ZwpTextInputV1TextDirection
 }
 
 type ZwpTextInputV1TextDirectionHandler func(ZwpTextInputV1TextDirectionEvent)
@@ -531,7 +531,7 @@ func (i *ZwpTextInputV1) Dispatch(opcode uint32, fd int, data []byte) {
 			l += 4
 			ev.Length = client.Uint32(data[l : l+4])
 			l += 4
-			ev.Style = client.Uint32(data[l : l+4])
+			ev.Style = ZwpTextInputV1PreeditStyle(client.Uint32(data[l : l+4]))
 			l += 4
 			i.preeditStylingHandler(ev)
 		}
@@ -618,7 +618,7 @@ func (i *ZwpTextInputV1) Dispatch(opcode uint32, fd int, data []byte) {
 			_ = fd
 			ev.Serial = client.Uint32(data[l : l+4])
 			l += 4
-			ev.Direction = client.Uint32(data[l : l+4])
+			ev.Direction = ZwpTextInputV1TextDirection(client.Uint32(data[l : l+4]))
 			l += 4
 			i.textDirectionHandler(ev)
 		}

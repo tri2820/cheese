@@ -43,7 +43,7 @@ func handle(err error) {
 // Event handlers for Display
 
 func (d *Display) handleShmFormat(ev client.WlShmFormatEvent) {
-	if ev.Format == uint32(client.WlShmFormatXrgb8888) {
+	if ev.Format == client.WlShmFormatXrgb8888 {
 		d.hasXrgb = true
 	}
 }
@@ -144,7 +144,7 @@ func createShmBuffer(w *Window, buffer *Buffer, width int, height int, format cl
 		return err
 	}
 
-	buf, err := pool.CreateBuffer(0, int32(width), int32(height), int32(stride), uint32(format))
+	buf, err := pool.CreateBuffer(0, int32(width), int32(height), int32(stride), format)
 	if err != nil {
 		return err
 	}

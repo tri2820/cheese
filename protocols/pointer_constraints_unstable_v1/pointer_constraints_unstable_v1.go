@@ -70,7 +70,7 @@ func (i *ZwpPointerConstraintsV1) Destroy() error {
 }
 
 // LockPointer: lock pointer to a position
-func (i *ZwpPointerConstraintsV1) LockPointer(surface *client.WlSurface, pointer *client.WlPointer, region *client.WlRegion, lifetime uint32) (*ZwpLockedPointerV1, error) {
+func (i *ZwpPointerConstraintsV1) LockPointer(surface *client.WlSurface, pointer *client.WlPointer, region *client.WlRegion, lifetime ZwpPointerConstraintsV1Lifetime) (*ZwpLockedPointerV1, error) {
 	id := NewZwpLockedPointerV1(i.Context())
 	const opcode = 1
 	const _reqBufLen = 8 + 4 + 4 + 4 + 4 + 4
@@ -100,7 +100,7 @@ func (i *ZwpPointerConstraintsV1) LockPointer(surface *client.WlSurface, pointer
 }
 
 // ConfinePointer: confine pointer to a region
-func (i *ZwpPointerConstraintsV1) ConfinePointer(surface *client.WlSurface, pointer *client.WlPointer, region *client.WlRegion, lifetime uint32) (*ZwpConfinedPointerV1, error) {
+func (i *ZwpPointerConstraintsV1) ConfinePointer(surface *client.WlSurface, pointer *client.WlPointer, region *client.WlRegion, lifetime ZwpPointerConstraintsV1Lifetime) (*ZwpConfinedPointerV1, error) {
 	id := NewZwpConfinedPointerV1(i.Context())
 	const opcode = 2
 	const _reqBufLen = 8 + 4 + 4 + 4 + 4 + 4

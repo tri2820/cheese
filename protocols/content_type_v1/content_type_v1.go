@@ -117,7 +117,7 @@ func (i *WpContentTypeV1) Destroy() error {
 }
 
 // SetContentType: specify the content type
-func (i *WpContentTypeV1) SetContentType(content_type uint32) error {
+func (i *WpContentTypeV1) SetContentType(content_type WpContentTypeV1Type) error {
 	const opcode = 1
 	const _reqBufLen = 8 + 4
 	var _reqBuf [_reqBufLen]byte

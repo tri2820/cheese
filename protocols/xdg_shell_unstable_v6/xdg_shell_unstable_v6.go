@@ -254,7 +254,7 @@ func (i *ZxdgPositionerV6) SetAnchorRect(x int32, y int32, width int32, height i
 }
 
 // SetAnchor: set anchor rectangle anchor edges
-func (i *ZxdgPositionerV6) SetAnchor(anchor uint32) error {
+func (i *ZxdgPositionerV6) SetAnchor(anchor ZxdgPositionerV6Anchor) error {
 	const opcode = 3
 	const _reqBufLen = 8 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -270,7 +270,7 @@ func (i *ZxdgPositionerV6) SetAnchor(anchor uint32) error {
 }
 
 // SetGravity: set child surface gravity
-func (i *ZxdgPositionerV6) SetGravity(gravity uint32) error {
+func (i *ZxdgPositionerV6) SetGravity(gravity ZxdgPositionerV6Gravity) error {
 	const opcode = 4
 	const _reqBufLen = 8 + 4
 	var _reqBuf [_reqBufLen]byte

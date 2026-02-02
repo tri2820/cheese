@@ -242,6 +242,24 @@ func getNewFunctionCall(ifaceName string, varName string, p Protocol) string {
 	return fmt.Sprintf("%s := client.NewProxy(i.Context())", varName)
 }
 
+// mapWaylandTypeFromArg maps Wayland arg to Go types, using enum types when available
+func mapWaylandTypeFromArg(arg Arg, ifaceName string, p Protocol) string {
+	// If arg has an enum, try to use the enum type
+	if arg.Enum != "" && (arg.Type == "uint" || arg.Type == "int") {
+		// Check if enum references another interface (format: "interface_name.enum_name")
+		if strings.Contains(arg.Enum, ".") {
+			parts := strings.Split(arg.Enum, ".")
+			refInterface := strcase.ToCamel(parts[0])
+			refEnum := strcase.ToCamel(parts[1])
+			return refInterface + refEnum
+		}
+		// Enum is in current interface
+		enumName := ifaceName + strcase.ToCamel(arg.Enum)
+		return enumName
+	}
+	return mapWaylandType(arg.Type, arg.Interface, arg.AllowNull, p)
+}
+
 // mapWaylandType maps Wayland types to Go types
 func mapWaylandType(wlType, iface string, allowNull bool, p Protocol) string {
 	// Determine prefix for client package references
@@ -414,7 +432,7 @@ func generateRequest(w io.Writer, req Request, ifaceName string, opcode int, p P
 		} else if arg.Type == "new_id" && arg.Interface == "" {
 			params = append(params, "iface string", "version uint32", fmt.Sprintf("id %sProxy", clientPrefix))
 		} else {
-			goType := mapWaylandType(arg.Type, arg.Interface, arg.AllowNull, p)
+			goType := mapWaylandTypeFromArg(arg, ifaceName, p)
 			params = append(params, fmt.Sprintf("%s %s", paramName, goType))
 		}
 	}
@@ -600,7 +618,7 @@ func generateEvent(w io.Writer, event Event, ifaceName string, p Protocol) {
 	fmt.Fprintf(w, "type %s struct {\n", eventName)
 	for _, arg := range event.Args {
 		fieldName := strcase.ToCamel(arg.Name)
-		goType := mapWaylandType(arg.Type, arg.Interface, arg.AllowNull, p)
+		goType := mapWaylandTypeFromArg(arg, ifaceName, p)
 		fmt.Fprintf(w, "\t%s %s\n", fieldName, goType)
 	}
 	fmt.Fprintf(w, "}\n\n")
@@ -677,7 +695,7 @@ func generateDispatch(w io.Writer, iface Interface, ifaceName string, p Protocol
 
 		for _, arg := range event.Args {
 			fieldName := strcase.ToCamel(arg.Name)
-			generateEventArgUnmarshal(w, arg, fieldName, "ev", clientPrefix, p)
+			generateEventArgUnmarshal(w, arg, fieldName, "ev", ifaceName, clientPrefix, p)
 		}
 
 		// Call handler
@@ -689,15 +707,39 @@ func generateDispatch(w io.Writer, iface Interface, ifaceName string, p Protocol
 	fmt.Fprintf(w, "}\n\n")
 }
 
-func generateEventArgUnmarshal(w io.Writer, arg Arg, fieldName string, structVar string, clientPrefix string, p Protocol) {
+func generateEventArgUnmarshal(w io.Writer, arg Arg, fieldName string, structVar string, ifaceName string, clientPrefix string, p Protocol) {
 	paramName := escapeGoKeyword(arg.Name)
 
 	switch arg.Type {
 	case "uint":
-		fmt.Fprintf(w, "\t\t\t%s.%s = %sUint32(data[l : l+4])\n", structVar, fieldName, clientPrefix)
+		// Check if this should use an enum type
+		if arg.Enum != "" {
+			var enumType string
+			if strings.Contains(arg.Enum, ".") {
+				parts := strings.Split(arg.Enum, ".")
+				enumType = strcase.ToCamel(parts[0]) + strcase.ToCamel(parts[1])
+			} else {
+				enumType = ifaceName + strcase.ToCamel(arg.Enum)
+			}
+			fmt.Fprintf(w, "\t\t\t%s.%s = %s(%sUint32(data[l : l+4]))\n", structVar, fieldName, enumType, clientPrefix)
+		} else {
+			fmt.Fprintf(w, "\t\t\t%s.%s = %sUint32(data[l : l+4])\n", structVar, fieldName, clientPrefix)
+		}
 		fmt.Fprintf(w, "\t\t\tl += 4\n")
 	case "int":
-		fmt.Fprintf(w, "\t\t\t%s.%s = int32(%sUint32(data[l : l+4]))\n", structVar, fieldName, clientPrefix)
+		// Check if this should use an enum type
+		if arg.Enum != "" {
+			var enumType string
+			if strings.Contains(arg.Enum, ".") {
+				parts := strings.Split(arg.Enum, ".")
+				enumType = strcase.ToCamel(parts[0]) + strcase.ToCamel(parts[1])
+			} else {
+				enumType = ifaceName + strcase.ToCamel(arg.Enum)
+			}
+			fmt.Fprintf(w, "\t\t\t%s.%s = %s(int32(%sUint32(data[l : l+4])))\n", structVar, fieldName, enumType, clientPrefix)
+		} else {
+			fmt.Fprintf(w, "\t\t\t%s.%s = int32(%sUint32(data[l : l+4]))\n", structVar, fieldName, clientPrefix)
+		}
 		fmt.Fprintf(w, "\t\t\tl += 4\n")
 	case "fixed":
 		fmt.Fprintf(w, "\t\t\t%s.%s = %sFixed(data[l : l+4])\n", structVar, fieldName, clientPrefix)

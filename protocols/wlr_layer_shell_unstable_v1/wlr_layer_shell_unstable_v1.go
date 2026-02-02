@@ -60,7 +60,7 @@ const (
 )
 
 // GetLayerSurface: create a layer_surface from a surface
-func (i *ZwlrLayerShellV1) GetLayerSurface(surface *client.WlSurface, output *client.WlOutput, layer uint32, namespace string) (*ZwlrLayerSurfaceV1, error) {
+func (i *ZwlrLayerShellV1) GetLayerSurface(surface *client.WlSurface, output *client.WlOutput, layer ZwlrLayerShellV1Layer, namespace string) (*ZwlrLayerSurfaceV1, error) {
 	id := NewZwlrLayerSurfaceV1(i.Context())
 	const opcode = 0
 	namespaceLen := client.PaddedLen(len(namespace) + 1)
@@ -165,7 +165,7 @@ func (i *ZwlrLayerSurfaceV1) SetSize(width uint32, height uint32) error {
 }
 
 // SetAnchor: configures the anchor point of the surface
-func (i *ZwlrLayerSurfaceV1) SetAnchor(anchor uint32) error {
+func (i *ZwlrLayerSurfaceV1) SetAnchor(anchor ZwlrLayerSurfaceV1Anchor) error {
 	const opcode = 1
 	const _reqBufLen = 8 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -219,7 +219,7 @@ func (i *ZwlrLayerSurfaceV1) SetMargin(top int32, right int32, bottom int32, lef
 }
 
 // SetKeyboardInteractivity: requests keyboard events
-func (i *ZwlrLayerSurfaceV1) SetKeyboardInteractivity(keyboard_interactivity uint32) error {
+func (i *ZwlrLayerSurfaceV1) SetKeyboardInteractivity(keyboard_interactivity ZwlrLayerSurfaceV1KeyboardInteractivity) error {
 	const opcode = 4
 	const _reqBufLen = 8 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -282,7 +282,7 @@ func (i *ZwlrLayerSurfaceV1) Destroy() error {
 }
 
 // SetLayer: change the layer of the surface
-func (i *ZwlrLayerSurfaceV1) SetLayer(layer uint32) error {
+func (i *ZwlrLayerSurfaceV1) SetLayer(layer ZwlrLayerShellV1Layer) error {
 	const opcode = 8
 	const _reqBufLen = 8 + 4
 	var _reqBuf [_reqBufLen]byte

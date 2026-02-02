@@ -265,7 +265,7 @@ func (i *XdgPositioner) SetAnchorRect(x int32, y int32, width int32, height int3
 }
 
 // SetAnchor: set anchor rectangle anchor
-func (i *XdgPositioner) SetAnchor(anchor uint32) error {
+func (i *XdgPositioner) SetAnchor(anchor XdgPositionerAnchor) error {
 	const opcode = 3
 	const _reqBufLen = 8 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -281,7 +281,7 @@ func (i *XdgPositioner) SetAnchor(anchor uint32) error {
 }
 
 // SetGravity: set child surface gravity
-func (i *XdgPositioner) SetGravity(gravity uint32) error {
+func (i *XdgPositioner) SetGravity(gravity XdgPositionerGravity) error {
 	const opcode = 4
 	const _reqBufLen = 8 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -297,7 +297,7 @@ func (i *XdgPositioner) SetGravity(gravity uint32) error {
 }
 
 // SetConstraintAdjustment: set the adjustment to be done when constrained
-func (i *XdgPositioner) SetConstraintAdjustment(constraint_adjustment uint32) error {
+func (i *XdgPositioner) SetConstraintAdjustment(constraint_adjustment XdgPositionerConstraintAdjustment) error {
 	const opcode = 5
 	const _reqBufLen = 8 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -702,7 +702,7 @@ func (i *XdgToplevel) Move(seat *client.WlSeat, serial uint32) error {
 }
 
 // Resize: start an interactive resize
-func (i *XdgToplevel) Resize(seat *client.WlSeat, serial uint32, edges uint32) error {
+func (i *XdgToplevel) Resize(seat *client.WlSeat, serial uint32, edges XdgToplevelResizeEdge) error {
 	const opcode = 6
 	const _reqBufLen = 8 + 4 + 4 + 4
 	var _reqBuf [_reqBufLen]byte

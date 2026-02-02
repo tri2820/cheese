@@ -292,7 +292,7 @@ func (i *ZwpTabletToolV2) Destroy() error {
 
 // ZwpTabletToolV2TypeEvent: tool type
 type ZwpTabletToolV2TypeEvent struct {
-	ToolType uint32
+	ToolType ZwpTabletToolV2Type
 }
 
 type ZwpTabletToolV2TypeHandler func(ZwpTabletToolV2TypeEvent)
@@ -315,7 +315,7 @@ type ZwpTabletToolV2HardwareIdWacomHandler func(ZwpTabletToolV2HardwareIdWacomEv
 
 // ZwpTabletToolV2CapabilityEvent: tool capability notification
 type ZwpTabletToolV2CapabilityEvent struct {
-	Capability uint32
+	Capability ZwpTabletToolV2Capability
 }
 
 type ZwpTabletToolV2CapabilityHandler func(ZwpTabletToolV2CapabilityEvent)
@@ -416,7 +416,7 @@ type ZwpTabletToolV2WheelHandler func(ZwpTabletToolV2WheelEvent)
 type ZwpTabletToolV2ButtonEvent struct {
 	Serial uint32
 	Button uint32
-	State  uint32
+	State  ZwpTabletToolV2ButtonState
 }
 
 type ZwpTabletToolV2ButtonHandler func(ZwpTabletToolV2ButtonEvent)
@@ -531,7 +531,7 @@ func (i *ZwpTabletToolV2) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := ZwpTabletToolV2TypeEvent{}
 			l := 0
 			_ = fd
-			ev.ToolType = client.Uint32(data[l : l+4])
+			ev.ToolType = ZwpTabletToolV2Type(client.Uint32(data[l : l+4]))
 			l += 4
 			i.typeHandler(ev)
 		}
@@ -562,7 +562,7 @@ func (i *ZwpTabletToolV2) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := ZwpTabletToolV2CapabilityEvent{}
 			l := 0
 			_ = fd
-			ev.Capability = client.Uint32(data[l : l+4])
+			ev.Capability = ZwpTabletToolV2Capability(client.Uint32(data[l : l+4]))
 			l += 4
 			i.capabilityHandler(ev)
 		}
@@ -696,7 +696,7 @@ func (i *ZwpTabletToolV2) Dispatch(opcode uint32, fd int, data []byte) {
 			l += 4
 			ev.Button = client.Uint32(data[l : l+4])
 			l += 4
-			ev.State = client.Uint32(data[l : l+4])
+			ev.State = ZwpTabletToolV2ButtonState(client.Uint32(data[l : l+4]))
 			l += 4
 			i.buttonHandler(ev)
 		}
@@ -792,7 +792,7 @@ type ZwpTabletV2RemovedHandler func(ZwpTabletV2RemovedEvent)
 
 // ZwpTabletV2BustypeEvent: tablet device bus type
 type ZwpTabletV2BustypeEvent struct {
-	Bustype uint32
+	Bustype ZwpTabletV2Bustype
 }
 
 type ZwpTabletV2BustypeHandler func(ZwpTabletV2BustypeEvent)
@@ -884,7 +884,7 @@ func (i *ZwpTabletV2) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := ZwpTabletV2BustypeEvent{}
 			l := 0
 			_ = fd
-			ev.Bustype = client.Uint32(data[l : l+4])
+			ev.Bustype = ZwpTabletV2Bustype(client.Uint32(data[l : l+4]))
 			l += 4
 			i.bustypeHandler(ev)
 		}
@@ -950,7 +950,7 @@ func (i *ZwpTabletPadRingV2) Destroy() error {
 
 // ZwpTabletPadRingV2SourceEvent: ring event source
 type ZwpTabletPadRingV2SourceEvent struct {
-	Source uint32
+	Source ZwpTabletPadRingV2Source
 }
 
 type ZwpTabletPadRingV2SourceHandler func(ZwpTabletPadRingV2SourceEvent)
@@ -1003,7 +1003,7 @@ func (i *ZwpTabletPadRingV2) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := ZwpTabletPadRingV2SourceEvent{}
 			l := 0
 			_ = fd
-			ev.Source = client.Uint32(data[l : l+4])
+			ev.Source = ZwpTabletPadRingV2Source(client.Uint32(data[l : l+4]))
 			l += 4
 			i.sourceHandler(ev)
 		}
@@ -1094,7 +1094,7 @@ func (i *ZwpTabletPadStripV2) Destroy() error {
 
 // ZwpTabletPadStripV2SourceEvent: strip event source
 type ZwpTabletPadStripV2SourceEvent struct {
-	Source uint32
+	Source ZwpTabletPadStripV2Source
 }
 
 type ZwpTabletPadStripV2SourceHandler func(ZwpTabletPadStripV2SourceEvent)
@@ -1147,7 +1147,7 @@ func (i *ZwpTabletPadStripV2) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := ZwpTabletPadStripV2SourceEvent{}
 			l := 0
 			_ = fd
-			ev.Source = client.Uint32(data[l : l+4])
+			ev.Source = ZwpTabletPadStripV2Source(client.Uint32(data[l : l+4]))
 			l += 4
 			i.sourceHandler(ev)
 		}
@@ -1469,7 +1469,7 @@ type ZwpTabletPadV2DoneHandler func(ZwpTabletPadV2DoneEvent)
 type ZwpTabletPadV2ButtonEvent struct {
 	Time   uint32
 	Button uint32
-	State  uint32
+	State  ZwpTabletPadV2ButtonState
 }
 
 type ZwpTabletPadV2ButtonHandler func(ZwpTabletPadV2ButtonEvent)
@@ -1587,7 +1587,7 @@ func (i *ZwpTabletPadV2) Dispatch(opcode uint32, fd int, data []byte) {
 			l += 4
 			ev.Button = client.Uint32(data[l : l+4])
 			l += 4
-			ev.State = client.Uint32(data[l : l+4])
+			ev.State = ZwpTabletPadV2ButtonState(client.Uint32(data[l : l+4]))
 			l += 4
 			i.buttonHandler(ev)
 		}

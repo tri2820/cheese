@@ -84,7 +84,7 @@ func (i *ZwpFullscreenShellV1) Release() error {
 }
 
 // PresentSurface: present surface for display
-func (i *ZwpFullscreenShellV1) PresentSurface(surface *client.WlSurface, method uint32, output *client.WlOutput) error {
+func (i *ZwpFullscreenShellV1) PresentSurface(surface *client.WlSurface, method ZwpFullscreenShellV1PresentMethod, output *client.WlOutput) error {
 	const opcode = 1
 	const _reqBufLen = 8 + 4 + 4 + 4
 	var _reqBuf [_reqBufLen]byte
@@ -138,7 +138,7 @@ func (i *ZwpFullscreenShellV1) PresentSurfaceForMode(surface *client.WlSurface, 
 
 // ZwpFullscreenShellV1CapabilityEvent: advertises a capability of the compositor
 type ZwpFullscreenShellV1CapabilityEvent struct {
-	Capability uint32
+	Capability ZwpFullscreenShellV1Capability
 }
 
 type ZwpFullscreenShellV1CapabilityHandler func(ZwpFullscreenShellV1CapabilityEvent)
@@ -156,7 +156,7 @@ func (i *ZwpFullscreenShellV1) Dispatch(opcode uint32, fd int, data []byte) {
 			ev := ZwpFullscreenShellV1CapabilityEvent{}
 			l := 0
 			_ = fd
-			ev.Capability = client.Uint32(data[l : l+4])
+			ev.Capability = ZwpFullscreenShellV1Capability(client.Uint32(data[l : l+4]))
 			l += 4
 			i.capabilityHandler(ev)
 		}

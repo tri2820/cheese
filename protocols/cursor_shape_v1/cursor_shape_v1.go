@@ -168,7 +168,7 @@ func (i *WpCursorShapeDeviceV1) Destroy() error {
 }
 
 // SetShape: set device cursor to the shape
-func (i *WpCursorShapeDeviceV1) SetShape(serial uint32, shape uint32) error {
+func (i *WpCursorShapeDeviceV1) SetShape(serial uint32, shape WpCursorShapeDeviceV1Shape) error {
 	const opcode = 1
 	const _reqBufLen = 8 + 4 + 4
 	var _reqBuf [_reqBufLen]byte
