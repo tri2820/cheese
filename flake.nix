@@ -18,15 +18,14 @@
             gopls
             gotools
             wayland-protocols
-            # For reference - we'll study these but reimplement
-            # wayland-scanner  # Official C scanner
+            pkg-config
+            vulkan-headers
+            vulkan-loader
+            vulkan-tools
           ];
-
-          shellHook = ''
-            echo "Cheese development environment"
-            echo "Go: $(go version)"
-            echo "Protocols: ${pkgs.wayland-protocols}/share/wayland-protocols"
-          '';
+          # Set PKG_CONFIG_PATH for Vulkan
+          PKG_CONFIG_PATH = "${pkgs.vulkan-loader}/lib/pkgconfig";
+          LD_LIBRARY_PATH = "${pkgs.vulkan-loader}/lib";
         };
       }
     );
