@@ -19,7 +19,9 @@ Pure Go Wayland toolkit and protocol generator.
 │   ├── buffer/
 │   └── shell/
 └── examples/
-    └── bar/                # Simple bar example
+    ├── rainbow/                # xdg shell example
+    ├── statusbar/                # wlr shell example
+    └── vk-dmabuf/                # GPU rendering
 
 ```
 
