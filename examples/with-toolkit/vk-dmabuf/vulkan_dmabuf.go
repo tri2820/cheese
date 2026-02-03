@@ -60,7 +60,7 @@ type DmaBufBuffer struct {
 	height  int
 }
 
-var dmabufBuffers [2]DmaBufBuffer
+var dmabufBuffers []DmaBufBuffer
 
 // Persistent render image for rendering before copying to dmabuf
 type RenderImage struct {
@@ -72,15 +72,16 @@ type RenderImage struct {
 
 var renderImage RenderImage
 
-// initDmaBufBuffers creates 2 dmabuf-exportable images upfront for double buffering
-func initDmaBufBuffers(width, height int) error {
+// initDmaBufBuffers creates dmabuf-exportable images for multi-buffering
+func initDmaBufBuffers(width, height, count int) error {
 	if !globalVulkan.initialized {
 		if !initVulkan() {
 			return os.ErrNotExist
 		}
 	}
 
-	for i := 0; i < 2; i++ {
+	dmabufBuffers = make([]DmaBufBuffer, count)
+	for i := 0; i < count; i++ {
 		image, memory, fd, stride, err := createDmaBufImage(width, height)
 		if err != nil {
 			log.Printf("Failed to create dmabuf buffer %d: %v", i, err)
@@ -312,7 +313,7 @@ func cleanupRenderImage() {
 // cleanupDmaBufBuffers cleans up the dmabuf buffers
 func cleanupDmaBufBuffers() {
 	cleanupRenderImage()
-	for i := 0; i < 2; i++ {
+	for i := range dmabufBuffers {
 		if dmabufBuffers[i].memory != nil {
 			vulkan.FreeMemory(globalVulkan.device, dmabufBuffers[i].memory, nil)
 		}
@@ -320,6 +321,7 @@ func cleanupDmaBufBuffers() {
 			vulkan.DestroyImage(globalVulkan.device, dmabufBuffers[i].image, nil)
 		}
 	}
+	dmabufBuffers = nil
 }
 
 // getMemoryFdKHR exports Vulkan memory as a dmabuf file descriptor

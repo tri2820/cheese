@@ -11,22 +11,37 @@ import (
 )
 
 var startTime time.Time
-var lastFrameTime time.Time
 
-const targetFPS = 60
-const minFrameTime = time.Second / targetFPS
+// VulkanProvider implements dmabuf.BufferProvider using Vulkan.
+type VulkanProvider struct{}
 
-// App holds the application state
-type App struct {
-	disp       *display.Display
-	surf       *surface.Surface
-	win        *shell.ToplevelSurface
-	dmabufState *dmabuf.State
+// NewVulkanProvider creates a new VulkanProvider.
+func NewVulkanProvider() *VulkanProvider {
+	return &VulkanProvider{}
+}
 
-	width      int
-	height     int
-	buffers    [2]*dmabuf.Buffer
-	configured bool
+func (p *VulkanProvider) CreateBuffers(width, height, count int) error {
+	return initDmaBufBuffers(width, height, count)
+}
+
+func (p *VulkanProvider) BufferInfo(index int) dmabuf.BufferInfo {
+	buf := &dmabufBuffers[index]
+	return dmabuf.BufferInfo{
+		Fd:       buf.fd,
+		Stride:   buf.stride,
+		Format:   dmabuf.FormatXRGB8888,
+		Modifier: dmabuf.ModLinear,
+	}
+}
+
+func (p *VulkanProvider) Render(index, width, height int, frameTime uint32) error {
+	// Use wall clock time for smooth animation
+	animTime := float32(time.Since(startTime).Seconds())
+	return renderToDmaBuf(index, animTime)
+}
+
+func (p *VulkanProvider) DestroyBuffers() {
+	cleanupDmaBufBuffers()
 }
 
 func main() {
@@ -49,52 +64,34 @@ func main() {
 	}
 	log.Printf("DMA-BUF protocol version: %d", dmabufState.Version())
 
-	// Create app
-	app := &App{
-		disp:        disp,
-		dmabufState: dmabufState,
-		width:       400,
-		height:      300,
-	}
-
 	// Create surface
 	surf, err := surface.New(disp.Compositor())
 	if err != nil {
 		log.Fatal("Failed to create surface:", err)
 	}
-	app.surf = surf
 
 	// Create toplevel window
 	win, err := shell.NewToplevel(surf, disp.XdgWmBase(), shell.ToplevelConfig{
 		Title:  "Cheese Vulkan DmaBuf (Toolkit)",
 		AppId:  "cheese-vk-dmabuf-toolkit",
-		Width:  app.width,
-		Height: app.height,
+		Width:  400,
+		Height: 300,
 	})
 	if err != nil {
 		log.Fatal("Failed to create window:", err)
 	}
-	app.win = win
 
-	// Set up configure handler
-	win.SetConfigureHandler(func() {
-		app.width = win.Width()
-		app.height = win.Height()
-
-		if !app.configured {
-			app.configured = true
-			log.Printf("Initializing dmabuf buffers at %dx%d...", app.width, app.height)
-			if err := initDmaBufBuffers(app.width, app.height); err != nil {
-				log.Fatal("Failed to initialize dmabuf buffers:", err)
-			}
-			app.render()
-		}
+	// Create renderer with Vulkan provider
+	renderer, err := dmabuf.NewRenderer(dmabuf.RendererConfig{
+		State:    dmabufState,
+		Target:   win,
+		Buffers:  2,
+		Provider: NewVulkanProvider(),
 	})
-
-	// Set up frame callback
-	surf.SetFrameHandler(func(time uint32) {
-		app.render()
-	})
+	if err != nil {
+		log.Fatal("Failed to create renderer:", err)
+	}
+	defer renderer.Close()
 
 	log.Println("Running! Close the window to exit.")
 
@@ -103,103 +100,7 @@ func main() {
 		log.Printf("Dispatch error: %v", err)
 	}
 
-	app.cleanup()
-	log.Println("Cheese Vulkan DmaBuf Example exiting")
-}
-
-func (app *App) render() {
-	// Frame rate limiting
-	if !lastFrameTime.IsZero() {
-		elapsed := time.Since(lastFrameTime)
-		if elapsed < minFrameTime {
-			time.Sleep(minFrameTime - elapsed)
-		}
-	}
-	lastFrameTime = time.Now()
-
-	// Find free buffer
-	var bufferIndex int = -1
-	for i, buf := range app.buffers {
-		if buf == nil || !buf.Busy() {
-			bufferIndex = i
-			break
-		}
-	}
-	if bufferIndex == -1 {
-		log.Println("All buffers busy, skipping frame")
-		return
-	}
-
-	// Create wl_buffer if needed
-	if app.buffers[bufferIndex] == nil {
-		dmabufBuf := &dmabufBuffers[bufferIndex]
-
-		// Create params and add plane
-		params, err := app.dmabufState.CreateParams()
-		if err != nil {
-			log.Printf("Failed to create params: %v", err)
-			return
-		}
-
-		err = params.Add(dmabufBuf.fd, 0, 0, uint32(dmabufBuf.stride), dmabuf.ModLinear)
-		if err != nil {
-			log.Printf("Failed to add plane: %v", err)
-			return
-		}
-
-		wlBuffer, err := params.CreateImmed(app.width, app.height, dmabuf.FormatXRGB8888, 0)
-		if err != nil {
-			log.Printf("Failed to create buffer: %v", err)
-			return
-		}
-
-		app.buffers[bufferIndex] = dmabuf.NewBuffer(wlBuffer, app.width, app.height, dmabuf.FormatXRGB8888)
-		app.buffers[bufferIndex].UserData = bufferIndex
-		log.Printf("Created dmabuf wl_buffer %d", bufferIndex)
-	}
-
-	buf := app.buffers[bufferIndex]
-
-	// Calculate elapsed time for animation
-	elapsed := time.Since(startTime).Seconds()
-	animTime := float32(elapsed)
-
-	// Render to the dmabuf buffer (Vulkan renders to persistent image and copies to dmabuf)
-	if err := renderToDmaBuf(bufferIndex, animTime); err != nil {
-		log.Printf("Vulkan render error: %v", err)
-		return
-	}
-
-	// Attach and present using toolkit surface
-	if err := app.surf.Attach(buf.WlBuffer(), 0, 0); err != nil {
-		log.Printf("Failed to attach: %v", err)
-		return
-	}
-	if err := app.surf.Damage(0, 0, int32(app.width), int32(app.height)); err != nil {
-		log.Printf("Failed to damage: %v", err)
-		return
-	}
-
-	// Request frame callback
-	if err := app.surf.Frame(); err != nil {
-		log.Printf("Failed to request frame: %v", err)
-	}
-
-	if err := app.surf.Commit(); err != nil {
-		log.Printf("Failed to commit: %v", err)
-		return
-	}
-
-	buf.MarkBusy()
-}
-
-func (app *App) cleanup() {
-	for _, buf := range app.buffers {
-		if buf != nil {
-			buf.Destroy()
-		}
-	}
 	CleanupTriangleRenderer()
-	cleanupDmaBufBuffers()
 	cleanupVulkan()
+	log.Println("Cheese Vulkan DmaBuf Example exiting")
 }

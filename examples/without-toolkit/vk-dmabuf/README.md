@@ -93,7 +93,7 @@ Your GPU driver doesn't support dmabuf export. Install:
 Run with NVIDIA GeForce MX250
 
 ```sh
-tri@nixos ~/c/c/e/vk-dmabuf (main)> VK_ICD_FILENAMES="/run/opengl-driver/share/vulkan/icd.d/nvidia_icd.x86_64.json" LD_LIBRARY_PATH="/run/opengl-driver/lib:/nix/store/l0a355pbhjr49y6a33f3pag5cafi3cxs-nvidia-x11-580.119.02-6.18.7/lib:$LD_LIBRARY_PATH" ./vk-dmabuf
+tri@nixos ~/c/c/e/vk-dmabuf (main)> VK_ICD_FILENAMES="/run/opengl-driver/share/vulkan/icd.d/nvidia_icd.x86_64.json" LD_LIBRARY_PATH="/run/opengl-driver/lib:/nix/store/l0a355pbhjr49y6a33f3pag5cafi3cxs-nvidia-x11-580.119.02-6.18.7/lib:$LD_LIBRARY_PATH" go run *.go
 2026/02/03 11:07:28 Starting Cheese Vulkan DmaBuf Example...
 2026/02/03 11:07:28 Bound to zwp_linux_dmabuf_v1
 2026/02/03 11:07:28 Running! Close the window to exit.
@@ -113,7 +113,7 @@ tri@nixos ~/c/c/e/vk-dmabuf (main)> VK_ICD_FILENAMES="/run/opengl-driver/share/v
 Run with Intel(R) UHD Graphics 620 (WHL GT2)
 
 ```sh
-tri@nixos ~/c/c/e/vk-dmabuf (main) [SIGINT]> VK_ICD_FILENAMES="/run/opengl-driver/share/vulkan/icd.d/intel_icd.x86_64.json" LD_LIBRARY_PATH="/run/opengl-driver/lib:$LD_LIBRARY_PATH/" ./vk-dmabuf
+tri@nixos ~/c/c/e/vk-dmabuf (main) [SIGINT]> VK_ICD_FILENAMES="/run/opengl-driver/share/vulkan/icd.d/intel_icd.x86_64.json" LD_LIBRARY_PATH="/run/opengl-driver/lib:$LD_LIBRARY_PATH/" go run *.go
 2026/02/03 11:09:53 Starting Cheese Vulkan DmaBuf Example...
 2026/02/03 11:09:53 Bound to zwp_linux_dmabuf_v1
 2026/02/03 11:09:53 Running! Close the window to exit.

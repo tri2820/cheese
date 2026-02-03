@@ -4,16 +4,9 @@ import (
 	"fmt"
 
 	"github.com/tri2820/cheese/protocols/client"
+	"github.com/tri2820/cheese/toolkit/render"
 	"github.com/tri2820/cheese/toolkit/surface"
 )
-
-// RenderTarget is a surface that can be rendered to (Window or LayerSurface).
-type RenderTarget interface {
-	SetConfigureHandler(func())
-	Surface() *surface.Surface
-	Width() int
-	Height() int
-}
 
 // Renderer handles high-level rendering to any surface.
 // It manages a swapchain internally and provides a simple OnRender callback.
@@ -23,7 +16,7 @@ type Renderer struct {
 	shm        *client.WlShm
 	format     Format
 	buffers    int
-	target     RenderTarget
+	target     render.RenderTarget
 	onRender   func(width, height int, time uint32, pixels []byte)
 	lastWidth  int
 	lastHeight int
@@ -35,7 +28,7 @@ type RendererConfig struct {
 	Shm *client.WlShm
 
 	// Target is the Window or LayerSurface to render to
-	Target RenderTarget
+	Target render.RenderTarget
 
 	// Format is the pixel format
 	Format Format
