@@ -72,6 +72,11 @@ func (o *Output) String() string {
 	)
 }
 
+// WlOutput returns the underlying wl_output proxy.
+func (o *Output) WlOutput() *client.WlOutput {
+	return o.wlOutput
+}
+
 // newOutput creates a new Output from a wl_output proxy.
 func newOutput(wlOutput *client.WlOutput, handler func(*Output)) *Output {
 	o := &Output{

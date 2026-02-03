@@ -3,12 +3,14 @@ package display
 import (
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/tri2820/cheese/protocols/client"
 	"github.com/tri2820/cheese/protocols/linux_dmabuf_unstable_v1"
 	"github.com/tri2820/cheese/protocols/wlr_layer_shell_unstable_v1"
 	"github.com/tri2820/cheese/protocols/xdg_shell"
 	"github.com/tri2820/cheese/client-toolkit/dmabuf"
+	"github.com/tri2820/cheese/client-toolkit/surface"
 )
 
 // RequiredGlobals specifies which globals are required for the application.
@@ -53,16 +55,20 @@ type Display struct {
 	outputs       map[uint32]*Output
 	outputHandler func(output *Output, added bool)
 
+	// wl_output proxy -> Output mapping for surface enter/leave events
+	outputsByProxy map[*client.WlOutput]*Output
+
 	required RequiredGlobals
 }
 
 // Connect connects to a Wayland compositor with the given configuration.
 func Connect(config Config) (*Display, error) {
 	d := &Display{
-		formats:       make(map[client.WlShmFormat]bool),
-		outputs:       make(map[uint32]*Output),
-		outputHandler: config.OutputHandler,
-		required:      config.Required,
+		formats:        make(map[client.WlShmFormat]bool),
+		outputs:        make(map[uint32]*Output),
+		outputsByProxy: make(map[*client.WlOutput]*Output),
+		outputHandler:  config.OutputHandler,
+		required:       config.Required,
 	}
 
 	// Connect to display
@@ -206,11 +212,13 @@ func (d *Display) handleGlobal(ev client.WlRegistryGlobalEvent) {
 			log.Printf("failed to bind wl_output: %v", err)
 			return
 		}
-		d.outputs[ev.Name] = newOutput(wlOutput, func(o *Output) {
+		output := newOutput(wlOutput, func(o *Output) {
 			if d.outputHandler != nil {
 				d.outputHandler(o, true) // added = true
 			}
 		})
+		d.outputs[ev.Name] = output
+		d.outputsByProxy[wlOutput] = output
 	}
 }
 
@@ -218,6 +226,7 @@ func (d *Display) handleGlobal(ev client.WlRegistryGlobalEvent) {
 func (d *Display) handleGlobalRemove(ev client.WlRegistryGlobalRemoveEvent) {
 	if o, ok := d.outputs[ev.Name]; ok {
 		delete(d.outputs, ev.Name)
+		delete(d.outputsByProxy, o.WlOutput())
 		if d.outputHandler != nil {
 			d.outputHandler(o, false) // added = false (removed)
 		}
@@ -342,4 +351,36 @@ func (d *Display) ReadyOutputs() []*Output {
 		}
 	}
 	return outs
+}
+
+// OutputByWlOutput returns an Output from its wl_output proxy.
+// Returns nil if the output is not being tracked.
+func (d *Display) OutputByWlOutput(wlOutput *client.WlOutput) *Output {
+	return d.outputsByProxy[wlOutput]
+}
+
+// GetOutputForSurface waits for the surface to enter an output and returns that output.
+func (d *Display) GetOutputForSurface(surf *surface.Surface) *Output {
+	var result *Output
+	var ready sync.WaitGroup
+
+	ready.Add(1)
+
+	surf.SetEnterHandler(func(wlOutput *client.WlOutput) {
+		result = d.OutputByWlOutput(wlOutput)
+		ready.Done()
+	})
+
+	// Dispatch events until surface enters an output
+	go func() {
+		for result == nil {
+			if err := d.Dispatch(); err != nil {
+				log.Printf("Dispatch error: %v", err)
+				break
+			}
+		}
+	}()
+
+	ready.Wait()
+	return result
 }

@@ -24,13 +24,6 @@ import (
 func main() {
 	log.Println("Starting cheesebar...")
 
-	// Load TTF font
-	fontFace, err := loadFont("Liberation Sans", 14, 96)
-	if err != nil {
-		log.Fatalf("Failed to load TTF font: %v", err)
-	}
-	log.Println("Loaded TTF font successfully")
-
 	// Connect to display with layer shell support
 	disp := display.MustConnect(display.Config{
 		Required: display.RequiredGlobals{
@@ -57,12 +50,28 @@ func main() {
 		Name:          "cheesebar",
 		Anchor:        shell.AnchorTop | shell.AnchorLeft | shell.AnchorRight,
 		Width:         0, // 0 = full width
-		Height:        24,
-		ExclusiveZone: 24,
+		Height:        28,
+		ExclusiveZone: 28,
 	})
 	if err != nil {
 		log.Fatal("Failed to create layer surface:", err)
 	}
+
+	// Wait for surface to enter an output, get DPI, and load font
+	output := disp.GetOutputForSurface(surf)
+	dpi := output.DPI()
+	if dpi == 0 {
+		dpi = 96 // fallback
+		log.Printf("Output %s has no DPI info, using default 96", output.Name)
+	} else {
+		log.Printf("Surface entered output: %s (%.1f DPI)", output.Name, dpi)
+	}
+
+	fontFace, err := loadFont("Liberation Sans", 16, dpi)
+	if err != nil {
+		log.Fatalf("Failed to load TTF font: %v", err)
+	}
+	log.Println("Loaded TTF font successfully")
 
 	log.Println("cheesebar running at top of screen")
 
@@ -164,7 +173,7 @@ func drawBar(width, height int, pixels []byte, t time.Time, fontFace font.Face) 
 		x = 0
 	}
 	m := fontFace.Metrics()
-	y := (height + m.Ascent.Ceil()) / 2
+	y := (height + m.Ascent.Ceil() - m.Descent.Ceil()) / 2
 
 	// Draw text (white)
 	drawer := &font.Drawer{
