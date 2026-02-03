@@ -5,8 +5,10 @@ import (
 	"log"
 
 	"github.com/tri2820/cheese/protocols/client"
+	"github.com/tri2820/cheese/protocols/linux_dmabuf_unstable_v1"
 	"github.com/tri2820/cheese/protocols/wlr_layer_shell_unstable_v1"
 	"github.com/tri2820/cheese/protocols/xdg_shell"
+	"github.com/tri2820/cheese/toolkit/dmabuf"
 )
 
 // RequiredGlobals specifies which globals are required for the application.
@@ -15,6 +17,7 @@ type RequiredGlobals struct {
 	Shm        bool
 	XdgWmBase  bool
 	LayerShell bool
+	Dmabuf     bool
 }
 
 // Config configures a new Display connection.
@@ -38,6 +41,7 @@ type Display struct {
 	shm         *client.WlShm
 	shell       *xdg_shell.XdgWmBase
 	layerShell  *wlr_layer_shell_unstable_v1.ZwlrLayerShellV1
+	dmabufState *dmabuf.State
 
 	// SHM format tracking
 	formats map[client.WlShmFormat]bool
@@ -111,6 +115,10 @@ func Connect(config Config) (*Display, error) {
 		d.wlDisplay.Context().Close()
 		return nil, fmt.Errorf("required global zwlr_layer_shell_v1 not available")
 	}
+	if d.required.Dmabuf && d.dmabufState == nil {
+		d.wlDisplay.Context().Close()
+		return nil, fmt.Errorf("required global zwp_linux_dmabuf_v1 not available")
+	}
 
 	return d, nil
 }
@@ -164,6 +172,19 @@ func (d *Display) handleGlobal(ev client.WlRegistryGlobalEvent) {
 				return
 			}
 			d.layerShell = shell
+		}
+	case "zwp_linux_dmabuf_v1":
+		if ev.Version >= 3 && d.dmabufState == nil {
+			version := ev.Version
+			if version > 4 {
+				version = 4 // Cap at version 4 for now
+			}
+			wlDmabuf := linux_dmabuf_unstable_v1.NewZwpLinuxDmabufV1(d.wlDisplay.Context())
+			if err := d.registry.Bind(ev.Name, "zwp_linux_dmabuf_v1", version, wlDmabuf); err != nil {
+				log.Printf("failed to bind zwp_linux_dmabuf_v1: %v", err)
+				return
+			}
+			d.dmabufState = dmabuf.NewState(wlDmabuf, version)
 		}
 	}
 }
@@ -266,4 +287,9 @@ func (d *Display) LayerShell() *wlr_layer_shell_unstable_v1.ZwlrLayerShellV1 {
 // Registry returns the wl_registry global for advanced use cases.
 func (d *Display) Registry() *client.WlRegistry {
 	return d.registry
+}
+
+// Dmabuf returns the DMA-BUF state, or nil if not available.
+func (d *Display) Dmabuf() *dmabuf.State {
+	return d.dmabufState
 }
