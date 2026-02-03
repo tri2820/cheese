@@ -384,3 +384,9 @@ func (d *Display) GetOutputForSurface(surf *surface.Surface) *Output {
 	ready.Wait()
 	return result
 }
+
+// SetOutputHandler sets the handler for output add/remove events.
+// This can be called after Connect to enable dynamic output handling.
+func (d *Display) SetOutputHandler(handler func(output *Output, added bool)) {
+	d.outputHandler = handler
+}

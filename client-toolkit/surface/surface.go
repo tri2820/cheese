@@ -122,3 +122,8 @@ func (s *Surface) Outputs() []*client.WlOutput {
 	}
 	return outs
 }
+
+// Close destroys the surface.
+func (s *Surface) Close() error {
+	return s.wlSurface.Destroy()
+}

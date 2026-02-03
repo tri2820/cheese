@@ -1,25 +1,18 @@
 package main
 
 import (
-	"fmt"
-	"image"
-	"image/color"
-	"image/draw"
 	"log"
-	"time"
+	"sync"
 
-	"github.com/tri2820/cheese/apps/common"
-	"github.com/tri2820/cheese/client-toolkit/buffer"
 	"github.com/tri2820/cheese/client-toolkit/display"
-	"github.com/tri2820/cheese/client-toolkit/shell"
-	"github.com/tri2820/cheese/client-toolkit/surface"
 	"github.com/tri2820/cheese/protocols/client"
-	"golang.org/x/image/font"
-	"golang.org/x/image/math/fixed"
 )
 
 func main() {
 	log.Println("Starting cheesebar...")
+
+	// Create app to manage bars
+	app := NewApp()
 
 	// Connect to display with layer shell support
 	disp := display.MustConnect(display.Config{
@@ -35,59 +28,21 @@ func main() {
 		log.Fatal("ARGB8888 not supported")
 	}
 
-	// Create surface
-	surf, err := surface.New(disp.Compositor())
-	if err != nil {
-		log.Fatal("Failed to create surface:", err)
-	}
-
-	// Create layer surface (bar at top of screen)
-	bar, err := shell.NewLayer(surf, disp.LayerShell(), shell.LayerConfig{
-		Layer:         shell.LayerPositionTop,
-		Name:          "cheesebar",
-		Anchor:        shell.AnchorTop | shell.AnchorLeft | shell.AnchorRight,
-		Width:         0, // 0 = full width
-		Height:        28,
-		ExclusiveZone: 28,
+	// Set up output handler for monitor plug/unplug events
+	disp.SetOutputHandler(func(output *display.Output, added bool) {
+		if added {
+			app.AddBar(disp, output)
+		} else {
+			app.RemoveBar(output)
+		}
 	})
-	if err != nil {
-		log.Fatal("Failed to create layer surface:", err)
+
+	// Create bars for all existing outputs
+	for _, output := range disp.ReadyOutputs() {
+		app.AddBar(disp, output)
 	}
 
-	// Wait for surface to enter an output, get DPI, and load font
-	output := disp.GetOutputForSurface(surf)
-	dpi := output.DPI()
-	if dpi == 0 {
-		dpi = 96 // fallback
-		log.Printf("Output %s has no DPI info, using default 96", output.Name)
-	} else {
-		log.Printf("Surface entered output: %s (%.1f DPI)", output.Name, dpi)
-	}
-
-	fontFace, err := common.LoadFont("Liberation Sans", 16, dpi)
-	if err != nil {
-		log.Fatalf("Failed to load TTF font: %v", err)
-	}
-	log.Println("Loaded TTF font successfully")
-
-	log.Println("cheesebar running at top of screen")
-
-	// Create renderer with ARGB8888
-	renderer, err := buffer.NewRenderer(buffer.RendererConfig{
-		Shm:     disp.Shm(),
-		Target:  bar,
-		Format:  client.WlShmFormatArgb8888,
-		Buffers: 2,
-	})
-	if err != nil {
-		log.Fatal("Failed to create renderer:", err)
-	}
-	defer renderer.Close()
-
-	// Set up render callback
-	renderer.OnRender(func(w, h int, frameTime uint32, pixels []byte) {
-		drawBar(w, h, pixels, time.Now(), fontFace)
-	})
+	log.Println("cheesebar running")
 
 	// Run event loop
 	if err := disp.Run(); err != nil {
@@ -95,41 +50,45 @@ func main() {
 	}
 }
 
-// argb swaps R and B for ARGB8888 format (memory: B,G,R,A on little-endian)
-func argb(r, g, b, a uint8) color.RGBA {
-	return color.RGBA{R: b, G: g, B: r, A: a}
+// App manages multiple bars, one per monitor
+type App struct {
+	bars map[*client.WlOutput]*Bar
+	mu   sync.Mutex
 }
 
-func drawBar(width, height int, pixels []byte, t time.Time, fontFace font.Face) {
-	// Wrap pixels as RGBA image (we'll swap colors for ARGB format)
-	dstImg := &image.RGBA{
-		Pix:    pixels,
-		Stride: width * 4,
-		Rect:   image.Rect(0, 0, width, height),
+func NewApp() *App {
+	return &App{
+		bars: make(map[*client.WlOutput]*Bar),
+	}
+}
+
+func (a *App) AddBar(disp *display.Display, output *display.Output) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	wlOutput := output.WlOutput()
+	name := output.Name
+	log.Printf("Adding bar for output: %s", name)
+
+	bar, err := NewBar(disp, output)
+	if err != nil {
+		log.Printf("Failed to create bar for %s: %v", name, err)
+		return
 	}
 
-	// Draw background (dark gray, 50% transparent)
-	draw.Draw(dstImg, dstImg.Rect, image.NewUniform(argb(0x30, 0x30, 0x30, 0x7f)), image.Point{}, draw.Src)
+	a.bars[wlOutput] = bar
+}
 
-	// Draw time string centered
-	weekday := t.Weekday().String()[:3]
-	timeStr := fmt.Sprintf("%s  %02d:%02d:%02d", weekday, t.Hour(), t.Minute(), t.Second())
+func (a *App) RemoveBar(output *display.Output) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 
-	// Measure and center text
-	adv := font.MeasureString(fontFace, timeStr)
-	x := (width - adv.Ceil()) / 2
-	if x < 0 {
-		x = 0
+	wlOutput := output.WlOutput()
+	name := output.Name
+	log.Printf("Removing bar for output: %s", name)
+
+	if bar, ok := a.bars[wlOutput]; ok {
+		bar.Close()
+		delete(a.bars, wlOutput)
 	}
-	m := fontFace.Metrics()
-	y := (height + m.Ascent.Ceil() - m.Descent.Ceil()) / 2
-
-	// Draw text (white, fully opaque for clarity)
-	drawer := &font.Drawer{
-		Dst:  dstImg,
-		Src:  image.NewUniform(argb(0xff, 0xff, 0xff, 0xff)),
-		Face: fontFace,
-		Dot:  fixed.Point26_6{X: fixed.I(x), Y: fixed.I(y)},
-	}
-	drawer.DrawString(timeStr)
 }

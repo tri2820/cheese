@@ -4,6 +4,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/tri2820/cheese/protocols/client"
 	"github.com/tri2820/cheese/protocols/wlr_layer_shell_unstable_v1"
 	"github.com/tri2820/cheese/client-toolkit/surface"
 )
@@ -57,13 +58,16 @@ type LayerConfig struct {
 
 	// ExclusiveZone reserves space for the surface (0 = don't reserve, -1 = remove exclusive zone)
 	ExclusiveZone int32
+
+	// Output is the wl_output to display on (nil = all outputs)
+	Output *client.WlOutput
 }
 
 // NewLayer creates a new layer shell surface.
 func NewLayer(surf *surface.Surface, layerShell *wlr_layer_shell_unstable_v1.ZwlrLayerShellV1, config LayerConfig) (*LayerSurface, error) {
 	layerSurf, err := layerShell.GetLayerSurface(
 		surf.WlSurface(),
-		nil, // output (nil = all outputs)
+		config.Output, // output (nil = all outputs)
 		wlr_layer_shell_unstable_v1.ZwlrLayerShellV1Layer(config.Layer),
 		config.Name,
 	)
@@ -180,4 +184,9 @@ func (l *LayerSurface) Width() int {
 // Height returns the current height of the layer surface.
 func (l *LayerSurface) Height() int {
 	return l.height
+}
+
+// Close destroys the layer surface.
+func (l *LayerSurface) Close() error {
+	return l.layerSurface.Destroy()
 }
