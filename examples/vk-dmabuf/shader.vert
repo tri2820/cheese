@@ -1,5 +1,10 @@
 #version 450
 
+// Push constant for time (must match Go struct layout)
+layout(push_constant) uniform PushConstants {
+    float time;
+} push;
+
 // Output to fragment shader
 layout(location = 0) out vec4 fragColor;
 
@@ -18,7 +23,14 @@ void main() {
         vec4(0.0, 0.0, 1.0, 1.0)   // Blue
     );
 
-    vec2 pos = positions[gl_VertexIndex];
+    // Rotation matrix
+    float angle = push.time;
+    float c = cos(angle);
+    float s = sin(angle);
+    mat2 rot = mat2(c, s, -s, c);
+
+    // Rotate position
+    vec2 pos = rot * positions[gl_VertexIndex];
     gl_Position = vec4(pos, 0.0, 1.0);
     fragColor = colors[gl_VertexIndex];
 }

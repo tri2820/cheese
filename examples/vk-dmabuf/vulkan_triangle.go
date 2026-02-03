@@ -25,7 +25,7 @@ func loadFragShader() []uint32 {
 }
 
 // renderTriangleToImage renders a colored triangle to an image using a graphics pipeline
-func renderTriangleToImage(device vulkan.Device, image vulkan.Image, width, height int) {
+func renderTriangleToImage(device vulkan.Device, image vulkan.Image, width, height int, time float32) {
 	// Create shaders from compiled GLSL
 	vertShader := createShaderModule(device, loadVertShader())
 	fragShader := createShaderModule(device, loadFragShader())
@@ -115,6 +115,9 @@ func renderTriangleToImage(device vulkan.Device, image vulkan.Image, width, heig
 
 	// Bind pipeline
 	vulkan.CmdBindPipeline(commandBuffer, vulkan.PipelineBindPointGraphics, pipeline)
+
+	// Push time constant for animation
+	vulkan.CmdPushConstants(commandBuffer, pipelineLayout, vulkan.ShaderStageFlags(vulkan.ShaderStageVertexBit), 0, 4, unsafe.Pointer(&time))
 
 	// Set dynamic viewport and scissor
 	viewport := vulkan.Viewport{
@@ -339,8 +342,17 @@ func createGraphicsPipeline(device vulkan.Device, renderPass vulkan.RenderPass, 
 		PAttachments:    []vulkan.PipelineColorBlendAttachmentState{colorBlendAttachment},
 	}
 
+	// Push constant range for time (float32 = 4 bytes)
+	pushConstantRange := vulkan.PushConstantRange{
+		StageFlags: vulkan.ShaderStageFlags(vulkan.ShaderStageVertexBit),
+		Offset:     0,
+		Size:       4,
+	}
+
 	pipelineLayoutInfo := vulkan.PipelineLayoutCreateInfo{
-		SType: vulkan.StructureTypePipelineLayoutCreateInfo,
+		SType:              vulkan.StructureTypePipelineLayoutCreateInfo,
+		PushConstantRangeCount: 1,
+		PPushConstantRanges: []vulkan.PushConstantRange{pushConstantRange},
 	}
 
 	var pipelineLayout vulkan.PipelineLayout

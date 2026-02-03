@@ -3,11 +3,14 @@ package main
 import (
 	"log"
 	"os"
+	"time"
 
 	"github.com/tri2820/cheese/protocols/client"
 	"github.com/tri2820/cheese/protocols/linux_dmabuf_unstable_v1"
 	"github.com/tri2820/cheese/protocols/xdg_shell"
 )
+
+var startTime time.Time
 
 type Display struct {
 	display    *client.WlDisplay
@@ -17,6 +20,12 @@ type Display struct {
 	dmabuf     *linux_dmabuf_unstable_v1.ZwpLinuxDmabufV1
 }
 
+type Buffer struct {
+	buffer   *client.WlBuffer
+	busy     bool
+	bufferIndex int // Index into dmabufBuffers array
+}
+
 type Window struct {
 	display    *Display
 	width      int
@@ -24,7 +33,7 @@ type Window struct {
 	surface    *client.WlSurface
 	xdgSurface *xdg_shell.XdgSurface
 	xdgToplevel *xdg_shell.XdgToplevel
-	buffer     *client.WlBuffer
+	buffers    [2]Buffer
 	callback   *client.WlCallback
 	configured bool
 }
@@ -81,17 +90,25 @@ func (d *Display) handleRegistryGlobal(ev client.WlRegistryGlobalEvent) {
 
 func (d *Display) handleRegistryGlobalRemove(ev client.WlRegistryGlobalRemoveEvent) {}
 
-// Event handlers for Window
+// Event handlers for Buffer
 
-func (w *Window) handleBufferRelease(ev client.WlBufferReleaseEvent) {
-	log.Println("Buffer released by compositor")
+func (buf *Buffer) handleBufferRelease(ev client.WlBufferReleaseEvent) {
+	buf.busy = false
 }
+
+// Event handlers for Window
 
 func (w *Window) handleSurfaceConfigure(ev xdg_shell.XdgSurfaceConfigureEvent) {
 	handle(w.xdgSurface.AckConfigure(ev.Serial))
 
 	if !w.configured {
 		w.configured = true
+		// Initialize dmabuf buffers after getting actual window size
+		log.Printf("Initializing dmabuf buffers at %dx%d...", w.width, w.height)
+		err := initDmaBufBuffers(w.width, w.height)
+		if err != nil {
+			log.Fatal("Failed to initialize dmabuf buffers:", err)
+		}
 		w.render()
 	}
 }
@@ -106,6 +123,8 @@ func (w *Window) handleToplevelConfigure(ev xdg_shell.XdgToplevelConfigureEvent)
 func (w *Window) handleToplevelClose(ev xdg_shell.XdgToplevelCloseEvent) {
 	log.Println("Window close requested")
 	w.cleanup()
+	cleanupDmaBufBuffers()
+	cleanupVulkan()
 	os.Exit(0)
 }
 
@@ -114,8 +133,10 @@ func (w *Window) handleCallbackDone(ev client.WlCallbackDoneEvent) {
 }
 
 func (w *Window) cleanup() {
-	if w.buffer != nil {
-		w.buffer.Destroy()
+	for i := range w.buffers {
+		if w.buffers[i].buffer != nil {
+			w.buffers[i].buffer.Destroy()
+		}
 	}
 	if w.xdgToplevel != nil {
 		w.xdgToplevel.Destroy()
@@ -128,16 +149,27 @@ func (w *Window) cleanup() {
 	}
 }
 
+func (w *Window) nextBuffer() *Buffer {
+	if !w.buffers[0].busy {
+		return &w.buffers[0]
+	}
+	if !w.buffers[1].busy {
+		return &w.buffers[1]
+	}
+	log.Println("All buffers busy, skipping frame")
+	return nil
+}
+
 // createWaylandBufferFromDmaBuf creates a wl_buffer from a dmabuf file descriptor
-func (w *Window) createWaylandBufferFromDmaBuf(fd int, width, height, stride int, format uint32) (*client.WlBuffer, error) {
+func (w *Window) createWaylandBufferFromDmaBuf(fd int, width, height, stride int, format uint32, buf *Buffer) error {
 	if w.display.dmabuf == nil {
-		return nil, os.ErrNotExist
+		return os.ErrNotExist
 	}
 
 	// Create params object
 	params, err := w.display.dmabuf.CreateParams()
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	// Add the dmabuf plane (single plane for DRM_FORMAT_XRGB8888)
@@ -151,7 +183,7 @@ func (w *Window) createWaylandBufferFromDmaBuf(fd int, width, height, stride int
 	)
 	if err != nil {
 		params.Destroy()
-		return nil, err
+		return err
 	}
 
 	// Create the buffer immediately
@@ -162,38 +194,46 @@ func (w *Window) createWaylandBufferFromDmaBuf(fd int, width, height, stride int
 		0, // flags
 	)
 	if err != nil {
-		return nil, err
+		return err
 	}
 
-	buffer.SetReleaseHandler(w.handleBufferRelease)
-	return buffer, nil
+	buffer.SetReleaseHandler(buf.handleBufferRelease)
+	buf.buffer = buffer
+	return nil
 }
 
 func (w *Window) render() {
 	log.Printf("Rendering %dx%d frame", w.width, w.height)
 
-	// Render to dmabuf using Vulkan
-	dmabufFD, stride, err := renderToDmaBuf(w.width, w.height)
+	buffer := w.nextBuffer()
+	if buffer == nil {
+		return
+	}
+
+	// If this is the first time using this buffer slot, create the wl_buffer
+	if buffer.buffer == nil {
+		dmabufBuf := &dmabufBuffers[buffer.bufferIndex]
+		err := w.createWaylandBufferFromDmaBuf(dmabufBuf.fd, w.width, w.height, dmabufBuf.stride, 0x34325258, buffer) // DRM_FORMAT_XRGB8888
+		if err != nil {
+			log.Printf("Failed to create Wayland buffer from dmabuf: %v", err)
+			return
+		}
+		log.Printf("Created wl_buffer for buffer %d from dmabuf fd=%d", buffer.bufferIndex, dmabufBuf.fd)
+	}
+
+	// Calculate elapsed time for animation
+	elapsed := time.Since(startTime).Seconds()
+	animTime := float32(elapsed)
+
+	// Render to the dmabuf buffer (Vulkan renders to persistent image and copies to dmabuf)
+	err := renderToDmaBuf(buffer.bufferIndex, animTime)
 	if err != nil {
 		log.Printf("Vulkan render error: %v", err)
 		return
 	}
-	log.Printf("Got dmabuf fd=%d stride=%d", dmabufFD, stride)
-
-	// Create Wayland buffer from dmabuf
-	buffer, err := w.createWaylandBufferFromDmaBuf(dmabufFD, w.width, w.height, stride, 0x34325258) // DRM_FORMAT_XRGB8888
-	if err != nil {
-		log.Printf("Failed to create Wayland buffer from dmabuf: %v", err)
-		return
-	}
-
-	if w.buffer != nil {
-		w.buffer.Destroy()
-	}
-	w.buffer = buffer
 
 	// Attach and present
-	handle(w.surface.Attach(w.buffer, 0, 0))
+	handle(w.surface.Attach(buffer.buffer, 0, 0))
 	handle(w.surface.Damage(0, 0, int32(w.width), int32(w.height)))
 
 	callback, err := w.surface.Frame()
@@ -202,6 +242,7 @@ func (w *Window) render() {
 	w.callback.SetDoneHandler(w.handleCallbackDone)
 
 	handle(w.surface.Commit())
+	buffer.busy = true
 }
 
 func createDisplay() *Display {
@@ -255,9 +296,10 @@ func createDisplay() *Display {
 
 func createWindow(d *Display, width, height int) *Window {
 	w := &Window{
-		display:    d,
-		width:      width,
-		height:     height,
+		display: d,
+		width:   width,
+		height:  height,
+		buffers: [2]Buffer{{bufferIndex: 0}, {bufferIndex: 1}},
 	}
 
 	surf, err := d.compositor.CreateSurface()
@@ -290,6 +332,7 @@ func createWindow(d *Display, width, height int) *Window {
 
 func main() {
 	log.Println("Starting Cheese Vulkan DmaBuf Example...")
+	startTime = time.Now()
 
 	display := createDisplay()
 	window := createWindow(display, 400, 300)
@@ -305,5 +348,7 @@ func main() {
 	}
 
 	window.cleanup()
+	cleanupDmaBufBuffers()
+	cleanupVulkan()
 	log.Println("Cheese Vulkan DmaBuf Example exiting")
 }
