@@ -62,6 +62,16 @@ type DmaBufBuffer struct {
 
 var dmabufBuffers [2]DmaBufBuffer
 
+// Persistent render image for rendering before copying to dmabuf
+type RenderImage struct {
+	image  vulkan.Image
+	memory vulkan.DeviceMemory
+	width  int
+	height int
+}
+
+var renderImage RenderImage
+
 // initDmaBufBuffers creates 2 dmabuf-exportable images upfront for double buffering
 func initDmaBufBuffers(width, height int) error {
 	if !globalVulkan.initialized {
@@ -197,11 +207,31 @@ func renderToDmaBuf(bufferIndex int, time float32) error {
 	buf := &dmabufBuffers[bufferIndex]
 	device := globalVulkan.device
 
-	// Create temporary render target image with optimal tiling for rendering
+	// Check if render image needs to be created or recreated
+	if renderImage.image == nil || renderImage.width != buf.width || renderImage.height != buf.height {
+		cleanupRenderImage()
+		if err := createRenderImage(buf.width, buf.height); err != nil {
+			return err
+		}
+	}
+
+	// Render triangle to the persistent render image
+	renderTriangleToImage(device, renderImage.image, buf.width, buf.height, time)
+
+	// Copy from render image to dmabuf image
+	copyImageToImage(device, renderImage.image, buf.image, buf.width, buf.height)
+
+	return nil
+}
+
+// createRenderImage creates a persistent render target image with optimal tiling
+func createRenderImage(width, height int) error {
+	device := globalVulkan.device
+
 	renderImageCreateInfo := vulkan.ImageCreateInfo{
 		SType:          vulkan.StructureTypeImageCreateInfo,
 		ImageType:      vulkan.ImageType2d,
-		Extent:         vulkan.Extent3D{Width: uint32(buf.width), Height: uint32(buf.height), Depth: 1},
+		Extent:         vulkan.Extent3D{Width: uint32(width), Height: uint32(height), Depth: 1},
 		MipLevels:      1,
 		ArrayLayers:    1,
 		Format:         vulkan.FormatR8g8b8a8Unorm,
@@ -212,57 +242,76 @@ func renderToDmaBuf(bufferIndex int, time float32) error {
 		SharingMode:    vulkan.SharingModeExclusive,
 	}
 
-	var renderImage vulkan.Image
-	result := vulkan.CreateImage(device, &renderImageCreateInfo, nil, &renderImage)
+	result := vulkan.CreateImage(device, &renderImageCreateInfo, nil, &renderImage.image)
 	if result != vulkan.Success {
 		log.Printf("Failed to create render image: %v", result)
 		return os.ErrNotExist
 	}
-	defer vulkan.DestroyImage(device, renderImage, nil)
 
-	// Allocate memory for render image
-	var renderMemReqs C.VkMemoryRequirementsGo
-	C.getImageMemoryRequirements(C.VkDevice(unsafe.Pointer(device)), C.VkImage(unsafe.Pointer(renderImage)), &renderMemReqs)
+	// Get memory requirements
+	var memReqs C.VkMemoryRequirementsGo
+	C.getImageMemoryRequirements(C.VkDevice(unsafe.Pointer(device)), C.VkImage(unsafe.Pointer(renderImage.image)), &memReqs)
 
-	renderMemTypeIndex := uint32(0)
+	memTypeIndex := uint32(^uint32(0))
 	for i := uint32(0); i < 32; i++ {
-		if uint32(renderMemReqs.memoryTypeBits)&(1<<i) != 0 {
-			renderMemTypeIndex = i
+		if uint32(memReqs.memoryTypeBits)&(1<<i) != 0 {
+			memTypeIndex = i
 			break
 		}
 	}
 
-	renderAllocInfo := vulkan.MemoryAllocateInfo{
-		SType:           vulkan.StructureTypeMemoryAllocateInfo,
-		AllocationSize:  vulkan.DeviceSize(renderMemReqs.size),
-		MemoryTypeIndex: renderMemTypeIndex,
+	if memTypeIndex == ^uint32(0) {
+		vulkan.DestroyImage(device, renderImage.image, nil)
+		renderImage.image = nil
+		log.Printf("Failed to find suitable memory type for render image")
+		return os.ErrNotExist
 	}
 
-	var renderMemory vulkan.DeviceMemory
-	result = vulkan.AllocateMemory(device, &renderAllocInfo, nil, &renderMemory)
+	allocInfo := vulkan.MemoryAllocateInfo{
+		SType:           vulkan.StructureTypeMemoryAllocateInfo,
+		AllocationSize:  vulkan.DeviceSize(memReqs.size),
+		MemoryTypeIndex: memTypeIndex,
+	}
+
+	result = vulkan.AllocateMemory(device, &allocInfo, nil, &renderImage.memory)
 	if result != vulkan.Success {
+		vulkan.DestroyImage(device, renderImage.image, nil)
+		renderImage.image = nil
 		log.Printf("Failed to allocate render memory: %v", result)
 		return os.ErrNotExist
 	}
-	defer vulkan.FreeMemory(device, renderMemory, nil)
 
-	result = vulkan.BindImageMemory(device, renderImage, renderMemory, 0)
+	result = vulkan.BindImageMemory(device, renderImage.image, renderImage.memory, 0)
 	if result != vulkan.Success {
+		vulkan.FreeMemory(device, renderImage.memory, nil)
+		vulkan.DestroyImage(device, renderImage.image, nil)
+		renderImage.image = nil
+		renderImage.memory = nil
 		log.Printf("Failed to bind render image memory: %v", result)
 		return os.ErrNotExist
 	}
 
-	// Render triangle to the optimal image
-	renderTriangleToImage(device, renderImage, buf.width, buf.height, time)
-
-	// Copy from render image to dmabuf image
-	copyImageToImage(device, renderImage, buf.image, buf.width, buf.height)
-
+	renderImage.width = width
+	renderImage.height = height
+	log.Printf("Created render image: %dx%d", width, height)
 	return nil
+}
+
+// cleanupRenderImage cleans up the persistent render image
+func cleanupRenderImage() {
+	if renderImage.memory != nil {
+		vulkan.FreeMemory(globalVulkan.device, renderImage.memory, nil)
+		renderImage.memory = nil
+	}
+	if renderImage.image != nil {
+		vulkan.DestroyImage(globalVulkan.device, renderImage.image, nil)
+		renderImage.image = nil
+	}
 }
 
 // cleanupDmaBufBuffers cleans up the dmabuf buffers
 func cleanupDmaBufBuffers() {
+	cleanupRenderImage()
 	for i := 0; i < 2; i++ {
 		if dmabufBuffers[i].memory != nil {
 			vulkan.FreeMemory(globalVulkan.device, dmabufBuffers[i].memory, nil)

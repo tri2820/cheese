@@ -126,6 +126,7 @@ func (w *Window) handleToplevelConfigure(ev xdg_shell.XdgToplevelConfigureEvent)
 func (w *Window) handleToplevelClose(ev xdg_shell.XdgToplevelCloseEvent) {
 	log.Println("Window close requested")
 	w.cleanup()
+	CleanupTriangleRenderer()
 	cleanupDmaBufBuffers()
 	cleanupVulkan()
 	os.Exit(0)
@@ -357,6 +358,7 @@ func main() {
 	}
 
 	window.cleanup()
+	CleanupTriangleRenderer()
 	cleanupDmaBufBuffers()
 	cleanupVulkan()
 	log.Println("Cheese Vulkan DmaBuf Example exiting")

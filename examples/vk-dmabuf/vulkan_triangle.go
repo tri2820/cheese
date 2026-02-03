@@ -3,6 +3,7 @@ package main
 import (
 	_ "embed"
 	"log"
+	"os"
 	"unsafe"
 
 	vulkan "github.com/vulkan-go/vulkan"
@@ -24,32 +25,54 @@ func loadFragShader() []uint32 {
 	return unsafe.Slice((*uint32)(unsafe.Pointer(&fragSpirv[0])), len(fragSpirv)/4)
 }
 
-// renderTriangleToImage renders a colored triangle to an image using a graphics pipeline
-func renderTriangleToImage(device vulkan.Device, image vulkan.Image, width, height int, time float32) {
-	// Create shaders from compiled GLSL
-	vertShader := createShaderModule(device, loadVertShader())
-	fragShader := createShaderModule(device, loadFragShader())
-	defer vulkan.DestroyShaderModule(device, vertShader, nil)
-	defer vulkan.DestroyShaderModule(device, fragShader, nil)
+// TriangleRenderer holds persistent Vulkan resources for triangle rendering
+type TriangleRenderer struct {
+	initialized bool
 
-	// Create render pass
-	renderPass := createRenderPass(device)
-	defer vulkan.DestroyRenderPass(device, renderPass, nil)
+	// Shaders
+	vertShader vulkan.ShaderModule
+	fragShader vulkan.ShaderModule
 
-	// Create image view for the image
-	imageView := createImageView(device, image)
-	defer vulkan.DestroyImageView(device, imageView, nil)
+	// Pipeline resources
+	renderPass     vulkan.RenderPass
+	pipeline       vulkan.Pipeline
+	pipelineLayout vulkan.PipelineLayout
 
-	// Create framebuffer
-	framebuffer := createFramebuffer(device, renderPass, imageView, width, height)
-	defer vulkan.DestroyFramebuffer(device, framebuffer, nil)
+	// Command buffer (reused and rerecorded each frame)
+	commandBuffer vulkan.CommandBuffer
 
-	// Create graphics pipeline
-	pipeline, pipelineLayout := createGraphicsPipeline(device, renderPass, vertShader, fragShader, width, height)
-	defer vulkan.DestroyPipeline(device, pipeline, nil)
-	defer vulkan.DestroyPipelineLayout(device, pipelineLayout, nil)
+	// Dimensions
+	width  int
+	height int
+}
 
-	// Allocate and record command buffer
+var triangleRenderer TriangleRenderer
+
+// InitTriangleRenderer initializes all persistent Vulkan resources for triangle rendering
+func InitTriangleRenderer(width, height int) error {
+	if triangleRenderer.initialized {
+		return nil
+	}
+
+	device := globalVulkan.device
+	triangleRenderer.width = width
+	triangleRenderer.height = height
+
+	// Create shaders (once)
+	triangleRenderer.vertShader = createShaderModule(device, loadVertShader())
+	triangleRenderer.fragShader = createShaderModule(device, loadFragShader())
+
+	// Create render pass (once)
+	triangleRenderer.renderPass = createRenderPass(device)
+
+	// Create graphics pipeline (once)
+	triangleRenderer.pipeline, triangleRenderer.pipelineLayout = createGraphicsPipeline(
+		device, triangleRenderer.renderPass,
+		triangleRenderer.vertShader, triangleRenderer.fragShader,
+		width, height,
+	)
+
+	// Allocate command buffer (once, reused each frame)
 	allocInfo := vulkan.CommandBufferAllocateInfo{
 		SType:              vulkan.StructureTypeCommandBufferAllocateInfo,
 		CommandPool:        globalVulkan.commandPool,
@@ -60,17 +83,70 @@ func renderTriangleToImage(device vulkan.Device, image vulkan.Image, width, heig
 	result := vulkan.AllocateCommandBuffers(device, &allocInfo, commandBuffers)
 	if result != vulkan.Success {
 		log.Printf("Failed to allocate command buffer: %v", result)
+		return os.ErrNotExist
+	}
+	triangleRenderer.commandBuffer = commandBuffers[0]
+
+	triangleRenderer.initialized = true
+	log.Println("Triangle renderer initialized")
+	return nil
+}
+
+// CleanupTriangleRenderer destroys all persistent resources
+func CleanupTriangleRenderer() {
+	if !triangleRenderer.initialized {
 		return
 	}
-	commandBuffer := commandBuffers[0]
-	defer vulkan.FreeCommandBuffers(device, globalVulkan.commandPool, 1, commandBuffers)
 
-	// Record command buffer
+	device := globalVulkan.device
+
+	if triangleRenderer.commandBuffer != nil {
+		vulkan.FreeCommandBuffers(device, globalVulkan.commandPool, 1, []vulkan.CommandBuffer{triangleRenderer.commandBuffer})
+	}
+	if triangleRenderer.pipeline != nil {
+		vulkan.DestroyPipeline(device, triangleRenderer.pipeline, nil)
+	}
+	if triangleRenderer.pipelineLayout != nil {
+		vulkan.DestroyPipelineLayout(device, triangleRenderer.pipelineLayout, nil)
+	}
+	if triangleRenderer.renderPass != nil {
+		vulkan.DestroyRenderPass(device, triangleRenderer.renderPass, nil)
+	}
+	if triangleRenderer.vertShader != nil {
+		vulkan.DestroyShaderModule(device, triangleRenderer.vertShader, nil)
+	}
+	if triangleRenderer.fragShader != nil {
+		vulkan.DestroyShaderModule(device, triangleRenderer.fragShader, nil)
+	}
+
+	triangleRenderer.initialized = false
+	log.Println("Triangle renderer cleaned up")
+}
+
+// renderTriangleToImage renders a colored triangle to an image using the pre-initialized pipeline
+// This is the fast path - only records command buffer and submits
+func renderTriangleToImage(device vulkan.Device, image vulkan.Image, width, height int, time float32) {
+	// Reinitialize if dimensions changed
+	if !triangleRenderer.initialized || width != triangleRenderer.width || height != triangleRenderer.height {
+		if triangleRenderer.initialized {
+			CleanupTriangleRenderer()
+		}
+		if err := InitTriangleRenderer(width, height); err != nil {
+			log.Printf("Failed to reinitialize triangle renderer: %v", err)
+			return
+		}
+	}
+
+	cmdBuf := triangleRenderer.commandBuffer
+
+	// Reset and rerecord command buffer
+	vulkan.ResetCommandBuffer(cmdBuf, 0)
+
 	beginInfo := vulkan.CommandBufferBeginInfo{
 		SType: vulkan.StructureTypeCommandBufferBeginInfo,
 		Flags: vulkan.CommandBufferUsageFlags(vulkan.CommandBufferUsageOneTimeSubmitBit),
 	}
-	vulkan.BeginCommandBuffer(commandBuffer, &beginInfo)
+	vulkan.BeginCommandBuffer(cmdBuf, &beginInfo)
 
 	// Transition image layout to color attachment
 	imageBarrier := vulkan.ImageMemoryBarrier{
@@ -91,18 +167,26 @@ func renderTriangleToImage(device vulkan.Device, image vulkan.Image, width, heig
 		},
 	}
 	vulkan.CmdPipelineBarrier(
-		commandBuffer,
+		cmdBuf,
 		vulkan.PipelineStageFlags(vulkan.PipelineStageTopOfPipeBit),
 		vulkan.PipelineStageFlags(vulkan.PipelineStageColorAttachmentOutputBit),
 		0, 0, nil, 0, nil, 1, []vulkan.ImageMemoryBarrier{imageBarrier},
 	)
+
+	// Create temporary image view for this frame's image
+	imageView := createImageView(device, image)
+	defer vulkan.DestroyImageView(device, imageView, nil)
+
+	// Create temporary framebuffer for this frame's image
+	framebuffer := createFramebuffer(device, triangleRenderer.renderPass, imageView, width, height)
+	defer vulkan.DestroyFramebuffer(device, framebuffer, nil)
 
 	// Begin render pass
 	clearValue := vulkan.ClearValue{}
 	clearValue.SetColor([]float32{0.0, 0.0, 0.0, 1.0})
 	renderPassBegin := vulkan.RenderPassBeginInfo{
 		SType:       vulkan.StructureTypeRenderPassBeginInfo,
-		RenderPass:  renderPass,
+		RenderPass:  triangleRenderer.renderPass,
 		Framebuffer: framebuffer,
 		RenderArea: vulkan.Rect2D{
 			Offset: vulkan.Offset2D{X: 0, Y: 0},
@@ -111,13 +195,13 @@ func renderTriangleToImage(device vulkan.Device, image vulkan.Image, width, heig
 		ClearValueCount: 1,
 		PClearValues:    []vulkan.ClearValue{clearValue},
 	}
-	vulkan.CmdBeginRenderPass(commandBuffer, &renderPassBegin, vulkan.SubpassContentsInline)
+	vulkan.CmdBeginRenderPass(cmdBuf, &renderPassBegin, vulkan.SubpassContentsInline)
 
-	// Bind pipeline
-	vulkan.CmdBindPipeline(commandBuffer, vulkan.PipelineBindPointGraphics, pipeline)
+	// Bind pipeline (reused from initialization)
+	vulkan.CmdBindPipeline(cmdBuf, vulkan.PipelineBindPointGraphics, triangleRenderer.pipeline)
 
 	// Push time constant for animation
-	vulkan.CmdPushConstants(commandBuffer, pipelineLayout, vulkan.ShaderStageFlags(vulkan.ShaderStageVertexBit), 0, 4, unsafe.Pointer(&time))
+	vulkan.CmdPushConstants(cmdBuf, triangleRenderer.pipelineLayout, vulkan.ShaderStageFlags(vulkan.ShaderStageVertexBit), 0, 4, unsafe.Pointer(&time))
 
 	// Set dynamic viewport and scissor
 	viewport := vulkan.Viewport{
@@ -128,19 +212,19 @@ func renderTriangleToImage(device vulkan.Device, image vulkan.Image, width, heig
 		MinDepth: 0.0,
 		MaxDepth: 1.0,
 	}
-	vulkan.CmdSetViewport(commandBuffer, 0, 1, []vulkan.Viewport{viewport})
+	vulkan.CmdSetViewport(cmdBuf, 0, 1, []vulkan.Viewport{viewport})
 
 	scissor := vulkan.Rect2D{
 		Offset: vulkan.Offset2D{X: 0, Y: 0},
 		Extent: vulkan.Extent2D{Width: uint32(width), Height: uint32(height)},
 	}
-	vulkan.CmdSetScissor(commandBuffer, 0, 1, []vulkan.Rect2D{scissor})
+	vulkan.CmdSetScissor(cmdBuf, 0, 1, []vulkan.Rect2D{scissor})
 
 	// Draw
-	vulkan.CmdDraw(commandBuffer, 3, 1, 0, 0)
+	vulkan.CmdDraw(cmdBuf, 3, 1, 0, 0)
 
 	// End render pass
-	vulkan.CmdEndRenderPass(commandBuffer)
+	vulkan.CmdEndRenderPass(cmdBuf)
 
 	// Transition image layout back to general for copying
 	imageBarrier.SrcAccessMask = vulkan.AccessFlags(vulkan.AccessColorAttachmentWriteBit)
@@ -148,19 +232,19 @@ func renderTriangleToImage(device vulkan.Device, image vulkan.Image, width, heig
 	imageBarrier.OldLayout = vulkan.ImageLayoutColorAttachmentOptimal
 	imageBarrier.NewLayout = vulkan.ImageLayoutGeneral
 	vulkan.CmdPipelineBarrier(
-		commandBuffer,
+		cmdBuf,
 		vulkan.PipelineStageFlags(vulkan.PipelineStageColorAttachmentOutputBit),
 		vulkan.PipelineStageFlags(vulkan.PipelineStageBottomOfPipeBit),
 		0, 0, nil, 0, nil, 1, []vulkan.ImageMemoryBarrier{imageBarrier},
 	)
 
-	vulkan.EndCommandBuffer(commandBuffer)
+	vulkan.EndCommandBuffer(cmdBuf)
 
 	// Submit and wait with fence
 	submitInfo := vulkan.SubmitInfo{
 		SType:              vulkan.StructureTypeSubmitInfo,
 		CommandBufferCount: 1,
-		PCommandBuffers:    commandBuffers,
+		PCommandBuffers:    []vulkan.CommandBuffer{cmdBuf},
 	}
 	vulkan.ResetFences(globalVulkan.device, 1, []vulkan.Fence{globalVulkan.renderFence})
 	vulkan.QueueSubmit(globalVulkan.graphicsQueue, 1, []vulkan.SubmitInfo{submitInfo}, globalVulkan.renderFence)
@@ -351,7 +435,7 @@ func createGraphicsPipeline(device vulkan.Device, renderPass vulkan.RenderPass, 
 	}
 
 	pipelineLayoutInfo := vulkan.PipelineLayoutCreateInfo{
-		SType:              vulkan.StructureTypePipelineLayoutCreateInfo,
+		SType:                vulkan.StructureTypePipelineLayoutCreateInfo,
 		PushConstantRangeCount: 1,
 		PPushConstantRanges: []vulkan.PushConstantRange{pushConstantRange},
 	}

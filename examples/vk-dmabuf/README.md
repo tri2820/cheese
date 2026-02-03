@@ -1,6 +1,6 @@
 # Cheese Vulkan DmaBuf Example
 
-A minimal example demonstrating **Vulkan → dmabuf → Wayland** using the pure Go cheese library.
+A minimal example demonstrating **Vulkan → dmabuf → Wayland** using the Cheese library.
 
 ## What It Does
 
@@ -11,33 +11,21 @@ A minimal example demonstrating **Vulkan → dmabuf → Wayland** using the pure
 
 ## Why This Example?
 
-Proves that GPU-accelerated rendering can work with the pure Go cheese library through **dmabuf**:
+Proves that GPU-accelerated rendering can work with the pure Go Cheese library through **dmabuf**:
 
 ```
 Vulkan (GPU) → dmabuf FD → linux_dmabuf_v1 → Wayland compositor
 ```
 
-No CGO needed in the cheese library!
+CGO is needed for go-vulkan, which wrapping vulkan driver under the hood. CGO is NOT needed in the Cheese library!
 
 ## Prerequisites
 
 ### System Dependencies
 
 ```bash
-# Ubuntu/Debian
-sudo apt install vulkan-headers vulkan-loader libvulkan1 mesa-vulkan-drivers
-
-# Fedora
-sudo dnf install vulkan-headers vulkan-loader mesa-vulkan-drivers
-
 # Nix (flake-based)
 nix develop .  # The flake includes Vulkan
-```
-
-### Go Dependencies
-
-```bash
-go get github.com/vulkan-go/vulkan
 ```
 
 ## Building
@@ -52,49 +40,6 @@ nix develop . --command go build -o ./examples/vk-dmabuf/vk-dmabuf ./examples/vk
 nix develop . --command ./examples/vk-dmabuf/vk-dmabuf
 ```
 
-## Expected Output
-
-```
-Starting Cheese Vulkan DmaBuf Example...
-Bound to zwp_linux_dmabuf_v1
-Found Vulkan device with external memory support
-Running! Close the window to exit.
-Rendering 400x300 frame
-Got dmabuf fd=XX stride=1600
-```
-
-## How It Works
-
-### 1. Vulkan Side (`vulkan.go`)
-
-```go
-// Create image with external memory
-externalInfo := vulkan.ExternalMemoryImageCreateInfo{
-    HandleTypes: VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT
-}
-
-// Allocate with export capability
-exportInfo := vulkan.ExportMemoryAllocateInfo{
-    HandleTypes: VK_EXTERNAL_MEMORY_HANDLE_TYPE_DMA_BUF_BIT
-}
-
-// Get the dmabuf file descriptor
-vulkan.GetMemoryFdKHR(device, &getFDInfo, &dmabufFD)
-```
-
-### 2. Wayland Side (`main.go`)
-
-```go
-// Create params for dmabuf import
-params := dmabuf.CreateParams()
-
-// Add the dmabuf plane
-params.Add(fd, plane_idx, offset, stride, modifier_hi, modifier_lo)
-
-// Create wl_buffer immediately
-buffer := params.CreateImmed(width, height, format, flags)
-```
-
 ## File Structure
 
 ```
@@ -103,17 +48,6 @@ examples/vk-dmabuf/
 ├── vulkan.go    # Vulkan + dmabuf export
 └── README.md     # This file
 ```
-
-## Next Steps
-
-To add actual GPU rendering:
-
-1. **Add shaders** (SPIR-V embedded)
-2. **Create pipeline** (vertex + fragment)
-3. **Add vertex/index buffers**
-4. **Use command buffers** to draw
-
-See `examples/vk-cube/` for a full 3D rotating cube example.
 
 ## Troubleshooting
 
@@ -129,10 +63,6 @@ Your compositor doesn't support dmabuf. Try:
 Your GPU driver doesn't support dmabuf export. Install:
 - Mesa Vulkan drivers (Intel/AMD)
 - NVIDIA proprietary drivers
-
-### Black window
-
-The dmabuf was exported but not filled with content. This is expected for this minimal example.
 
 ## Architecture
 
@@ -158,17 +88,44 @@ The dmabuf was exported but not filled with content. This is expected for this m
 └─────────────────────────────────────────────────────┘
 ```
 
-## Key Point
-
-**The cheese library remains pure Go.** Only the rendering layer (vulkan-go) uses CGO.
-
-
 ## Examples
 
-```sh
-VK_ICD_FILENAMES="/run/opengl-driver/share/vulkan/icd.d/intel_icd.x86_64.json" LD_LIBRARY_PATH="/run/opengl-driver/lib:$LD_LIBRARY_PATH/" ./vk-dmabuf
-```
+Run with NVIDIA GeForce MX250
 
 ```sh
-VK_ICD_FILENAMES="/run/opengl-driver/share/vulkan/icd.d/nvidia_icd.x86_64.json" LD_LIBRARY_PATH="/run/opengl-driver/lib:/nix/store/l0a355pbhjr49y6a33f3pag5cafi3cxs-nvidia-x11-580.119.02-6.18.7/lib:$LD_LIBRARY_PATH" ./vk-dmabuf
+tri@nixos ~/c/c/e/vk-dmabuf (main)> VK_ICD_FILENAMES="/run/opengl-driver/share/vulkan/icd.d/nvidia_icd.x86_64.json" LD_LIBRARY_PATH="/run/opengl-driver/lib:/nix/store/l0a355pbhjr49y6a33f3pag5cafi3cxs-nvidia-x11-580.119.02-6.18.7/lib:$LD_LIBRARY_PATH" ./vk-dmabuf
+2026/02/03 11:07:28 Starting Cheese Vulkan DmaBuf Example...
+2026/02/03 11:07:28 Bound to zwp_linux_dmabuf_v1
+2026/02/03 11:07:28 Running! Close the window to exit.
+2026/02/03 11:07:28 Initializing dmabuf buffers at 920x1018...
+2026/02/03 11:07:28 Checking physical device 0: NVIDIA GeForce MX250
+2026/02/03 11:07:28   Queue family 0: flags=0x0000000f
+2026/02/03 11:07:28   Queue family 0 has graphics bit
+2026/02/03 11:07:28   VK_KHR_external_memory: true
+2026/02/03 11:07:28   VK_KHR_external_memory_fd: true
+2026/02/03 11:07:28 Found Vulkan device with external memory support
+2026/02/03 11:07:28 Created dmabuf buffer 0: fd=34 stride=3712
+2026/02/03 11:07:28 Created dmabuf buffer 1: fd=35 stride=3712
+2026/02/03 11:07:28 Created render image: 920x1018
+2026/02/03 11:07:28 Triangle renderer initialized
+```
+
+Run with Intel(R) UHD Graphics 620 (WHL GT2)
+
+```sh
+tri@nixos ~/c/c/e/vk-dmabuf (main) [SIGINT]> VK_ICD_FILENAMES="/run/opengl-driver/share/vulkan/icd.d/intel_icd.x86_64.json" LD_LIBRARY_PATH="/run/opengl-driver/lib:$LD_LIBRARY_PATH/" ./vk-dmabuf
+2026/02/03 11:09:53 Starting Cheese Vulkan DmaBuf Example...
+2026/02/03 11:09:53 Bound to zwp_linux_dmabuf_v1
+2026/02/03 11:09:53 Running! Close the window to exit.
+2026/02/03 11:09:53 Initializing dmabuf buffers at 920x1018...
+2026/02/03 11:09:53 Checking physical device 0: Intel(R) UHD Graphics 620 (WHL GT2)
+2026/02/03 11:09:53   Queue family 0: flags=0x00000007
+2026/02/03 11:09:53   Queue family 0 has graphics bit
+2026/02/03 11:09:53   VK_KHR_external_memory: true
+2026/02/03 11:09:53   VK_KHR_external_memory_fd: true
+2026/02/03 11:09:53 Found Vulkan device with external memory support
+2026/02/03 11:09:53 Created dmabuf buffer 0: fd=15 stride=3680
+2026/02/03 11:09:53 Created dmabuf buffer 1: fd=16 stride=3680
+2026/02/03 11:09:53 Created render image: 920x1018
+2026/02/03 11:09:53 Triangle renderer initialized
 ```
