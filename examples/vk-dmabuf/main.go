@@ -11,6 +11,9 @@ import (
 )
 
 var startTime time.Time
+var lastFrameTime time.Time
+const targetFPS = 60
+const minFrameTime = time.Second / targetFPS
 
 type Display struct {
 	display    *client.WlDisplay
@@ -203,7 +206,14 @@ func (w *Window) createWaylandBufferFromDmaBuf(fd int, width, height, stride int
 }
 
 func (w *Window) render() {
-	log.Printf("Rendering %dx%d frame", w.width, w.height)
+	// Frame rate limiting
+	if !lastFrameTime.IsZero() {
+		elapsed := time.Since(lastFrameTime)
+		if elapsed < minFrameTime {
+			time.Sleep(minFrameTime - elapsed)
+		}
+	}
+	lastFrameTime = time.Now()
 
 	buffer := w.nextBuffer()
 	if buffer == nil {
@@ -218,7 +228,6 @@ func (w *Window) render() {
 			log.Printf("Failed to create Wayland buffer from dmabuf: %v", err)
 			return
 		}
-		log.Printf("Created wl_buffer for buffer %d from dmabuf fd=%d", buffer.bufferIndex, dmabufBuf.fd)
 	}
 
 	// Calculate elapsed time for animation

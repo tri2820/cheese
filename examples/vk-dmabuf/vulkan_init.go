@@ -62,6 +62,7 @@ var globalVulkan struct {
 	graphicsQueue       vulkan.Queue
 	graphicsQueueIndex  uint32
 	commandPool         vulkan.CommandPool
+	renderFence         vulkan.Fence
 	initialized         bool
 }
 
@@ -218,11 +219,27 @@ foundDevice:
 	}
 	globalVulkan.commandPool = commandPool
 
+	// Create fence for synchronization
+	fenceInfo := vulkan.FenceCreateInfo{
+		SType: vulkan.StructureTypeFenceCreateInfo,
+		Flags: vulkan.FenceCreateFlags(vulkan.FenceCreateSignaledBit),
+	}
+	var fence vulkan.Fence
+	result = vulkan.CreateFence(device, &fenceInfo, nil, &fence)
+	if result != vulkan.Success {
+		log.Printf("Failed to create fence: %v", result)
+		return false
+	}
+	globalVulkan.renderFence = fence
+
 	globalVulkan.initialized = true
 	return true
 }
 
 func cleanupVulkan() {
+	if globalVulkan.renderFence != nil {
+		vulkan.DestroyFence(globalVulkan.device, globalVulkan.renderFence, nil)
+	}
 	if globalVulkan.commandPool != nil {
 		vulkan.DestroyCommandPool(globalVulkan.device, globalVulkan.commandPool, nil)
 	}

@@ -81,14 +81,15 @@ func clearImageToColor(device vulkan.Device, image vulkan.Image, width, height i
 
 	vulkan.EndCommandBuffer(commandBuffer)
 
-	// Submit and wait
+	// Submit and wait with fence
 	submitInfo := vulkan.SubmitInfo{
 		SType:              vulkan.StructureTypeSubmitInfo,
 		CommandBufferCount: 1,
 		PCommandBuffers:    commandBuffers,
 	}
-	vulkan.QueueSubmit(globalVulkan.graphicsQueue, 1, []vulkan.SubmitInfo{submitInfo}, vulkan.NullFence)
-	vulkan.QueueWaitIdle(globalVulkan.graphicsQueue)
+	vulkan.ResetFences(globalVulkan.device, 1, []vulkan.Fence{globalVulkan.renderFence})
+	vulkan.QueueSubmit(globalVulkan.graphicsQueue, 1, []vulkan.SubmitInfo{submitInfo}, globalVulkan.renderFence)
+	vulkan.WaitForFences(globalVulkan.device, 1, []vulkan.Fence{globalVulkan.renderFence}, vulkan.True, 1000000000) // 1 second timeout
 }
 
 // copyImageToImage copies content from one image to another using Vulkan transfer commands
@@ -193,12 +194,13 @@ func copyImageToImage(device vulkan.Device, srcImage, dstImage vulkan.Image, wid
 
 	vulkan.EndCommandBuffer(commandBuffer)
 
-	// Submit and wait
+	// Submit and wait with fence
 	submitInfo := vulkan.SubmitInfo{
 		SType:              vulkan.StructureTypeSubmitInfo,
 		CommandBufferCount: 1,
 		PCommandBuffers:    commandBuffers,
 	}
-	vulkan.QueueSubmit(globalVulkan.graphicsQueue, 1, []vulkan.SubmitInfo{submitInfo}, vulkan.NullFence)
-	vulkan.QueueWaitIdle(globalVulkan.graphicsQueue)
+	vulkan.ResetFences(globalVulkan.device, 1, []vulkan.Fence{globalVulkan.renderFence})
+	vulkan.QueueSubmit(globalVulkan.graphicsQueue, 1, []vulkan.SubmitInfo{submitInfo}, globalVulkan.renderFence)
+	vulkan.WaitForFences(globalVulkan.device, 1, []vulkan.Fence{globalVulkan.renderFence}, vulkan.True, 1000000000) // 1 second timeout
 }
