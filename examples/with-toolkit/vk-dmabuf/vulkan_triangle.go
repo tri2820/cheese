@@ -254,7 +254,7 @@ func renderTriangleToImage(device vulkan.Device, image vulkan.Image, width, heig
 func createShaderModule(device vulkan.Device, code []uint32) vulkan.ShaderModule {
 	createInfo := vulkan.ShaderModuleCreateInfo{
 		SType:    vulkan.StructureTypeShaderModuleCreateInfo,
-		CodeSize: uint64(len(code) * 4),
+		CodeSize: uint(len(code) * 4),
 		PCode:    code,
 	}
 	var shaderModule vulkan.ShaderModule
