@@ -31,6 +31,9 @@ type Config struct {
 	// ErrorHandler is called on Wayland protocol errors.
 	// If nil, a default handler that logs and exits is used.
 	ErrorHandler func(client.WlDisplayErrorEvent)
+
+	// OutputHandler is called when an output becomes ready or is removed.
+	OutputHandler func(output *Output, added bool)
 }
 
 // Display represents a connection to a Wayland compositor.
@@ -46,14 +49,20 @@ type Display struct {
 	// SHM format tracking
 	formats map[client.WlShmFormat]bool
 
+	// Output tracking (global name -> Output)
+	outputs       map[uint32]*Output
+	outputHandler func(output *Output, added bool)
+
 	required RequiredGlobals
 }
 
 // Connect connects to a Wayland compositor with the given configuration.
 func Connect(config Config) (*Display, error) {
 	d := &Display{
-		formats:  make(map[client.WlShmFormat]bool),
-		required: config.Required,
+		formats:       make(map[client.WlShmFormat]bool),
+		outputs:       make(map[uint32]*Output),
+		outputHandler: config.OutputHandler,
+		required:      config.Required,
 	}
 
 	// Connect to display
@@ -186,12 +195,33 @@ func (d *Display) handleGlobal(ev client.WlRegistryGlobalEvent) {
 			}
 			d.dmabufState = dmabuf.NewState(wlDmabuf, version)
 		}
+	case "wl_output":
+		// Bind to all outputs (version 2+ gives us scale events)
+		version := ev.Version
+		if version > 4 {
+			version = 4
+		}
+		wlOutput := client.NewWlOutput(d.wlDisplay.Context())
+		if err := d.registry.Bind(ev.Name, "wl_output", version, wlOutput); err != nil {
+			log.Printf("failed to bind wl_output: %v", err)
+			return
+		}
+		d.outputs[ev.Name] = newOutput(wlOutput, func(o *Output) {
+			if d.outputHandler != nil {
+				d.outputHandler(o, true) // added = true
+			}
+		})
 	}
 }
 
 // handleGlobalRemove handles global object removals.
 func (d *Display) handleGlobalRemove(ev client.WlRegistryGlobalRemoveEvent) {
-	// TODO: handle global removal
+	if o, ok := d.outputs[ev.Name]; ok {
+		delete(d.outputs, ev.Name)
+		if d.outputHandler != nil {
+			d.outputHandler(o, false) // added = false (removed)
+		}
+	}
 }
 
 // handleShmFormat handles SHM format advertisements.
@@ -292,4 +322,24 @@ func (d *Display) Registry() *client.WlRegistry {
 // Dmabuf returns the DMA-BUF state, or nil if not available.
 func (d *Display) Dmabuf() *dmabuf.State {
 	return d.dmabufState
+}
+
+// Outputs returns all detected outputs.
+func (d *Display) Outputs() []*Output {
+	var outs []*Output
+	for _, o := range d.outputs {
+		outs = append(outs, o)
+	}
+	return outs
+}
+
+// ReadyOutputs returns all outputs that have finished receiving their information.
+func (d *Display) ReadyOutputs() []*Output {
+	var outs []*Output
+	for _, o := range d.outputs {
+		if o.Ready {
+			outs = append(outs, o)
+		}
+	}
+	return outs
 }
