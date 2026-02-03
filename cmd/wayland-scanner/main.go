@@ -244,14 +244,24 @@ func getNewFunctionCall(ifaceName string, varName string, p Protocol) string {
 
 // mapWaylandTypeFromArg maps Wayland arg to Go types, using enum types when available
 func mapWaylandTypeFromArg(arg Arg, ifaceName string, p Protocol) string {
+	// Determine prefix for client package references
+	clientPrefix := "client."
+	if packageName == "client" {
+		clientPrefix = ""
+	}
+
 	// If arg has an enum, try to use the enum type
 	if arg.Enum != "" && (arg.Type == "uint" || arg.Type == "int") {
 		// Check if enum references another interface (format: "interface_name.enum_name")
 		if strings.Contains(arg.Enum, ".") {
 			parts := strings.Split(arg.Enum, ".")
-			refInterface := strcase.ToCamel(parts[0])
+			refInterface := parts[0]
 			refEnum := strcase.ToCamel(parts[1])
-			return refInterface + refEnum
+			// wl_* types come from client package
+			if strings.HasPrefix(refInterface, "wl_") {
+				return clientPrefix + strcase.ToCamel(refInterface) + refEnum
+			}
+			return strcase.ToCamel(refInterface) + refEnum
 		}
 		// Enum is in current interface
 		enumName := ifaceName + strcase.ToCamel(arg.Enum)
@@ -717,7 +727,14 @@ func generateEventArgUnmarshal(w io.Writer, arg Arg, fieldName string, structVar
 			var enumType string
 			if strings.Contains(arg.Enum, ".") {
 				parts := strings.Split(arg.Enum, ".")
-				enumType = strcase.ToCamel(parts[0]) + strcase.ToCamel(parts[1])
+				refInterface := parts[0]
+				refEnum := strcase.ToCamel(parts[1])
+				// wl_* types come from client package
+				if strings.HasPrefix(refInterface, "wl_") {
+					enumType = clientPrefix + strcase.ToCamel(refInterface) + refEnum
+				} else {
+					enumType = strcase.ToCamel(refInterface) + refEnum
+				}
 			} else {
 				enumType = ifaceName + strcase.ToCamel(arg.Enum)
 			}
@@ -732,7 +749,14 @@ func generateEventArgUnmarshal(w io.Writer, arg Arg, fieldName string, structVar
 			var enumType string
 			if strings.Contains(arg.Enum, ".") {
 				parts := strings.Split(arg.Enum, ".")
-				enumType = strcase.ToCamel(parts[0]) + strcase.ToCamel(parts[1])
+				refInterface := parts[0]
+				refEnum := strcase.ToCamel(parts[1])
+				// wl_* types come from client package
+				if strings.HasPrefix(refInterface, "wl_") {
+					enumType = clientPrefix + strcase.ToCamel(refInterface) + refEnum
+				} else {
+					enumType = strcase.ToCamel(refInterface) + refEnum
+				}
 			} else {
 				enumType = ifaceName + strcase.ToCamel(arg.Enum)
 			}
