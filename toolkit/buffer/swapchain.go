@@ -82,6 +82,11 @@ func (sc *Swapchain) SetSurface(surf *surface.Surface) {
 	sc.surface = surf
 }
 
+// Surface returns the surface attached to this swapchain.
+func (sc *Swapchain) Surface() *surface.Surface {
+	return sc.surface
+}
+
 // Acquire returns a buffer ready for drawing.
 // It returns the pixel data slice for drawing.
 // Call Present() when done drawing to submit the frame.

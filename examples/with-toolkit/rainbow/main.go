@@ -44,10 +44,11 @@ func main() {
 		log.Fatal("Failed to create window:", err)
 	}
 
-	// Create renderer - handles swapchain and render loop automatically
+	// Create renderer - works with any surface type
 	renderer, err := buffer.NewRenderer(buffer.RendererConfig{
 		Shm:     disp.Shm(),
-		Window:  win,
+		Surface: win.Surface(),
+		SetConfigure: win.SetConfigureHandler,
 		Width:   width,
 		Height:  height,
 		Format:  buffer.FormatXRGB8888,

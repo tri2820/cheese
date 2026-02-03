@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"github.com/tri2820/cheese/protocols/client"
+	"github.com/tri2820/cheese/protocols/wlr_layer_shell_unstable_v1"
 	"github.com/tri2820/cheese/protocols/xdg_shell"
 )
 
@@ -13,6 +14,7 @@ type RequiredGlobals struct {
 	Compositor bool
 	Shm        bool
 	XdgWmBase  bool
+	LayerShell bool
 }
 
 // Config configures a new Display connection.
@@ -30,11 +32,12 @@ type Config struct {
 
 // Display represents a connection to a Wayland compositor.
 type Display struct {
-	wlDisplay  *client.WlDisplay
-	registry   *client.WlRegistry
-	compositor *client.WlCompositor
-	shm        *client.WlShm
-	shell      *xdg_shell.XdgWmBase
+	wlDisplay   *client.WlDisplay
+	registry    *client.WlRegistry
+	compositor  *client.WlCompositor
+	shm         *client.WlShm
+	shell       *xdg_shell.XdgWmBase
+	layerShell  *wlr_layer_shell_unstable_v1.ZwlrLayerShellV1
 
 	// SHM format tracking
 	formats map[client.WlShmFormat]bool
@@ -104,6 +107,10 @@ func Connect(config Config) (*Display, error) {
 		d.wlDisplay.Context().Close()
 		return nil, fmt.Errorf("required global xdg_wm_base not available")
 	}
+	if d.required.LayerShell && d.layerShell == nil {
+		d.wlDisplay.Context().Close()
+		return nil, fmt.Errorf("required global zwlr_layer_shell_v1 not available")
+	}
 
 	return d, nil
 }
@@ -148,6 +155,15 @@ func (d *Display) handleGlobal(ev client.WlRegistryGlobalEvent) {
 			}
 			d.shm = shm
 			d.shm.SetFormatHandler(d.handleShmFormat)
+		}
+	case "zwlr_layer_shell_v1":
+		if ev.Version >= 1 && d.layerShell == nil {
+			shell := wlr_layer_shell_unstable_v1.NewZwlrLayerShellV1(d.wlDisplay.Context())
+			if err := d.registry.Bind(ev.Name, "zwlr_layer_shell_v1", 1, shell); err != nil {
+				log.Printf("failed to bind zwlr_layer_shell_v1: %v", err)
+				return
+			}
+			d.layerShell = shell
 		}
 	}
 }
@@ -240,6 +256,11 @@ func (d *Display) HasFormat(format client.WlShmFormat) bool {
 // XdgWmBase returns the xdg_wm_base global.
 func (d *Display) XdgWmBase() *xdg_shell.XdgWmBase {
 	return d.shell
+}
+
+// LayerShell returns the zwlr_layer_shell_v1 global.
+func (d *Display) LayerShell() *wlr_layer_shell_unstable_v1.ZwlrLayerShellV1 {
+	return d.layerShell
 }
 
 // Registry returns the wl_registry global for advanced use cases.

@@ -4,14 +4,15 @@ import (
 	"fmt"
 
 	"github.com/tri2820/cheese/protocols/client"
-	"github.com/tri2820/cheese/toolkit/shell"
+	"github.com/tri2820/cheese/toolkit/surface"
 )
 
-// Renderer handles high-level rendering to a window.
+// Renderer handles high-level rendering to any surface.
 // It manages a swapchain internally and provides a simple OnRender callback.
 type Renderer struct {
 	swapchain      *Swapchain
-	window         *shell.Window
+	surface        *surface.Surface
+	setConfigure   func(func())
 	onRender       func(uint32, []byte)
 	firstFrameDone bool
 }
@@ -21,8 +22,13 @@ type RendererConfig struct {
 	// Shm is the wl_shm global
 	Shm *client.WlShm
 
-	// Window is the window to render to
-	Window *shell.Window
+	// Surface is the surface to render to
+	Surface *surface.Surface
+
+	// SetConfigure is a function to register a configure handler.
+	// The renderer will call this to set up its internal configure handling.
+	// For example: window.SetConfigureHandler or layer.SetConfigureHandler
+	SetConfigure func(func())
 
 	// Width and height of the render buffers
 	Width  int
@@ -35,10 +41,13 @@ type RendererConfig struct {
 	Buffers int
 }
 
-// NewRenderer creates a new renderer attached to a window.
+// NewRenderer creates a new renderer attached to a surface.
 func NewRenderer(config RendererConfig) (*Renderer, error) {
-	if config.Window == nil {
-		return nil, fmt.Errorf("window is required")
+	if config.Surface == nil {
+		return nil, fmt.Errorf("surface is required")
+	}
+	if config.SetConfigure == nil {
+		return nil, fmt.Errorf("SetConfigure is required")
 	}
 	if config.Buffers < 1 {
 		config.Buffers = 2 // default to double buffering
@@ -56,13 +65,13 @@ func NewRenderer(config RendererConfig) (*Renderer, error) {
 		return nil, fmt.Errorf("create swapchain: %w", err)
 	}
 
-	// Attach swapchain to window's surface
-	swapchain.SetSurface(config.Window.Surface())
+	// Attach swapchain to surface
+	swapchain.SetSurface(config.Surface)
 
 	r := &Renderer{
-		swapchain:      swapchain,
-		window:         config.Window,
-		firstFrameDone: false,
+		swapchain:    swapchain,
+		surface:      config.Surface,
+		setConfigure: config.SetConfigure,
 	}
 
 	return r, nil
@@ -81,12 +90,12 @@ func (r *Renderer) OnRender(fn func(time uint32, pixels []byte)) {
 	r.onRender = fn
 
 	// Set up frame callback handler first (before any render)
-	r.window.Surface().SetFrameHandler(func(time uint32) {
+	r.surface.SetFrameHandler(func(time uint32) {
 		r.render(time)
 	})
 
 	// Set up configure handler to handle first frame
-	r.window.SetConfigureHandler(func() {
+	r.setConfigure(func() {
 		if !r.firstFrameDone {
 			// First configure - render synchronously
 			r.render(0)
@@ -113,7 +122,7 @@ func (r *Renderer) render(time uint32) {
 
 	// Request frame callback BEFORE committing
 	// This associates the callback with the upcoming commit
-	if err := r.window.Surface().Frame(); err != nil {
+	if err := r.surface.Frame(); err != nil {
 		fmt.Printf("failed to request frame: %v\n", err)
 	}
 
