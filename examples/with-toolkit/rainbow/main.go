@@ -50,7 +50,7 @@ func main() {
 	renderer, err := buffer.NewRenderer(buffer.RendererConfig{
 		Shm:     disp.Shm(),
 		Target:  win,
-		Format:  buffer.FormatXRGB8888,
+		Format:  client.WlShmFormatXrgb8888,
 		Buffers: 2,
 	})
 	if err != nil {

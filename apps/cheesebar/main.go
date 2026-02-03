@@ -30,9 +30,9 @@ func main() {
 		},
 	})
 
-	// Check for XRGB format support
-	if !disp.HasFormat(client.WlShmFormatXrgb8888) {
-		log.Fatal("XRGB8888 not supported")
+	// Check for ARGB format support
+	if !disp.HasFormat(client.WlShmFormatArgb8888) {
+		log.Fatal("ARGB8888 not supported")
 	}
 
 	// Create surface
@@ -72,11 +72,11 @@ func main() {
 
 	log.Println("cheesebar running at top of screen")
 
-	// Create renderer with XRGB8888
+	// Create renderer with ARGB8888
 	renderer, err := buffer.NewRenderer(buffer.RendererConfig{
 		Shm:     disp.Shm(),
 		Target:  bar,
-		Format:  buffer.FormatXRGB8888,
+		Format:  client.WlShmFormatArgb8888,
 		Buffers: 2,
 	})
 	if err != nil {
@@ -95,21 +95,21 @@ func main() {
 	}
 }
 
-// xrgb swaps R and B for XRGB8888 format (which stores B,G,R,X in memory on little-endian)
-func xrgb(r, g, b uint8) color.RGBA {
-	return color.RGBA{R: b, G: g, B: r, A: 0xff}
+// argb swaps R and B for ARGB8888 format (memory: B,G,R,A on little-endian)
+func argb(r, g, b, a uint8) color.RGBA {
+	return color.RGBA{R: b, G: g, B: r, A: a}
 }
 
 func drawBar(width, height int, pixels []byte, t time.Time, fontFace font.Face) {
-	// Wrap pixels as RGBA image (R/B swapped for XRGB8888)
+	// Wrap pixels as RGBA image (we'll swap colors for ARGB format)
 	dstImg := &image.RGBA{
 		Pix:    pixels,
 		Stride: width * 4,
 		Rect:   image.Rect(0, 0, width, height),
 	}
 
-	// Draw background (dark gray)
-	draw.Draw(dstImg, dstImg.Rect, image.NewUniform(xrgb(0x30, 0x30, 0x30)), image.Point{}, draw.Src)
+	// Draw background (dark gray, 50% transparent)
+	draw.Draw(dstImg, dstImg.Rect, image.NewUniform(argb(0x30, 0x30, 0x30, 0x7f)), image.Point{}, draw.Src)
 
 	// Draw time string centered
 	weekday := t.Weekday().String()[:3]
@@ -124,10 +124,10 @@ func drawBar(width, height int, pixels []byte, t time.Time, fontFace font.Face) 
 	m := fontFace.Metrics()
 	y := (height + m.Ascent.Ceil() - m.Descent.Ceil()) / 2
 
-	// Draw text (white)
+	// Draw text (white, fully opaque for clarity)
 	drawer := &font.Drawer{
 		Dst:  dstImg,
-		Src:  image.NewUniform(xrgb(0xff, 0xff, 0xff)),
+		Src:  image.NewUniform(argb(0xff, 0xff, 0xff, 0xff)),
 		Face: fontFace,
 		Dot:  fixed.Point26_6{X: fixed.I(x), Y: fixed.I(y)},
 	}

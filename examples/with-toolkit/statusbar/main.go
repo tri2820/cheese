@@ -53,7 +53,7 @@ func main() {
 	renderer, err := buffer.NewRenderer(buffer.RendererConfig{
 		Shm:     disp.Shm(),
 		Target:  layer,
-		Format:  buffer.FormatXRGB8888,
+		Format:  client.WlShmFormatXrgb8888,
 		Buffers: 2,
 	})
 	if err != nil {

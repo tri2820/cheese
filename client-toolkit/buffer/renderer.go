@@ -14,7 +14,7 @@ type Renderer struct {
 	swapchain  *Swapchain
 	surface    *surface.Surface
 	shm        *client.WlShm
-	format     Format
+	format     client.WlShmFormat
 	buffers    int
 	target     render.RenderTarget
 	onRender   func(width, height int, time uint32, pixels []byte)
@@ -31,7 +31,7 @@ type RendererConfig struct {
 	Target render.RenderTarget
 
 	// Format is the pixel format
-	Format Format
+	Format client.WlShmFormat
 
 	// Buffers is the number of buffers for double/triple buffering
 	Buffers int
@@ -162,7 +162,7 @@ func (r *Renderer) Stride() int {
 }
 
 // Format returns the pixel format.
-func (r *Renderer) Format() Format {
+func (r *Renderer) Format() client.WlShmFormat {
 	return r.format
 }
 

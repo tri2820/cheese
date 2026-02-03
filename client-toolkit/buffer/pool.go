@@ -11,7 +11,7 @@ import (
 type Config struct {
 	Width  int
 	Height int
-	Format Format
+	Format client.WlShmFormat
 	Size   int // 0 = auto-calculate from Width, Height, Format
 }
 
@@ -35,7 +35,7 @@ func NewPool(shm *client.WlShm, config Config) (*Pool, error) {
 	size := config.Size
 
 	if size == 0 {
-		size = width * height * format.BytesPerPixel()
+		size = width * height * bytesPerPixel(format)
 	}
 
 	// Create anonymous file
@@ -174,7 +174,7 @@ type Buffer struct {
 }
 
 // NewBuffer creates a new wl_buffer from the slot.
-func (s *Slot) NewBuffer(width, height, stride int, format Format) (*Buffer, error) {
+func (s *Slot) NewBuffer(width, height, stride int, format client.WlShmFormat) (*Buffer, error) {
 	if s.busy {
 		return nil, fmt.Errorf("slot is busy")
 	}
@@ -183,14 +183,8 @@ func (s *Slot) NewBuffer(width, height, stride int, format Format) (*Buffer, err
 		return nil, fmt.Errorf("slot too small: need %d, have %d", height*stride, s.length)
 	}
 
-	// Map Format to WlShmFormat
-	wlFormat, ok := formatToWlShmFormat(format)
-	if !ok {
-		return nil, fmt.Errorf("unsupported format: %v", format)
-	}
-
 	buffer, err := s.pool.wlPool.CreateBuffer(
-		int32(s.offset), int32(width), int32(height), int32(stride), wlFormat,
+		int32(s.offset), int32(width), int32(height), int32(stride), format,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("create buffer: %w", err)
@@ -210,6 +204,22 @@ func (s *Slot) NewBuffer(width, height, stride int, format Format) (*Buffer, err
 	}
 
 	return s.buffer, nil
+}
+
+// bytesPerPixel returns the number of bytes per pixel for a Wayland format.
+func bytesPerPixel(format client.WlShmFormat) int {
+	switch format {
+	case client.WlShmFormatXrgb8888, client.WlShmFormatArgb8888, client.WlShmFormatXbgr8888,
+		client.WlShmFormatAbgr8888, client.WlShmFormatRgbx8888, client.WlShmFormatRgba8888,
+		client.WlShmFormatBgrx8888, client.WlShmFormatBgra8888:
+		return 4
+	case client.WlShmFormatRgb888, client.WlShmFormatBgr888:
+		return 3
+	case client.WlShmFormatRgb565, client.WlShmFormatBgr565:
+		return 2
+	default:
+		return 4 // fallback
+	}
 }
 
 // WlBuffer returns the underlying wl_buffer.
@@ -235,16 +245,4 @@ func (b *Buffer) Stride() int {
 // Destroy destroys the wl_buffer.
 func (b *Buffer) Destroy() error {
 	return b.wlBuffer.Destroy()
-}
-
-// formatToWlShmFormat maps our Format to client.WlShmFormat.
-func formatToWlShmFormat(format Format) (client.WlShmFormat, bool) {
-	switch format {
-	case FormatXRGB8888:
-		return client.WlShmFormatXrgb8888, true
-	case FormatARGB8888:
-		return client.WlShmFormatArgb8888, true
-	default:
-		return 0, false
-	}
 }

@@ -16,7 +16,7 @@ type Swapchain struct {
 	surface  *surface.Surface
 	width    int
 	height   int
-	format   Format
+	format   client.WlShmFormat
 	stride   int
 	acquired *Slot // currently acquired slot (between Acquire and Present)
 }
@@ -34,7 +34,7 @@ type SwapchainConfig struct {
 	Height int
 
 	// Format is the pixel format
-	Format Format
+	Format client.WlShmFormat
 }
 
 // NewSwapchain creates a new swapchain.
@@ -43,7 +43,7 @@ func NewSwapchain(config SwapchainConfig) (*Swapchain, error) {
 		return nil, fmt.Errorf("at least 1 buffer required")
 	}
 
-	stride := config.Width * config.Format.BytesPerPixel()
+	stride := config.Width * bytesPerPixel(config.Format)
 	slotSize := stride * config.Height
 	// Round up to 64-byte alignment to match pool.NewSlot() behavior
 	alignedSlotSize := (slotSize + 63) &^ 63
@@ -165,6 +165,6 @@ func (sc *Swapchain) Stride() int {
 }
 
 // Format returns the pixel format of the swapchain.
-func (sc *Swapchain) Format() Format {
+func (sc *Swapchain) Format() client.WlShmFormat {
 	return sc.format
 }
