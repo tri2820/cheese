@@ -25,7 +25,7 @@ func main() {
 	log.Println("Starting cheesebar...")
 
 	// Load TTF font
-	fontFace, err := loadFont("Arial", 14, 96)
+	fontFace, err := loadFont("Liberation Sans", 14, 96)
 	if err != nil {
 		log.Fatalf("Failed to load TTF font: %v", err)
 	}
@@ -91,16 +91,30 @@ func main() {
 
 // loadFont loads a TTF font by name using fc-match
 func loadFont(fontName string, size float64, dpi float64) (font.Face, error) {
-	// Find font path with fc-match
-	cmd := exec.Command("fc-match", "-f", "%{file}", fontName)
+	// Get both path and family name to verify the match
+	cmd := exec.Command("fc-match", "-f", "%{file}|%{family}", fontName)
 	output, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("fc-match failed: %w", err)
 	}
 
-	fontPath := strings.TrimSpace(string(output))
+	parts := strings.Split(strings.TrimSpace(string(output)), "|")
+	if len(parts) != 2 {
+		return nil, fmt.Errorf("fc-match returned unexpected format")
+	}
+
+	fontPath := parts[0]
+	matchedFamily := parts[1]
+
 	if fontPath == "" {
 		return nil, fmt.Errorf("fc-match returned empty path")
+	}
+
+	// Verify the matched font actually contains the requested name
+	fontNameLower := strings.ToLower(fontName)
+	matchedFamilyLower := strings.ToLower(matchedFamily)
+	if !strings.Contains(matchedFamilyLower, fontNameLower) {
+		return nil, fmt.Errorf("font '%s' not found (can fallback to '%s' instead)", fontName, matchedFamily)
 	}
 
 	// Read font file
