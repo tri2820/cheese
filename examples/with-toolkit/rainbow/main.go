@@ -35,22 +35,21 @@ func main() {
 		log.Fatal("Failed to create surface:", err)
 	}
 
-	// Create window
-	win, err := shell.NewToplevel(surf, disp.XdgWmBase(), shell.Config{
-		Title: "Cheese Rainbow Bar (Toolkit)",
-		AppId: "cheese-rainbow-toolkit",
+	// Create toplevel surface
+	win, err := shell.NewToplevel(surf, disp.XdgWmBase(), shell.ToplevelConfig{
+		Title:  "Cheese Rainbow Bar (Toolkit)",
+		AppId:  "cheese-rainbow-toolkit",
+		Width:  width,
+		Height: height,
 	})
 	if err != nil {
 		log.Fatal("Failed to create window:", err)
 	}
 
-	// Create renderer - works with any surface type
+	// Create renderer - pass window as target
 	renderer, err := buffer.NewRenderer(buffer.RendererConfig{
 		Shm:     disp.Shm(),
-		Surface: win.Surface(),
-		SetConfigure: win.SetConfigureHandler,
-		Width:   width,
-		Height:  height,
+		Target:  win,
 		Format:  buffer.FormatXRGB8888,
 		Buffers: 2,
 	})
@@ -58,9 +57,9 @@ func main() {
 		log.Fatal("Failed to create renderer:", err)
 	}
 
-	// Set up render callback - just draw, everything else is handled
-	renderer.OnRender(func(time uint32, pixels []byte) {
-		paintPixels(time, pixels, renderer.Width(), renderer.Height())
+	// Set up render callback - dimensions are passed automatically
+	renderer.OnRender(func(w, h int, time uint32, pixels []byte) {
+		paintPixels(time, pixels, w, h)
 	})
 
 	log.Println("Rainbow bar is running! Close the window to exit.")
@@ -85,13 +84,13 @@ func paintPixels(time uint32, data []byte, width, height int) {
 			g := (v >> 8) & 0xff
 			b := v & 0xff
 
-			data[iter] = byte(b)   // B
+			data[iter] = byte(b) // B
 			iter++
-			data[iter] = byte(g)   // G
+			data[iter] = byte(g) // G
 			iter++
-			data[iter] = byte(r)   // R
+			data[iter] = byte(r) // R
 			iter++
-			data[iter] = 0xff      // A
+			data[iter] = 0xff    // A
 			iter++
 		}
 	}

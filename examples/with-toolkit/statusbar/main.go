@@ -29,7 +29,6 @@ func main() {
 	}
 
 	height := 30
-	width := 1920
 
 	// Create surface
 	surf, err := surface.New(disp.Compositor())
@@ -42,7 +41,7 @@ func main() {
 		Layer:         shell.LayerPositionTop,
 		Name:          "statusbar",
 		Anchor:        shell.AnchorTop | shell.AnchorLeft | shell.AnchorRight,
-		Width:         0,  // 0 = full width
+		Width:         0,  // 0 = full width (will be set by compositor)
 		Height:        uint32(height),
 		ExclusiveZone: int32(height), // Reserve space for the bar
 	})
@@ -50,13 +49,10 @@ func main() {
 		log.Fatal("Failed to create layer surface:", err)
 	}
 
-	// Create renderer - works with any surface type (Window or LayerSurface)
+	// Create renderer - pass layer as target
 	renderer, err := buffer.NewRenderer(buffer.RendererConfig{
 		Shm:     disp.Shm(),
-		Surface: layer.Surface(),
-		SetConfigure: layer.SetConfigureHandler,
-		Width:   width,
-		Height:  height,
+		Target:  layer,
 		Format:  buffer.FormatXRGB8888,
 		Buffers: 2,
 	})
@@ -64,9 +60,9 @@ func main() {
 		log.Fatal("Failed to create renderer:", err)
 	}
 
-	// Set up render callback - same API as windows!
-	renderer.OnRender(func(time uint32, pixels []byte) {
-		paintPixels(time, pixels, renderer.Width(), renderer.Height())
+	// Set up render callback - dimensions are passed automatically
+	renderer.OnRender(func(w, h int, time uint32, pixels []byte) {
+		paintPixels(time, pixels, w, h)
 	})
 
 	log.Println("Status bar is running! It should appear at the top of your screen.")

@@ -7,14 +7,26 @@ import (
 	"github.com/tri2820/cheese/toolkit/surface"
 )
 
+// RenderTarget is a surface that can be rendered to (Window or LayerSurface).
+type RenderTarget interface {
+	SetConfigureHandler(func())
+	Surface() *surface.Surface
+	Width() int
+	Height() int
+}
+
 // Renderer handles high-level rendering to any surface.
 // It manages a swapchain internally and provides a simple OnRender callback.
 type Renderer struct {
-	swapchain      *Swapchain
-	surface        *surface.Surface
-	setConfigure   func(func())
-	onRender       func(uint32, []byte)
-	firstFrameDone bool
+	swapchain  *Swapchain
+	surface    *surface.Surface
+	shm        *client.WlShm
+	format     Format
+	buffers    int
+	target     RenderTarget
+	onRender   func(width, height int, time uint32, pixels []byte)
+	lastWidth  int
+	lastHeight int
 }
 
 // RendererConfig configures a new Renderer.
@@ -22,17 +34,8 @@ type RendererConfig struct {
 	// Shm is the wl_shm global
 	Shm *client.WlShm
 
-	// Surface is the surface to render to
-	Surface *surface.Surface
-
-	// SetConfigure is a function to register a configure handler.
-	// The renderer will call this to set up its internal configure handling.
-	// For example: window.SetConfigureHandler or layer.SetConfigureHandler
-	SetConfigure func(func())
-
-	// Width and height of the render buffers
-	Width  int
-	Height int
+	// Target is the Window or LayerSurface to render to
+	Target RenderTarget
 
 	// Format is the pixel format
 	Format Format
@@ -43,82 +46,96 @@ type RendererConfig struct {
 
 // NewRenderer creates a new renderer attached to a surface.
 func NewRenderer(config RendererConfig) (*Renderer, error) {
-	if config.Surface == nil {
-		return nil, fmt.Errorf("surface is required")
+	if config.Shm == nil {
+		return nil, fmt.Errorf("shm is required")
 	}
-	if config.SetConfigure == nil {
-		return nil, fmt.Errorf("SetConfigure is required")
+	if config.Target == nil {
+		return nil, fmt.Errorf("target is required")
 	}
 	if config.Buffers < 1 {
 		config.Buffers = 2 // default to double buffering
 	}
 
-	// Create swapchain
-	swapchain, err := NewSwapchain(SwapchainConfig{
-		Shm:     config.Shm,
-		Buffers: config.Buffers,
-		Width:   config.Width,
-		Height:  config.Height,
-		Format:  config.Format,
-	})
-	if err != nil {
-		return nil, fmt.Errorf("create swapchain: %w", err)
-	}
-
-	// Attach swapchain to surface
-	swapchain.SetSurface(config.Surface)
-
 	r := &Renderer{
-		swapchain:    swapchain,
-		surface:      config.Surface,
-		setConfigure: config.SetConfigure,
+		surface:    config.Target.Surface(),
+		shm:        config.Shm,
+		format:     config.Format,
+		buffers:    config.Buffers,
+		target:     config.Target,
+		lastWidth:  0, // Force swapchain creation on first render
+		lastHeight: 0,
 	}
+
+	// Set up frame handler
+	config.Target.Surface().SetFrameHandler(func(time uint32) {
+		r.render(time)
+	})
+
+	// Set up configure handler
+	config.Target.SetConfigureHandler(func() {
+		r.render(0)
+	})
 
 	return r, nil
 }
 
 // OnRender sets the render callback.
 // The callback receives:
+// - width, height: dimensions of the buffer
 // - time: timestamp in milliseconds for animation
 // - pixels: the buffer to draw into
 //
-// The renderer automatically handles:
-// - First configure event (synchronous render with time=0)
-// - Frame callbacks for subsequent renders (with actual time)
-// - Acquire → callback → present
-func (r *Renderer) OnRender(fn func(time uint32, pixels []byte)) {
+// Usage:
+//
+//	renderer.OnRender(func(w, h int, time uint32, pixels []byte) {
+//	    // draw into pixels with dimensions w x h
+//	})
+func (r *Renderer) OnRender(fn func(width, height int, time uint32, pixels []byte)) {
 	r.onRender = fn
-
-	// Set up frame callback handler first (before any render)
-	r.surface.SetFrameHandler(func(time uint32) {
-		r.render(time)
-	})
-
-	// Set up configure handler to handle first frame
-	r.setConfigure(func() {
-		if !r.firstFrameDone {
-			// First configure - render synchronously
-			r.render(0)
-			r.firstFrameDone = true
-		}
-	})
 }
 
-// render is the internal render handler that acquires, calls user callback, presents.
+// render is the internal render handler.
 func (r *Renderer) render(time uint32) {
 	if r.onRender == nil {
 		return
 	}
 
-	// Acquire buffer
+	width := r.target.Width()
+	height := r.target.Height()
+
+	// Recreate swapchain if dimensions changed
+	if width != r.lastWidth || height != r.lastHeight {
+		if r.swapchain != nil {
+			r.swapchain.Close()
+		}
+
+		swapchain, err := NewSwapchain(SwapchainConfig{
+			Shm:     r.shm,
+			Buffers: r.buffers,
+			Width:   width,
+			Height:  height,
+			Format:  r.format,
+		})
+		if err != nil {
+			fmt.Printf("failed to create swapchain: %v\n", err)
+			return
+		}
+		swapchain.SetSurface(r.surface)
+		r.swapchain = swapchain
+		r.lastWidth = width
+		r.lastHeight = height
+	}
+
+	// Acquire buffer (may fail if all buffers are busy - that's OK, skip this frame)
 	pixels, err := r.swapchain.Acquire()
 	if err != nil {
-		fmt.Printf("failed to acquire buffer: %v\n", err)
+		// No free buffer means compositor hasn't released yet - skip this frame
+		// The next frame callback will try again
 		return
 	}
 
 	// Call user's render function
-	r.onRender(time, pixels)
+	r.onRender(width, height, time, pixels)
 
 	// Request frame callback BEFORE committing
 	// This associates the callback with the upcoming commit
@@ -133,27 +150,33 @@ func (r *Renderer) render(time uint32) {
 	}
 }
 
-// Width returns the width of the render buffers.
+// Width returns the current width of the render buffers.
 func (r *Renderer) Width() int {
-	return r.swapchain.Width()
+	return r.lastWidth
 }
 
-// Height returns the height of the render buffers.
+// Height returns the current height of the render buffers.
 func (r *Renderer) Height() int {
-	return r.swapchain.Height()
+	return r.lastHeight
 }
 
 // Stride returns the stride of the render buffers.
 func (r *Renderer) Stride() int {
+	if r.swapchain == nil {
+		return 0
+	}
 	return r.swapchain.Stride()
 }
 
 // Format returns the pixel format.
 func (r *Renderer) Format() Format {
-	return r.swapchain.Format()
+	return r.format
 }
 
 // Close destroys the renderer and frees resources.
 func (r *Renderer) Close() error {
-	return r.swapchain.Close()
+	if r.swapchain != nil {
+		return r.swapchain.Close()
+	}
+	return nil
 }

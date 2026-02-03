@@ -14,6 +14,8 @@ type LayerSurface struct {
 	layerSurface *wlr_layer_shell_unstable_v1.ZwlrLayerSurfaceV1
 	surface      *surface.Surface
 
+	width        int
+	height       int
 	onConfigure func()
 	onClose     func()
 }
@@ -104,6 +106,14 @@ func NewLayer(surf *surface.Surface, layerShell *wlr_layer_shell_unstable_v1.Zwl
 
 // handleConfigure handles layer surface configure events.
 func (l *LayerSurface) handleConfigure(ev wlr_layer_shell_unstable_v1.ZwlrLayerSurfaceV1ConfigureEvent) {
+	// Track dimensions
+	if ev.Width > 0 {
+		l.width = int(ev.Width)
+	}
+	if ev.Height > 0 {
+		l.height = int(ev.Height)
+	}
+
 	// Ack configure
 	if err := l.layerSurface.AckConfigure(ev.Serial); err != nil {
 		log.Printf("failed to ack configure: %v", err)
@@ -160,4 +170,14 @@ func (l *LayerSurface) Surface() *surface.Surface {
 // WlrLayerSurface returns the underlying layer surface.
 func (l *LayerSurface) WlrLayerSurface() *wlr_layer_shell_unstable_v1.ZwlrLayerSurfaceV1 {
 	return l.layerSurface
+}
+
+// Width returns the current width of the layer surface.
+func (l *LayerSurface) Width() int {
+	return l.width
+}
+
+// Height returns the current height of the layer surface.
+func (l *LayerSurface) Height() int {
+	return l.height
 }

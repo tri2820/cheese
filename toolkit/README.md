@@ -29,7 +29,7 @@ Built on top of `../protocols` (low-level Wayland bindings).
               │   - Pool + slot management
               │   - Acquire/Present
               │
-              └─→ Window (Low-Level)
+              └─→ ToplevelSurface (Low-Level)
                   - xdg-shell management
                   - Configure/close handlers
 ```
@@ -57,9 +57,9 @@ func main() {
     })
     defer disp.Close()
 
-    // Create window
+    // Create toplevel surface
     surf, _ := surface.New(disp.Compositor())
-    win, _ := shell.NewToplevel(surf, disp.XdgWmBase(), shell.Config{
+    win, _ := shell.NewToplevel(surf, disp.XdgWmBase(), shell.ToplevelConfig{
         Title: "My App",
         AppId: "my-app",
     })

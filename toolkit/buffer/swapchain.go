@@ -12,12 +12,13 @@ import (
 //
 // Frame callbacks should be managed separately (e.g., by the Renderer).
 type Swapchain struct {
-	pool    *Pool
-	surface *surface.Surface
-	width   int
-	height  int
-	format  Format
-	stride  int
+	pool     *Pool
+	surface  *surface.Surface
+	width    int
+	height   int
+	format   Format
+	stride   int
+	acquired *Slot // currently acquired slot (between Acquire and Present)
 }
 
 // Config configures a new Swapchain.
@@ -44,7 +45,9 @@ func NewSwapchain(config SwapchainConfig) (*Swapchain, error) {
 
 	stride := config.Width * config.Format.BytesPerPixel()
 	slotSize := stride * config.Height
-	poolSize := slotSize * config.Buffers
+	// Round up to 64-byte alignment to match pool.NewSlot() behavior
+	alignedSlotSize := (slotSize + 63) &^ 63
+	poolSize := alignedSlotSize * config.Buffers
 
 	pool, err := NewPool(config.Shm, Config{
 		Width:  config.Width,
@@ -91,6 +94,10 @@ func (sc *Swapchain) Surface() *surface.Surface {
 // It returns the pixel data slice for drawing.
 // Call Present() when done drawing to submit the frame.
 func (sc *Swapchain) Acquire() ([]byte, error) {
+	if sc.acquired != nil {
+		return nil, fmt.Errorf("buffer already acquired (call Present first)")
+	}
+
 	slot := sc.pool.FindFree()
 	if slot == nil {
 		return nil, fmt.Errorf("no free buffer")
@@ -104,33 +111,18 @@ func (sc *Swapchain) Acquire() ([]byte, error) {
 		}
 	}
 
+	sc.acquired = slot
 	return slot.Mmap(), nil
 }
 
 // Present submits the last acquired buffer to the surface.
 // If a surface is attached, it handles attach/damage/commit automatically.
 func (sc *Swapchain) Present() error {
-	slot := sc.pool.FindFree()
-	if slot == nil {
-		return fmt.Errorf("no free buffer")
+	if sc.acquired == nil {
+		return fmt.Errorf("no buffer acquired (call Acquire first)")
 	}
 
-	// Find the busy slot (the one we just drew to)
-	// We need to find the slot that has a buffer but isn't free
-	var drawnSlot *Slot
-	for _, s := range sc.pool.slots {
-		if s != nil && s.Buffer() != nil && !s.Busy() {
-			// This is the slot we just acquired
-			drawnSlot = s
-			break
-		}
-	}
-
-	if drawnSlot == nil {
-		return fmt.Errorf("no acquired buffer to present")
-	}
-
-	buf := drawnSlot.Buffer()
+	buf := sc.acquired.Buffer()
 
 	if sc.surface != nil {
 		// Attach, damage, and commit
@@ -145,8 +137,9 @@ func (sc *Swapchain) Present() error {
 		}
 	}
 
-	// Mark slot as busy
-	drawnSlot.Mark()
+	// Mark slot as busy and clear acquired
+	sc.acquired.Mark()
+	sc.acquired = nil
 
 	return nil
 }
