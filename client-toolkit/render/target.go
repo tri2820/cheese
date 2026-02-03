@@ -1,7 +1,7 @@
 package render
 
 import (
-	"github.com/tri2820/cheese/toolkit/surface"
+	"github.com/tri2820/cheese/client-toolkit/surface"
 )
 
 // RenderTarget is a surface that can be rendered to (Window or LayerSurface).

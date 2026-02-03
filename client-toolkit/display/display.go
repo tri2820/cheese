@@ -8,7 +8,7 @@ import (
 	"github.com/tri2820/cheese/protocols/linux_dmabuf_unstable_v1"
 	"github.com/tri2820/cheese/protocols/wlr_layer_shell_unstable_v1"
 	"github.com/tri2820/cheese/protocols/xdg_shell"
-	"github.com/tri2820/cheese/toolkit/dmabuf"
+	"github.com/tri2820/cheese/client-toolkit/dmabuf"
 )
 
 // RequiredGlobals specifies which globals are required for the application.

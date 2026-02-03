@@ -1,10 +1,12 @@
 module github.com/tri2820/cheese/examples/statusbar
 
-go 1.25.5
-
-replace github.com/tri2820/cheese => ../..
+go 1.23
 
 require (
-	github.com/tri2820/cheese v0.0.0-00010101000000-000000000000
-	golang.org/x/sys v0.40.0
+	github.com/tri2820/cheese/protocols v1.0.0
+	golang.org/x/sys v0.29.0
 )
+
+replace github.com/tri2820/cheese/protocols => ../../../protocols
+
+replace github.com/tri2820/cheese/client-toolkit => ../../../client-toolkit

@@ -3,8 +3,8 @@ package dmabuf
 import (
 	"fmt"
 
-	"github.com/tri2820/cheese/toolkit/render"
-	"github.com/tri2820/cheese/toolkit/surface"
+	"github.com/tri2820/cheese/client-toolkit/render"
+	"github.com/tri2820/cheese/client-toolkit/surface"
 )
 
 // BufferInfo contains the DMA-BUF metadata for a single buffer.

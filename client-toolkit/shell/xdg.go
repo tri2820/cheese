@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/tri2820/cheese/protocols/xdg_shell"
-	"github.com/tri2820/cheese/toolkit/surface"
+	"github.com/tri2820/cheese/client-toolkit/surface"
 )
 
 // ToplevelSurface represents an xdg-shell toplevel surface.

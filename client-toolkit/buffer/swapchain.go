@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/tri2820/cheese/protocols/client"
-	"github.com/tri2820/cheese/toolkit/surface"
+	"github.com/tri2820/cheese/client-toolkit/surface"
 )
 
 // Swapchain handles double-buffered (or multi-buffered) rendering.

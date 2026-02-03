@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/tri2820/cheese/protocols/wlr_layer_shell_unstable_v1"
-	"github.com/tri2820/cheese/toolkit/surface"
+	"github.com/tri2820/cheese/client-toolkit/surface"
 )
 
 // LayerSurface represents a layer shell surface (for panels, status bars, wallpapers, etc).

@@ -4,8 +4,8 @@ import (
 	"fmt"
 
 	"github.com/tri2820/cheese/protocols/client"
-	"github.com/tri2820/cheese/toolkit/render"
-	"github.com/tri2820/cheese/toolkit/surface"
+	"github.com/tri2820/cheese/client-toolkit/render"
+	"github.com/tri2820/cheese/client-toolkit/surface"
 )
 
 // Renderer handles high-level rendering to any surface.

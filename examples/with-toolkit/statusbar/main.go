@@ -5,10 +5,10 @@ import (
 	"log"
 
 	"github.com/tri2820/cheese/protocols/client"
-	"github.com/tri2820/cheese/toolkit/buffer"
-	"github.com/tri2820/cheese/toolkit/display"
-	"github.com/tri2820/cheese/toolkit/shell"
-	"github.com/tri2820/cheese/toolkit/surface"
+	"github.com/tri2820/cheese/client-toolkit/buffer"
+	"github.com/tri2820/cheese/client-toolkit/display"
+	"github.com/tri2820/cheese/client-toolkit/shell"
+	"github.com/tri2820/cheese/client-toolkit/surface"
 )
 
 func main() {

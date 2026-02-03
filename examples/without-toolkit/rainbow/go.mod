@@ -1,9 +1,12 @@
 module github.com/tri2820/cheese/examples/rainbow
 
-go 1.25.5
+go 1.23
 
-replace github.com/tri2820/cheese => ../..
+require (
+	github.com/tri2820/cheese/protocols v1.0.0
+	golang.org/x/sys v0.29.0
+)
 
-require github.com/tri2820/cheese v0.0.0-00010101000000-000000000000
+replace github.com/tri2820/cheese/protocols => ../../../protocols
 
-require golang.org/x/sys v0.29.0 // indirect
+replace github.com/tri2820/cheese/client-toolkit => ../../../client-toolkit
