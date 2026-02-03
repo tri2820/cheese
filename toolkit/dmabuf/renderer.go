@@ -15,26 +15,6 @@ type BufferInfo struct {
 	Modifier Modifier // DRM modifier (e.g., ModLinear)
 }
 
-// BufferProvider is the interface that users implement to provide GPU resources.
-// The Renderer calls these methods to coordinate buffer lifecycle.
-type BufferProvider interface {
-	// CreateBuffers creates GPU resources at given dimensions.
-	// Called on first configure and on resize.
-	CreateBuffers(width, height, count int) error
-
-	// BufferInfo returns dmabuf metadata for buffer at index.
-	// Called once per buffer after CreateBuffers succeeds.
-	BufferInfo(index int) BufferInfo
-
-	// Render renders to the GPU resource at index.
-	// Called each frame with a free buffer index.
-	Render(index, width, height int, time uint32) error
-
-	// DestroyBuffers cleans up GPU resources.
-	// Called before resize and on Close().
-	DestroyBuffers()
-}
-
 // RendererConfig configures a new DMA-BUF Renderer.
 type RendererConfig struct {
 	// State is the DMA-BUF protocol state
@@ -46,22 +26,34 @@ type RendererConfig struct {
 	// Buffers is the number of buffers for double/triple buffering (default 2)
 	Buffers int
 
-	// Provider is the user's GPU implementation
-	Provider BufferProvider
+	// OnCreateBuffers is called to create GPU resources and return dmabuf metadata.
+	// Called on first configure and on resize.
+	// Returns metadata for each buffer (fd, stride, format, modifier).
+	OnCreateBuffers func(width, height, count int) ([]BufferInfo, error)
+
+	// OnRender is called each frame with a free buffer index.
+	// The user should render to their GPU resource at this index.
+	OnRender func(bufferIndex, width, height int, time uint32) error
+
+	// OnDestroyBuffers is called before resize and on Close().
+	// The user should clean up their GPU resources.
+	OnDestroyBuffers func()
 }
 
 // Renderer handles high-level DMA-BUF rendering to any surface.
-// It coordinates buffer creation/destruction and the Wayland protocol dance,
-// delegating actual GPU resource management to a BufferProvider.
+// It manages buffer lifecycle and the Wayland protocol dance,
+// calling user callbacks for GPU operations.
 type Renderer struct {
-	state       *State
-	surface     *surface.Surface
-	target      render.RenderTarget
-	provider    BufferProvider
-	buffers     []*Buffer
-	bufferCount int
-	lastWidth   int
-	lastHeight  int
+	state           *State
+	surface         *surface.Surface
+	target          render.RenderTarget
+	buffers         []*Buffer
+	bufferCount     int
+	lastWidth       int
+	lastHeight      int
+	onCreateBuffers func(width, height, count int) ([]BufferInfo, error)
+	onRender        func(bufferIndex, width, height int, time uint32) error
+	onDestroyBuffers func()
 }
 
 // NewRenderer creates a new DMA-BUF renderer attached to a surface.
@@ -72,21 +64,29 @@ func NewRenderer(config RendererConfig) (*Renderer, error) {
 	if config.Target == nil {
 		return nil, fmt.Errorf("target is required")
 	}
-	if config.Provider == nil {
-		return nil, fmt.Errorf("provider is required")
+	if config.OnCreateBuffers == nil {
+		return nil, fmt.Errorf("OnCreateBuffers is required")
+	}
+	if config.OnRender == nil {
+		return nil, fmt.Errorf("OnRender is required")
+	}
+	if config.OnDestroyBuffers == nil {
+		return nil, fmt.Errorf("OnDestroyBuffers is required")
 	}
 	if config.Buffers < 1 {
 		config.Buffers = 2 // default to double buffering
 	}
 
 	r := &Renderer{
-		state:       config.State,
-		surface:     config.Target.Surface(),
-		target:      config.Target,
-		provider:    config.Provider,
-		bufferCount: config.Buffers,
-		lastWidth:   0,
-		lastHeight:  0,
+		state:           config.State,
+		surface:         config.Target.Surface(),
+		target:          config.Target,
+		bufferCount:     config.Buffers,
+		lastWidth:       0,
+		lastHeight:      0,
+		onCreateBuffers: config.OnCreateBuffers,
+		onRender:        config.OnRender,
+		onDestroyBuffers: config.OnDestroyBuffers,
 	}
 
 	// Set up frame handler
@@ -117,16 +117,21 @@ func (r *Renderer) handleConfigure() {
 	// Destroy old buffers
 	r.destroyBuffers()
 
-	// Ask provider to create new GPU resources
-	if err := r.provider.CreateBuffers(width, height, r.bufferCount); err != nil {
+	// Ask user to create GPU resources and get metadata
+	infos, err := r.onCreateBuffers(width, height, r.bufferCount)
+	if err != nil {
 		fmt.Printf("failed to create buffers: %v\n", err)
 		return
 	}
+	if len(infos) != r.bufferCount {
+		fmt.Printf("OnCreateBuffers returned %d buffers, expected %d\n", len(infos), r.bufferCount)
+		return
+	}
 
-	// Create wl_buffers from the provider's GPU resources
+	// Create wl_buffers from the metadata
 	r.buffers = make([]*Buffer, r.bufferCount)
 	for i := 0; i < r.bufferCount; i++ {
-		info := r.provider.BufferInfo(i)
+		info := infos[i]
 
 		params, err := r.state.CreateParams()
 		if err != nil {
@@ -181,8 +186,8 @@ func (r *Renderer) render(time uint32) {
 
 	buf := r.buffers[bufferIndex]
 
-	// Call provider's render function
-	if err := r.provider.Render(bufferIndex, width, height, time); err != nil {
+	// Call user's render function
+	if err := r.onRender(bufferIndex, width, height, time); err != nil {
 		fmt.Printf("render error: %v\n", err)
 		return
 	}
@@ -213,7 +218,7 @@ func (r *Renderer) render(time uint32) {
 	buf.MarkBusy()
 }
 
-// destroyBuffers destroys wl_buffers and tells provider to clean up.
+// destroyBuffers destroys wl_buffers and tells user to clean up.
 func (r *Renderer) destroyBuffers() {
 	// Destroy wl_buffers first
 	for _, buf := range r.buffers {
@@ -223,8 +228,8 @@ func (r *Renderer) destroyBuffers() {
 	}
 	r.buffers = nil
 
-	// Tell provider to clean up GPU resources
-	r.provider.DestroyBuffers()
+	// Tell user to clean up GPU resources
+	r.onDestroyBuffers()
 }
 
 // Width returns the current width of the render buffers.

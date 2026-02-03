@@ -12,38 +12,6 @@ import (
 
 var startTime time.Time
 
-// VulkanProvider implements dmabuf.BufferProvider using Vulkan.
-type VulkanProvider struct{}
-
-// NewVulkanProvider creates a new VulkanProvider.
-func NewVulkanProvider() *VulkanProvider {
-	return &VulkanProvider{}
-}
-
-func (p *VulkanProvider) CreateBuffers(width, height, count int) error {
-	return initDmaBufBuffers(width, height, count)
-}
-
-func (p *VulkanProvider) BufferInfo(index int) dmabuf.BufferInfo {
-	buf := &dmabufBuffers[index]
-	return dmabuf.BufferInfo{
-		Fd:       buf.fd,
-		Stride:   buf.stride,
-		Format:   dmabuf.FormatXRGB8888,
-		Modifier: dmabuf.ModLinear,
-	}
-}
-
-func (p *VulkanProvider) Render(index, width, height int, frameTime uint32) error {
-	// Use wall clock time for smooth animation
-	animTime := float32(time.Since(startTime).Seconds())
-	return renderToDmaBuf(index, animTime)
-}
-
-func (p *VulkanProvider) DestroyBuffers() {
-	cleanupDmaBufBuffers()
-}
-
 func main() {
 	log.Println("Starting Cheese Vulkan DmaBuf Example (Toolkit)...")
 	startTime = time.Now()
@@ -81,12 +49,23 @@ func main() {
 		log.Fatal("Failed to create window:", err)
 	}
 
-	// Create renderer with Vulkan provider
+	// Create renderer with callbacks
 	renderer, err := dmabuf.NewRenderer(dmabuf.RendererConfig{
-		State:    dmabufState,
-		Target:   win,
-		Buffers:  2,
-		Provider: NewVulkanProvider(),
+		State:   dmabufState,
+		Target:  win,
+		Buffers: 2,
+		OnCreateBuffers: initDmaBufBuffers,
+		OnRender: func(bufferIndex, width, height int, frameTime uint32) error {
+			// Render to Vulkan image at bufferIndex
+			// Use wall clock time for smooth animation
+			animTime := float32(time.Since(startTime).Seconds())
+			return renderToDmaBuf(bufferIndex, animTime)
+		},
+		OnDestroyBuffers: func() {
+			// Cleanup Vulkan resources
+			CleanupTriangleRenderer()
+			cleanupDmaBufBuffers()
+		},
 	})
 	if err != nil {
 		log.Fatal("Failed to create renderer:", err)
@@ -100,7 +79,6 @@ func main() {
 		log.Printf("Dispatch error: %v", err)
 	}
 
-	CleanupTriangleRenderer()
 	cleanupVulkan()
 	log.Println("Cheese Vulkan DmaBuf Example exiting")
 }
