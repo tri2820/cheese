@@ -69,7 +69,7 @@ func renderToDmaBuf(width, height int) (fd int, stride int, err error) {
 		Format:         vulkan.FormatR8g8b8a8Unorm,
 		Tiling:         vulkan.ImageTilingOptimal,
 		InitialLayout:  vulkan.ImageLayoutUndefined,
-		Usage:          0x00000020 | 0x00000001, // VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT
+		Usage:          vulkan.ImageUsageFlags(vulkan.ImageUsageColorAttachmentBit | vulkan.ImageUsageTransferSrcBit),
 		Samples:        vulkan.SampleCount1Bit,
 		SharingMode:    vulkan.SharingModeExclusive,
 	}
@@ -114,8 +114,8 @@ func renderToDmaBuf(width, height int) (fd int, stride int, err error) {
 		return -1, 0, err
 	}
 
-	// Render to the optimal image
-	clearImageToColor(device, renderImage, width, height)
+	// Render triangle to the optimal image (validation layers enabled for debugging)
+	renderTriangleToImage(device, renderImage, width, height)
 
 	// Create dmabuf-exportable linear image
 	explicitInfo := vulkan.ExternalMemoryImageCreateInfo{
@@ -133,7 +133,7 @@ func renderToDmaBuf(width, height int) (fd int, stride int, err error) {
 		Format:         vulkan.FormatR8g8b8a8Unorm,
 		Tiling:         vulkan.ImageTilingLinear,
 		InitialLayout:  vulkan.ImageLayoutUndefined,
-		Usage:          0x00000010, // VK_IMAGE_USAGE_TRANSFER_DST_BIT
+		Usage:          vulkan.ImageUsageFlags(vulkan.ImageUsageTransferDstBit),
 		Samples:        vulkan.SampleCount1Bit,
 		SharingMode:    vulkan.SharingModeExclusive,
 	}

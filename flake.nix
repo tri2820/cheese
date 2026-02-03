@@ -22,10 +22,13 @@
             vulkan-headers
             vulkan-loader
             vulkan-tools
+            vulkan-validation-layers
+            shaderc
           ];
           # Set PKG_CONFIG_PATH for Vulkan
           PKG_CONFIG_PATH = "${pkgs.vulkan-loader}/lib/pkgconfig";
           LD_LIBRARY_PATH = "${pkgs.vulkan-loader}/lib";
+          VK_LAYER_PATH = "${pkgs.vulkan-validation-layers}/share/vulkan/explicit_layer.d";
         };
       }
     );

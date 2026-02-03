@@ -72,16 +72,22 @@ func initVulkan() bool {
 		return false
 	}
 
-	// Create instance with external memory support
+	// Create instance with external memory support and validation layers
 	appInfo := vulkan.ApplicationInfo{
 		SType:           vulkan.StructureTypeApplicationInfo,
 		ApiVersion:      vulkan.MakeVersion(1, 1, 0),
 		PApplicationName: "Cheese DmaBuf\x00",
 	}
 
+	validationLayers := []string{
+		"VK_LAYER_KHRONOS_validation\x00",
+	}
+
 	createInfo := vulkan.InstanceCreateInfo{
-		SType:            vulkan.StructureTypeInstanceCreateInfo,
-		PApplicationInfo: &appInfo,
+		SType:                   vulkan.StructureTypeInstanceCreateInfo,
+		PApplicationInfo:        &appInfo,
+		EnabledLayerCount:       uint32(len(validationLayers)),
+		PpEnabledLayerNames:     validationLayers,
 	}
 
 	var instance vulkan.Instance
@@ -169,14 +175,20 @@ foundDevice:
 		PQueuePriorities: []float32{queuePriority},
 	}
 
-	deviceExtensions := []string{"VK_KHR_external_memory\x00", "VK_KHR_external_memory_fd\x00"}
+	deviceExtensions := []string{
+		"VK_KHR_external_memory\x00",
+		"VK_KHR_external_memory_fd\x00",
+		"VK_EXT_external_memory_dma_buf\x00",
+	}
 
 	deviceCreateInfo := vulkan.DeviceCreateInfo{
-		SType:                 vulkan.StructureTypeDeviceCreateInfo,
-		QueueCreateInfoCount:  1,
-		PQueueCreateInfos:     []vulkan.DeviceQueueCreateInfo{queueCreateInfo},
-		EnabledExtensionCount: uint32(len(deviceExtensions)),
+		SType:                   vulkan.StructureTypeDeviceCreateInfo,
+		QueueCreateInfoCount:    1,
+		PQueueCreateInfos:       []vulkan.DeviceQueueCreateInfo{queueCreateInfo},
+		EnabledExtensionCount:   uint32(len(deviceExtensions)),
 		PpEnabledExtensionNames: deviceExtensions,
+		EnabledLayerCount:       uint32(len(validationLayers)),
+		PpEnabledLayerNames:     validationLayers,
 	}
 
 	var device vulkan.Device
