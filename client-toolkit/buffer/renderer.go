@@ -3,9 +3,9 @@ package buffer
 import (
 	"fmt"
 
-	"github.com/tri2820/cheese/protocols/client"
 	"github.com/tri2820/cheese/client-toolkit/render"
 	"github.com/tri2820/cheese/client-toolkit/surface"
+	"github.com/tri2820/cheese/protocols/client"
 )
 
 // Renderer handles high-level rendering to any surface.
@@ -20,6 +20,8 @@ type Renderer struct {
 	onRender   func(width, height int, time uint32, pixels []byte)
 	lastWidth  int
 	lastHeight int
+	manualMode bool // when true, doesn't auto-request next frame
+	ready      bool // true when we've received valid dimensions
 }
 
 // RendererConfig configures a new Renderer.
@@ -117,6 +119,13 @@ func (r *Renderer) render(time uint32) {
 		r.swapchain = swapchain
 		r.lastWidth = width
 		r.lastHeight = height
+
+		// Let user know we are ready to render.
+		r.ready = true
+	}
+
+	if !r.ready {
+		return
 	}
 
 	// Acquire buffer (may fail if all buffers are busy - that's OK, skip this frame)
@@ -132,8 +141,11 @@ func (r *Renderer) render(time uint32) {
 
 	// Request frame callback BEFORE committing
 	// This associates the callback with the upcoming commit
-	if err := r.surface.Frame(); err != nil {
-		fmt.Printf("failed to request frame: %v\n", err)
+	// Skip if in manual mode (user controls when to request frames)
+	if !r.manualMode {
+		if err := r.surface.Frame(); err != nil {
+			fmt.Printf("failed to request frame: %v\n", err)
+		}
 	}
 
 	// Present the frame (includes commit)
@@ -172,4 +184,23 @@ func (r *Renderer) Close() error {
 		return r.swapchain.Close()
 	}
 	return nil
+}
+
+// SetManualMode enables or disables manual frame control.
+// When enabled, the renderer will not automatically request the next frame
+// after rendering. Call Render() to manually trigger renders.
+func (r *Renderer) SetManualMode(enabled bool) {
+	r.manualMode = enabled
+}
+
+// Render performs a complete render cycle: acquire buffer, render, and present.
+// Should only be used in manual mode and after the surface is configured.
+func (r *Renderer) ManualRender(time uint32) {
+	r.render(time)
+}
+
+// Ready returns true if the renderer has received valid dimensions
+// from the compositor and is ready to render.
+func (r *Renderer) Ready() bool {
+	return r.ready
 }

@@ -29,6 +29,7 @@ type Bar struct {
 	fontFace font.Face
 	closeMu  sync.Mutex
 	closed   bool
+	stop     chan struct{}
 }
 
 func NewBar(disp *display.Display, output *display.Output) (*Bar, error) {
@@ -53,7 +54,7 @@ func NewBar(disp *display.Display, output *display.Output) (*Bar, error) {
 	}
 
 	// Create layer surface (bar at top of screen) for this specific output
-	bar, err := shell.NewLayer(surf, disp.LayerShell(), shell.LayerConfig{
+	barLayer, err := shell.NewLayer(surf, disp.LayerShell(), shell.LayerConfig{
 		Layer:         shell.LayerPositionTop,
 		Name:          "cheesebar",
 		Anchor:        shell.AnchorTop | shell.AnchorLeft | shell.AnchorRight,
@@ -67,40 +68,68 @@ func NewBar(disp *display.Display, output *display.Output) (*Bar, error) {
 		return nil, fmt.Errorf("failed to create layer surface: %w", err)
 	}
 
-	// Create renderer with ARGB8888
-	renderer, err := buffer.NewRenderer(buffer.RendererConfig{
-		Shm:     disp.Shm(),
-		Target:  bar,
-		Format:  client.WlShmFormatArgb8888,
-		Buffers: 2,
-	})
-	if err != nil {
-		bar.Close()
-		surf.Close()
-		return nil, fmt.Errorf("failed to create renderer: %w", err)
-	}
-
 	b := &Bar{
 		disp:     disp,
 		output:   output,
 		surface:  surf,
-		layer:    bar,
-		renderer: renderer,
+		layer:    barLayer,
 		fontFace: fontFace,
+		stop:     make(chan struct{}),
 	}
 
-	// Set up render callback
+	// Create renderer with ARGB8888
+	renderer, err := buffer.NewRenderer(buffer.RendererConfig{
+		Shm:     disp.Shm(),
+		Target:  barLayer,
+		Format:  client.WlShmFormatArgb8888,
+		Buffers: 2,
+	})
+	if err != nil {
+		barLayer.Close()
+		surf.Close()
+		return nil, fmt.Errorf("failed to create renderer: %w", err)
+	}
+	b.renderer = renderer
+
+	// Set up render callback BEFORE enabling manual mode
 	renderer.OnRender(func(w, h int, frameTime uint32, pixels []byte) {
-		b.draw(w, h, pixels, time.Now())
+		b.draw(w, h, pixels, time.UnixMilli(int64(frameTime)))
 	})
 
-	// Set up close handler for when the layer surface is closed by the compositor
-	bar.SetCloseHandler(func() {
+	// Enable manual mode AFTER setting up OnRender (so configure events work)
+	renderer.SetManualMode(true)
+
+	// Set up close handler
+	barLayer.SetCloseHandler(func() {
 		b.Close()
 	})
 
+	// Start update loop - render every 5 seconds
+	go b.updateLoop()
+
 	log.Printf("Bar created for output: %s", output.Name)
 	return b, nil
+}
+
+// updateLoop runs in a goroutine and renders every 1 second
+func (b *Bar) updateLoop() {
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+
+	// Wait for initial configure before starting
+	for !b.renderer.Ready() {
+		time.Sleep(100 * time.Millisecond)
+	}
+	b.renderer.ManualRender(uint32(time.Now().UnixMilli()))
+
+	for {
+		select {
+		case <-ticker.C:
+			b.renderer.ManualRender(uint32(time.Now().UnixMilli()))
+		case <-b.stop:
+			return
+		}
+	}
 }
 
 func (b *Bar) Close() {
@@ -111,6 +140,8 @@ func (b *Bar) Close() {
 		return
 	}
 	b.closed = true
+
+	close(b.stop) // Stop the update loop
 
 	log.Printf("Closing bar for output: %s", b.output.Name)
 
