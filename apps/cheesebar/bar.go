@@ -41,7 +41,7 @@ func NewBar(disp *display.Display, output *display.Output) (*Bar, error) {
 	}
 
 	// Load font
-	fontFace, err := common.LoadFont("Liberation Sans", 16, dpi)
+	fontFace, err := common.LoadFont("Liberation Sans", 12, dpi)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load TTF font: %w", err)
 	}
@@ -58,8 +58,8 @@ func NewBar(disp *display.Display, output *display.Output) (*Bar, error) {
 		Name:          "cheesebar",
 		Anchor:        shell.AnchorTop | shell.AnchorLeft | shell.AnchorRight,
 		Width:         0,  // 0 = full width
-		Height:        28, // Fixed height
-		ExclusiveZone: 28,
+		Height:        24, // Fixed height
+		ExclusiveZone: 24,
 		Output:        output.WlOutput(), // Bind to this specific output
 	})
 	if err != nil {

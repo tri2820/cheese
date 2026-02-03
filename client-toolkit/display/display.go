@@ -3,14 +3,12 @@ package display
 import (
 	"fmt"
 	"log"
-	"sync"
 
+	"github.com/tri2820/cheese/client-toolkit/dmabuf"
 	"github.com/tri2820/cheese/protocols/client"
 	"github.com/tri2820/cheese/protocols/linux_dmabuf_unstable_v1"
 	"github.com/tri2820/cheese/protocols/wlr_layer_shell_unstable_v1"
 	"github.com/tri2820/cheese/protocols/xdg_shell"
-	"github.com/tri2820/cheese/client-toolkit/dmabuf"
-	"github.com/tri2820/cheese/client-toolkit/surface"
 )
 
 // RequiredGlobals specifies which globals are required for the application.
@@ -357,32 +355,6 @@ func (d *Display) ReadyOutputs() []*Output {
 // Returns nil if the output is not being tracked.
 func (d *Display) OutputByWlOutput(wlOutput *client.WlOutput) *Output {
 	return d.outputsByProxy[wlOutput]
-}
-
-// GetOutputForSurface waits for the surface to enter an output and returns that output.
-func (d *Display) GetOutputForSurface(surf *surface.Surface) *Output {
-	var result *Output
-	var ready sync.WaitGroup
-
-	ready.Add(1)
-
-	surf.SetEnterHandler(func(wlOutput *client.WlOutput) {
-		result = d.OutputByWlOutput(wlOutput)
-		ready.Done()
-	})
-
-	// Dispatch events until surface enters an output
-	go func() {
-		for result == nil {
-			if err := d.Dispatch(); err != nil {
-				log.Printf("Dispatch error: %v", err)
-				break
-			}
-		}
-	}()
-
-	ready.Wait()
-	return result
 }
 
 // SetOutputHandler sets the handler for output add/remove events.
