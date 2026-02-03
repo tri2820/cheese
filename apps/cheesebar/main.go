@@ -6,18 +6,15 @@ import (
 	"image/color"
 	"image/draw"
 	"log"
-	"os"
-	"os/exec"
-	"strings"
 	"time"
 
 	"github.com/tri2820/cheese/client-toolkit/buffer"
 	"github.com/tri2820/cheese/client-toolkit/display"
+	toolkitfont "github.com/tri2820/cheese/client-toolkit/font"
 	"github.com/tri2820/cheese/client-toolkit/shell"
 	"github.com/tri2820/cheese/client-toolkit/surface"
 	"github.com/tri2820/cheese/protocols/client"
 	"golang.org/x/image/font"
-	"golang.org/x/image/font/opentype"
 	"golang.org/x/image/math/fixed"
 )
 
@@ -67,7 +64,7 @@ func main() {
 		log.Printf("Surface entered output: %s (%.1f DPI)", output.Name, dpi)
 	}
 
-	fontFace, err := loadFont("Liberation Sans", 16, dpi)
+	fontFace, err := toolkitfont.LoadFont("Liberation Sans", 16, dpi)
 	if err != nil {
 		log.Fatalf("Failed to load TTF font: %v", err)
 	}
@@ -96,54 +93,6 @@ func main() {
 	if err := disp.Run(); err != nil {
 		log.Printf("Dispatch error: %v", err)
 	}
-}
-
-// loadFont loads a TTF font by name using fc-match
-func loadFont(fontName string, size float64, dpi float64) (font.Face, error) {
-	// Get both path and family name to verify the match
-	cmd := exec.Command("fc-match", "-f", "%{file}|%{family}", fontName)
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("fc-match failed: %w", err)
-	}
-
-	parts := strings.Split(strings.TrimSpace(string(output)), "|")
-	if len(parts) != 2 {
-		return nil, fmt.Errorf("fc-match returned unexpected format")
-	}
-
-	fontPath := parts[0]
-	matchedFamily := parts[1]
-
-	if fontPath == "" {
-		return nil, fmt.Errorf("fc-match returned empty path")
-	}
-
-	// Verify the matched font actually contains the requested name
-	fontNameLower := strings.ToLower(fontName)
-	matchedFamilyLower := strings.ToLower(matchedFamily)
-	if !strings.Contains(matchedFamilyLower, fontNameLower) {
-		return nil, fmt.Errorf("font '%s' not found (can fallback to '%s' instead)", fontName, matchedFamily)
-	}
-
-	// Read font file
-	fontBytes, err := os.ReadFile(fontPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read font file: %w", err)
-	}
-
-	// Parse the font
-	f, err := opentype.Parse(fontBytes)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse font file: %w", err)
-	}
-
-	// Create font face at specified size with hinting
-	return opentype.NewFace(f, &opentype.FaceOptions{
-		Size:    size,
-		DPI:     dpi,
-		Hinting: font.HintingFull,
-	})
 }
 
 // xrgb swaps R and B for XRGB8888 format (which stores B,G,R,X in memory on little-endian)
