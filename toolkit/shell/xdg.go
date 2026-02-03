@@ -15,8 +15,7 @@ type Window struct {
 	toplevel   *xdg_shell.XdgToplevel
 	surface    *surface.Surface
 
-	onConfigure  func()
-	onClose      func()
+	onConfigure     func()
 	onCloseRequested func()
 }
 

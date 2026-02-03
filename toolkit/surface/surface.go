@@ -70,6 +70,11 @@ func (s *Surface) SetFrameHandler(fn func(uint32)) {
 	s.onFrame = fn
 }
 
+// HasFrameHandler returns true if a frame handler is set.
+func (s *Surface) HasFrameHandler() bool {
+	return s.onFrame != nil
+}
+
 // RequestFrame requests a frame callback with the given handler.
 // This is a convenience method that combines SetFrameHandler and Frame.
 func (s *Surface) RequestFrame(fn func(uint32)) error {
