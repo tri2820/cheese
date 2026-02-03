@@ -5,7 +5,6 @@ import (
 	"os"
 	"unsafe"
 
-	"github.com/tri2820/cheese/toolkit/dmabuf"
 	vulkan "github.com/vulkan-go/vulkan"
 )
 
@@ -74,8 +73,7 @@ type RenderImage struct {
 var renderImage RenderImage
 
 // initDmaBufBuffers creates dmabuf-exportable images for multi-buffering.
-// Returns dmabuf buffer metadata for creating wl_buffers.
-func initDmaBufBuffers(width, height, count int) ([]dmabuf.BufferInfo, error) {
+func initDmaBufBuffers(width, height, count int) ([]DmaBufBuffer, error) {
 	if !globalVulkan.initialized {
 		if !initVulkan() {
 			return nil, os.ErrNotExist
@@ -83,7 +81,6 @@ func initDmaBufBuffers(width, height, count int) ([]dmabuf.BufferInfo, error) {
 	}
 
 	buffers := make([]DmaBufBuffer, count)
-	infos := make([]dmabuf.BufferInfo, count)
 	for i := 0; i < count; i++ {
 		image, memory, fd, stride, err := createDmaBufImage(width, height)
 		if err != nil {
@@ -99,17 +96,11 @@ func initDmaBufBuffers(width, height, count int) ([]dmabuf.BufferInfo, error) {
 			width:  width,
 			height: height,
 		}
-		infos[i] = dmabuf.BufferInfo{
-			Fd:       fd,
-			Stride:   stride,
-			Format:   dmabuf.FormatXRGB8888,
-			Modifier: dmabuf.ModLinear,
-		}
 		log.Printf("Created dmabuf buffer %d: fd=%d stride=%d", i, fd, stride)
 	}
 
 	dmabufBuffers = buffers
-	return infos, nil
+	return buffers, nil
 }
 
 // createDmaBufImage creates a single dmabuf-exportable Vulkan image

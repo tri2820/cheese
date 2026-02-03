@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"time"
 
 	"github.com/tri2820/cheese/toolkit/display"
 	"github.com/tri2820/cheese/toolkit/dmabuf"
@@ -10,11 +9,8 @@ import (
 	"github.com/tri2820/cheese/toolkit/surface"
 )
 
-var startTime time.Time
-
 func main() {
 	log.Println("Starting Cheese Vulkan DmaBuf Example (Toolkit)...")
-	startTime = time.Now()
 
 	// Connect to display with required globals
 	disp := display.MustConnect(display.Config{
@@ -54,11 +50,25 @@ func main() {
 		State:   dmabufState,
 		Target:  win,
 		Buffers: 2,
-		OnCreateBuffers: initDmaBufBuffers,
+		OnCreateBuffers: func(width, height, count int) ([]dmabuf.BufferInfo, error) {
+			buffers, err := initDmaBufBuffers(width, height, count)
+			if err != nil {
+				return nil, err
+			}
+			infos := make([]dmabuf.BufferInfo, len(buffers))
+			for i, b := range buffers {
+				infos[i] = dmabuf.BufferInfo{
+					Fd:       b.fd,
+					Stride:   b.stride,
+					Format:   dmabuf.FormatXRGB8888,
+					Modifier: dmabuf.ModLinear,
+				}
+			}
+			return infos, nil
+		},
 		OnRender: func(bufferIndex, width, height int, frameTime uint32) error {
 			// Render to Vulkan image at bufferIndex
-			// Use wall clock time for smooth animation
-			animTime := float32(time.Since(startTime).Seconds())
+			animTime := float32(frameTime) / 1000.0
 			return renderToDmaBuf(bufferIndex, animTime)
 		},
 		OnDestroyBuffers: func() {
