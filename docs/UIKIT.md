@@ -63,8 +63,6 @@ type Signal[T any] struct {
 
 func (s *Signal[T]) Get() T
 func (s *Signal[T]) Set(v T)
-func (s *Signal[T]) Subscribe(fn func(T))  // Calls immediately with current value
-func (s *Signal[T]) OnChange(fn func())    // Implements Dep (no value arg)
 
 // New creates a source signal with an initial value
 func New[T any](value T) *Signal[T]
@@ -72,20 +70,9 @@ func New[T any](value T) *Signal[T]
 // Compute creates a signal computed from dependencies
 func Compute[T any](fn func() T, deps ...Dep) *Signal[T]
 
-// Deps groups multiple dependencies into a single signal
-func Deps(deps ...Dep) *Signal[bool]
-
 // Effect runs a side effect when dependencies change
 // Runs immediately, then on each dependency change
 func Effect(fn func(), deps ...Dep)
-
-type LabelProps struct {
-    Text *Signal[string]  // Reactive text
-}
-
-func NewLabel(p LabelProps) *Label {
-    return &Label{text: p.Text}
-}
 ```
 
 ## Layout
