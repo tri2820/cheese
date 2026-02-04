@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"github.com/tri2820/cheese/client-toolkit/dmabuf"
+	"github.com/tri2820/cheese/client-toolkit/seat"
 	"github.com/tri2820/cheese/protocols/client"
 	"github.com/tri2820/cheese/protocols/linux_dmabuf_unstable_v1"
 	"github.com/tri2820/cheese/protocols/wlr_layer_shell_unstable_v1"
@@ -18,6 +19,7 @@ type RequiredGlobals struct {
 	XdgWmBase  bool
 	LayerShell bool
 	Dmabuf     bool
+	Seat       bool
 }
 
 // Config configures a new Display connection.
@@ -56,6 +58,9 @@ type Display struct {
 	// wl_output proxy -> Output mapping for surface enter/leave events
 	outputsByProxy map[*client.WlOutput]*Output
 
+	// Seat tracking (global name -> Seat)
+	seats map[uint32]*seat.Seat
+
 	required RequiredGlobals
 }
 
@@ -65,6 +70,7 @@ func Connect(config Config) (*Display, error) {
 		formats:        make(map[client.WlShmFormat]bool),
 		outputs:        make(map[uint32]*Output),
 		outputsByProxy: make(map[*client.WlOutput]*Output),
+		seats:          make(map[uint32]*seat.Seat),
 		outputHandler:  config.OutputHandler,
 		required:       config.Required,
 	}
@@ -131,6 +137,10 @@ func Connect(config Config) (*Display, error) {
 	if d.required.Dmabuf && d.dmabufState == nil {
 		d.wlDisplay.Context().Close()
 		return nil, fmt.Errorf("required global zwp_linux_dmabuf_v1 not available")
+	}
+	if d.required.Seat && len(d.seats) == 0 {
+		d.wlDisplay.Context().Close()
+		return nil, fmt.Errorf("required global wl_seat not available")
 	}
 
 	return d, nil
@@ -217,6 +227,23 @@ func (d *Display) handleGlobal(ev client.WlRegistryGlobalEvent) {
 		})
 		d.outputs[ev.Name] = output
 		d.outputsByProxy[wlOutput] = output
+	case "wl_seat":
+		// Bind to all seats (version 5+ gives name)
+		version := ev.Version
+		if version > 7 {
+			version = 7
+		}
+		wlSeat := client.NewWlSeat(d.wlDisplay.Context())
+		if err := d.registry.Bind(ev.Name, "wl_seat", uint32(version), wlSeat); err != nil {
+			log.Printf("failed to bind wl_seat: %v", err)
+			return
+		}
+		s, err := seat.New(wlSeat)
+		if err != nil {
+			log.Printf("failed to create seat: %v", err)
+			return
+		}
+		d.seats[ev.Name] = s
 	}
 }
 
@@ -361,4 +388,22 @@ func (d *Display) OutputByWlOutput(wlOutput *client.WlOutput) *Output {
 // This can be called after Connect to enable dynamic output handling.
 func (d *Display) SetOutputHandler(handler func(output *Output, added bool)) {
 	d.outputHandler = handler
+}
+
+// Seats returns all detected seats.
+func (d *Display) Seats() []*seat.Seat {
+	var seats []*seat.Seat
+	for _, s := range d.seats {
+		seats = append(seats, s)
+	}
+	return seats
+}
+
+// FirstSeat returns the first available seat, or nil if no seats exist.
+// This is a convenience method for applications that only need one seat.
+func (d *Display) FirstSeat() *seat.Seat {
+	for _, s := range d.seats {
+		return s
+	}
+	return nil
 }
