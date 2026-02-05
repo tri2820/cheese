@@ -29,7 +29,7 @@ type Bar struct {
 	output     *display.Output
 	surface    *surface.Surface
 	layer      *shell.LayerSurface
-	renderer   *buffer.Renderer
+	frame      *buffer.Frame
 	fontFace   font.Face
 	icon       image.Image
 	iconRegion *client.WlRegion // Input region for the icon
@@ -121,27 +121,25 @@ func NewBar(disp *display.Display, output *display.Output) (*Bar, error) {
 		stop:       make(chan struct{}),
 	}
 
-	// Create renderer with ARGB8888
-	renderer, err := buffer.NewRenderer(buffer.RendererConfig{
-		Shm:     disp.Shm(),
-		Target:  barLayer,
+	// Create frame with ARGB8888
+	frame, err := buffer.NewFrame(disp.Shm(), barLayer, disp, buffer.FrameConfig{
 		Format:  client.WlShmFormatArgb8888,
 		Buffers: 2,
 	})
 	if err != nil {
 		barLayer.Close()
 		surf.Close()
-		return nil, fmt.Errorf("failed to create renderer: %w", err)
+		return nil, fmt.Errorf("failed to create frame: %w", err)
 	}
-	b.renderer = renderer
+	b.frame = frame
 
 	// Set up render callback BEFORE enabling manual mode
-	renderer.OnRender(func(w, h int, frameTime uint32, pixels []byte) {
+	frame.OnRender(func(w, h int, frameTime uint32, pixels []byte) {
 		b.draw(w, h, pixels, time.UnixMilli(int64(frameTime)))
 	})
 
 	// Enable manual mode AFTER setting up OnRender (so configure events work)
-	renderer.SetManualMode(true)
+	frame.SetManualMode(true)
 
 	// Set up close handler
 	barLayer.SetCloseHandler(func() {
@@ -169,15 +167,15 @@ func (b *Bar) updateLoop() {
 	defer ticker.Stop()
 
 	// Wait for initial configure before starting
-	for !b.renderer.Ready() {
+	for !b.frame.Ready() {
 		time.Sleep(100 * time.Millisecond)
 	}
-	b.renderer.ManualRender(uint32(time.Now().UnixMilli()))
+	b.frame.ManualRender(uint32(time.Now().UnixMilli()))
 
 	for {
 		select {
 		case <-ticker.C:
-			b.renderer.ManualRender(uint32(time.Now().UnixMilli()))
+			b.frame.ManualRender(uint32(time.Now().UnixMilli()))
 		case <-b.stop:
 			return
 		}
@@ -197,8 +195,8 @@ func (b *Bar) Close() {
 
 	log.Printf("Closing bar for output: %s", b.output.Name)
 
-	if b.renderer != nil {
-		b.renderer.Close()
+	if b.frame != nil {
+		b.frame.Close()
 	}
 	if b.iconRegion != nil {
 		b.iconRegion.Destroy()
@@ -301,8 +299,8 @@ func (b *Bar) setHovered(hovered bool) {
 	b.hovered = hovered
 	b.hoverMu.Unlock()
 
-	if changed && b.renderer.Ready() {
-		b.renderer.ManualRender(uint32(time.Now().UnixMilli()))
+	if changed && b.frame.Ready() {
+		b.frame.ManualRender(uint32(time.Now().UnixMilli()))
 	}
 }
 
@@ -313,8 +311,8 @@ func (b *Bar) setMousePos(x, y float64) {
 	b.mouseY = y
 	b.mouseMu.Unlock()
 
-	if b.renderer.Ready() {
-		b.renderer.ManualRender(uint32(time.Now().UnixMilli()))
+	if b.frame.Ready() {
+		b.frame.ManualRender(uint32(time.Now().UnixMilli()))
 	}
 }
 

@@ -43,8 +43,13 @@ type Output struct {
 	// Ready is set to true when all output events have been received
 	Ready bool
 
-	// doneHandler is called when the output becomes ready
-	doneHandler func(*Output)
+	// Callbacks for output events
+	onGeometry    func(client.WlOutputGeometryEvent)
+	onMode        func(client.WlOutputModeEvent)
+	onScale       func(client.WlOutputScaleEvent)
+	onName        func(client.WlOutputNameEvent)
+	onDescription func(client.WlOutputDescriptionEvent)
+	onDone        func(client.WlOutputDoneEvent)
 }
 
 // DPI calculates the DPI based on physical size and current resolution.
@@ -80,9 +85,13 @@ func (o *Output) WlOutput() *client.WlOutput {
 // newOutput creates a new Output from a wl_output proxy.
 func newOutput(wlOutput *client.WlOutput, handler func(*Output)) *Output {
 	o := &Output{
-		wlOutput:    wlOutput,
-		Scale:       1, // Default scale
-		doneHandler: handler,
+		wlOutput: wlOutput,
+		Scale:    1, // Default scale
+	}
+	if handler != nil {
+		o.onDone = func(ev client.WlOutputDoneEvent) {
+			handler(o)
+		}
 	}
 
 	wlOutput.SetGeometryHandler(o.handleGeometry)
@@ -104,32 +113,74 @@ func (o *Output) handleGeometry(ev client.WlOutputGeometryEvent) {
 	o.Transform = ev.Transform
 	o.Make = ev.Make
 	o.Model = ev.Model
+	if o.onGeometry != nil {
+		o.onGeometry(ev)
+	}
 }
 
 func (o *Output) handleMode(ev client.WlOutputModeEvent) {
-	// Only care about the current mode
-	if ev.Flags&client.WlOutputModeCurrent != 0 {
-		o.ModeWidth = ev.Width
-		o.ModeHeight = ev.Height
-		o.Refresh = ev.Refresh
+	o.ModeWidth = ev.Width
+	o.ModeHeight = ev.Height
+	o.Refresh = ev.Refresh
+	if o.onMode != nil {
+		o.onMode(ev)
 	}
 }
 
 func (o *Output) handleScale(ev client.WlOutputScaleEvent) {
 	o.Scale = ev.Factor
+	if o.onScale != nil {
+		o.onScale(ev)
+	}
 }
 
 func (o *Output) handleName(ev client.WlOutputNameEvent) {
 	o.Name = ev.Name
+	if o.onName != nil {
+		o.onName(ev)
+	}
 }
 
 func (o *Output) handleDescription(ev client.WlOutputDescriptionEvent) {
 	o.Description = ev.Description
+	if o.onDescription != nil {
+		o.onDescription(ev)
+	}
 }
 
-func (o *Output) handleDone(client.WlOutputDoneEvent) {
+func (o *Output) handleDone(ev client.WlOutputDoneEvent) {
 	o.Ready = true
-	if o.doneHandler != nil {
-		o.doneHandler(o)
+	if o.onDone != nil {
+		o.onDone(ev)
 	}
+}
+
+// SetGeometryHandler sets a callback for geometry events.
+func (o *Output) SetGeometryHandler(fn func(client.WlOutputGeometryEvent)) {
+	o.onGeometry = fn
+}
+
+// SetModeHandler sets a callback for mode events.
+func (o *Output) SetModeHandler(fn func(client.WlOutputModeEvent)) {
+	o.onMode = fn
+}
+
+// SetScaleHandler sets a callback for scale events.
+func (o *Output) SetScaleHandler(fn func(client.WlOutputScaleEvent)) {
+	o.onScale = fn
+}
+
+// SetNameHandler sets a callback for name events.
+func (o *Output) SetNameHandler(fn func(client.WlOutputNameEvent)) {
+	o.onName = fn
+}
+
+// SetDescriptionHandler sets a callback for description events.
+func (o *Output) SetDescriptionHandler(fn func(client.WlOutputDescriptionEvent)) {
+	o.onDescription = fn
+}
+
+// SetDoneHandler sets a callback for done events.
+func (o *Output) SetDoneHandler(fn func(client.WlOutputDoneEvent)) {
+	o.onDone = fn
 }

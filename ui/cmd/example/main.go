@@ -13,7 +13,7 @@ func main() {
 	layout := ui.NewLayout()
 
 	// Create a root frame
-	root := layout.NewFrame()
+	root := layout.NewRectangle()
 	layout.Add(
 		ui.Eq(root.Left, 0),
 		ui.Eq(root.Top, 0),
@@ -23,7 +23,7 @@ func main() {
 	fmt.Println("Created root frame (800x600 at 0,0)")
 
 	// Create a child frame
-	child := layout.NewFrame()
+	child := layout.NewRectangle()
 	layout.Add(
 		ui.Eq(child.Left, root.Left.Add(50)),
 		ui.Eq(child.Top, root.Top.Add(50)),
@@ -57,11 +57,11 @@ func main() {
 	fmt.Printf("Child Color: %s\n", child.Color.Get())
 }
 
-func formatRect(f *ui.Frame) string {
+func formatRect(r *ui.Rectangle) string {
 	return fmt.Sprintf("x=%d, y=%d, w=%d, h=%d",
-		int(f.Left.Get()),
-		int(f.Top.Get()),
-		int(f.Right.Get()-f.Left.Get()),
-		int(f.Bottom.Get()-f.Top.Get()),
+		int(r.Left.Get()),
+		int(r.Top.Get()),
+		int(r.Right.Get()-r.Left.Get()),
+		int(r.Bottom.Get()-r.Top.Get()),
 	)
 }

@@ -13,7 +13,7 @@ func main() {
 	layout := ui.NewLayout()
 
 	// Create a root frame
-	root := layout.NewFrame()
+	root := layout.NewRectangle()
 	ui.Eq(root.Left, 0).Add()
 	ui.Eq(root.Top, 0).Add()
 	ui.Eq(root.Right, 800).Add()
@@ -21,7 +21,7 @@ func main() {
 	fmt.Println("Created root frame (800x600 at 0,0)")
 
 	// Create a child frame
-	child := layout.NewFrame()
+	child := layout.NewRectangle()
 	ui.Eq(child.Left, root.Left.Add(50)).Add()
 	ui.Eq(child.Top, root.Top.Add(50)).Add()
 	ui.Eq(child.Width(), 200).Add()
@@ -67,11 +67,11 @@ func countCommands(layout *ui.Layout) int {
 	return 0 // We can't easily access the private cmdList from here
 }
 
-func formatRect(f *ui.Frame) string {
+func formatRect(r *ui.Rectangle) string {
 	return fmt.Sprintf("x=%d, y=%d, w=%d, h=%d",
-		int(f.Left.Get()),
-		int(f.Top.Get()),
-		int(f.Right.Get()-f.Left.Get()),
-		int(f.Bottom.Get()-f.Top.Get()),
+		int(r.Left.Get()),
+		int(r.Top.Get()),
+		int(r.Right.Get()-r.Left.Get()),
+		int(r.Bottom.Get()-r.Top.Get()),
 	)
 }

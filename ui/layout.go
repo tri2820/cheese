@@ -17,58 +17,172 @@ const (
 	Weak     Priority = casso.Weak
 )
 
+// Viewport represents a region of the virtual desktop.
+type Viewport struct {
+	X      int // X position in virtual space
+	Y      int // Y position in virtual space
+	Width  int // Width of this viewport
+	Height int // Height of this viewport
+}
+
+// RenderFunc is a function that renders to a viewport's pixel buffer.
+type RenderFunc func(width, height int, time uint32, pixels []byte)
+
 // Layout wraps a casso.Solver with convenient methods for our types
 type Layout struct {
-	inner      *casso.Solver
-	vars       map[casso.Symbol]*exprState // symbol → shared state
-	renderer   *buffer.Renderer             // Wayland renderer for drawing
-	cmdList    *CommandList                 // UI draw commands
-	renderReq  chan struct{}                // Render request channel (batched)
-	resolving  bool                         // In constraint resolution pass
-	resolveMut sync.Mutex                   // Protects resolving flag
-	stopRender chan struct{}                // Stop render loop
-	width      signals.Signal[int]          // Renderer width signal
-	height     signals.Signal[int]          // Renderer height signal
+	inner       *casso.Solver
+	vars        map[casso.Symbol]*exprState // symbol → shared state
+	cmdList     *CommandList                // UI draw commands
+	renderReq   chan struct{}               // Render request channel (batched)
+	resolving   bool                        // In constraint resolution pass
+	resolveMut  sync.Mutex                  // Protects resolving flag
+	stopRender  chan struct{}               // Stop render loop
+
+	// Virtual desktop
+	virtualWidth  signals.Signal[int] // Virtual desktop width
+	virtualHeight signals.Signal[int] // Virtual desktop height
+	virtualBuffer []byte              // Virtual pixel buffer
+	virtualStride int                 // Bytes per row in virtual buffer
+	viewports     []*Viewport         // Registered viewports
+	viewportsMut  sync.Mutex          // Protects viewports slice
+	frames        []*buffer.Frame     // Frames to notify when render is needed
+	framesMut     sync.Mutex          // Protects frames slice
+	dirty         bool                // True when virtual buffer needs re-rendering
+	dirtyMut      sync.Mutex          // Protects dirty flag
 }
 
 // NewLayout creates a new constraint solver
 func NewLayout() *Layout {
 	return &Layout{
-		inner:      casso.NewSolver(),
-		vars:       make(map[casso.Symbol]*exprState),
-		cmdList:    &CommandList{},
-		renderReq:  make(chan struct{}, 1),
-		stopRender: make(chan struct{}),
-		width:      signals.New(0),
-		height:     signals.New(0),
+		inner:         casso.NewSolver(),
+		vars:          make(map[casso.Symbol]*exprState),
+		cmdList:       &CommandList{},
+		renderReq:     make(chan struct{}, 1),
+		stopRender:    make(chan struct{}),
+		virtualWidth:  signals.New(0),
+		virtualHeight: signals.New(0),
 	}
 }
 
-// SetRenderer attaches the Wayland renderer for automatic rendering.
-func (l *Layout) SetRenderer(r *buffer.Renderer) {
-	l.renderer = r
+// AddFrame adds a frame to the layout.
+// Sets up the frame's OnConfigured and OnRender handlers automatically.
+// The onConfigured callback is invoked after the viewport is created, with the viewport dimensions.
+func (l *Layout) AddFrame(frame *buffer.Frame, onConfigured func(w, h int)) {
+	// Store frame for render notifications
+	l.framesMut.Lock()
+	l.frames = append(l.frames, frame)
+	l.framesMut.Unlock()
 
-	// Set up render callback to execute UI commands
-	r.OnRender(func(w, h int, frameTime uint32, pixels []byte) {
-		// Update dimension signals when they change
-		if w != l.width.Get() {
-			l.width.Set(w)
+	// Set up configure handler to create viewport when frame gets dimensions
+	frame.OnConfigured(func(w, h int) {
+		x := int(frame.OutputX())
+		y := int(frame.OutputY())
+
+		l.viewportsMut.Lock()
+		viewport := &Viewport{
+			X:      x,
+			Y:      y,
+			Width:  w,
+			Height: h,
 		}
-		if h != l.height.Get() {
-			l.height.Set(h)
+		l.viewports = append(l.viewports, viewport)
+		l.viewportsMut.Unlock()
+
+		// Expand virtual buffer if needed
+		l.expandVirtualBuffer(x+w, y+h)
+
+		// Create render function for this viewport
+		renderFunc := func(frameW, frameH int, frameTime uint32, pixels []byte) {
+			// Render to virtual buffer if dirty
+			l.maybeRenderToVirtual()
+
+			// Blit from virtual buffer to this viewport's pixels
+			l.blitToViewport(pixels, frameW, frameH, x, y)
 		}
 
-		l.cmdList.Execute(pixels, w*4, w, h)
-		l.cmdList.Clear()
+		// Set render function on frame
+		frame.OnRender(renderFunc)
+
+		// Call app's configured callback if provided
+		if onConfigured != nil {
+			onConfigured(w, h)
+		}
 	})
+}
 
-	// Start automatic render loop
-	go l.RenderLoop()
+// expandVirtualBuffer enlarges the virtual buffer to accommodate the given dimensions.
+func (l *Layout) expandVirtualBuffer(minWidth, minHeight int) {
+	currentW := l.virtualWidth.Get()
+	currentH := l.virtualHeight.Get()
+
+	newW := currentW
+	newH := currentH
+
+	if minWidth > newW {
+		newW = minWidth
+	}
+	if minHeight > newH {
+		newH = minHeight
+	}
+
+	if newW != currentW || newH != currentH {
+		// Allocate new virtual buffer
+		l.virtualWidth.Set(newW)
+		l.virtualHeight.Set(newH)
+		l.virtualStride = newW * 4
+		l.virtualBuffer = make([]byte, l.virtualStride*newH)
+	}
+}
+
+// blitToViewport copies a region from virtual buffer to viewport pixels.
+func (l *Layout) blitToViewport(dstPixels []byte, dstW, dstH, srcX, srcY int) {
+	if l.virtualBuffer == nil {
+		return
+	}
+
+	vw := l.virtualWidth.Get()
+	vh := l.virtualHeight.Get()
+
+	// Calculate intersection
+	srcX2 := srcX
+	srcY2 := srcY
+	if srcX2 < 0 {
+		srcX2 = 0
+	}
+	if srcY2 < 0 {
+		srcY2 = 0
+	}
+
+	srcW := dstW
+	srcH := dstH
+	if srcX2+srcW > vw {
+		srcW = vw - srcX2
+	}
+	if srcY2+srcH > vh {
+		srcH = vh - srcY2
+	}
+
+	if srcW <= 0 || srcH <= 0 {
+		return
+	}
+
+	dstStride := dstW * 4
+
+	// Blit row by row
+	for y := 0; y < srcH; y++ {
+		srcOffset := (srcY2+y)*l.virtualStride + srcX2*4
+		dstOffset := y * dstStride
+		copy(dstPixels[dstOffset:dstOffset+srcW*4], l.virtualBuffer[srcOffset:srcOffset+srcW*4])
+	}
 }
 
 // RequestRender schedules a render request.
 // Batches requests during constraint resolution - only one render per pass.
 func (l *Layout) RequestRender() {
+	l.dirtyMut.Lock()
+	l.dirty = true
+	l.dirtyMut.Unlock()
+
 	l.resolveMut.Lock()
 	if l.resolving {
 		// Don't render yet, we're in a constraint resolution pass
@@ -85,17 +199,56 @@ func (l *Layout) RequestRender() {
 }
 
 // RenderLoop runs the automatic render loop.
-// Call this in a goroutine or use SetRenderer() which starts it automatically.
+// Call this in a goroutine to trigger renders to all viewports when needed.
 func (l *Layout) RenderLoop() {
 	for {
 		select {
 		case <-l.renderReq:
-			if l.renderer != nil && l.renderer.Ready() {
-				l.renderer.ManualRender(0)
+			// Trigger all registered frames to render
+			l.framesMut.Lock()
+			frames := l.frames
+			l.framesMut.Unlock()
+			for _, f := range frames {
+				if f.Ready() {
+					f.ManualRender(0)
+				}
 			}
 		case <-l.stopRender:
 			return
 		}
+	}
+}
+
+// renderToVirtual executes all draw commands to the virtual buffer.
+func (l *Layout) renderToVirtual() {
+	if l.virtualBuffer == nil {
+		return
+	}
+
+	w := l.virtualWidth.Get()
+	h := l.virtualHeight.Get()
+
+	if w <= 0 || h <= 0 {
+		return
+	}
+
+	// Execute all draw commands to virtual buffer
+	l.cmdList.Execute(l.virtualBuffer, l.virtualStride, w, h)
+	l.cmdList.Clear()
+
+	l.dirtyMut.Lock()
+	l.dirty = false
+	l.dirtyMut.Unlock()
+}
+
+// maybeRenderToVirtual executes draw commands only if dirty flag is set.
+func (l *Layout) maybeRenderToVirtual() {
+	l.dirtyMut.Lock()
+	dirty := l.dirty
+	l.dirtyMut.Unlock()
+
+	if dirty {
+		l.renderToVirtual()
 	}
 }
 
@@ -216,12 +369,12 @@ func (l *Layout) Inner() *casso.Solver {
 	return l.inner
 }
 
-// Width returns a signal for the renderer width that updates on configure
-func (l *Layout) Width() signals.Signal[int] {
-	return l.width
+// VirtualWidth returns the virtual desktop width signal.
+func (l *Layout) VirtualWidth() signals.Signal[int] {
+	return l.virtualWidth
 }
 
-// Height returns a signal for the renderer height that updates on configure
-func (l *Layout) Height() signals.Signal[int] {
-	return l.height
+// VirtualHeight returns the virtual desktop height signal.
+func (l *Layout) VirtualHeight() signals.Signal[int] {
+	return l.virtualHeight
 }

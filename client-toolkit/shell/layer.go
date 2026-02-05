@@ -59,7 +59,7 @@ type LayerConfig struct {
 	// ExclusiveZone reserves space for the surface (0 = don't reserve, -1 = remove exclusive zone)
 	ExclusiveZone int32
 
-	// Output is the wl_output to display on (nil = all outputs)
+	// Output is the wl_output to display on (nil = compositor chooses one, typically the most recently interacted output)
 	Output *client.WlOutput
 }
 
@@ -67,7 +67,7 @@ type LayerConfig struct {
 func NewLayer(surf *surface.Surface, layerShell *wlr_layer_shell_unstable_v1.ZwlrLayerShellV1, config LayerConfig) (*LayerSurface, error) {
 	layerSurf, err := layerShell.GetLayerSurface(
 		surf.WlSurface(),
-		config.Output, // output (nil = all outputs)
+		config.Output, // output (nil = compositor chooses one)
 		wlr_layer_shell_unstable_v1.ZwlrLayerShellV1Layer(config.Layer),
 		config.Name,
 	)

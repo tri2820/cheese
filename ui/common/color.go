@@ -1,55 +1,14 @@
-package ui
+package common
 
 import (
 	"image/color"
 	"strconv"
-
-	"github.com/tri2820/cheese/signals"
 )
 
-// Frame is a container widget that extends Element with styling and child management.
-type Frame struct {
-	*Element                  // Embedding: Frame IS-A Element
-	Color   signals.Signal[string] // Background color (e.g., "#FF0000")
-	layout  *Layout               // Reference to layout for command registration
-}
-
-// NewFrame creates a new Frame widget.
-func (l *Layout) NewFrame() *Frame {
-	f := &Frame{
-		Element: l.NewElement(),
-		Color:   signals.New("#FFFFFF"), // Default white
-		layout:  l,
-	}
-
-	// Create effect that runs when bounds or color change
-	signals.Effect(func() {
-		x := int(f.Left.Get())
-		y := int(f.Top.Get())
-		w := int(f.Right.Get() - f.Left.Get())
-		h := int(f.Bottom.Get() - f.Top.Get())
-
-		// Skip drawing if bounds are invalid (happens during initial setup)
-		if w <= 0 || h <= 0 {
-			return
-		}
-
-		c := parseColor(f.Color.Get())
-
-		if l.cmdList != nil {
-			l.cmdList.Add(DrawRect{X: x, Y: y, W: w, H: h, Color: c})
-		}
-
-		l.RequestRender()
-	}, f.Left, f.Top, f.Right, f.Bottom, f.Color)
-
-	return f
-}
-
-// parseColor parses hex color string (e.g., "#FF0000" or "#FF0000FF") to color.RGBA.
+// ParseColor parses hex color string (e.g., "#FF0000" or "#FF0000FF") to color.RGBA.
 // Supports #RGB, #RGBA, #RRGGBB, #RRGGBBAA formats.
 // NOTE: Returns color with R and B swapped for ARGB8888 format compatibility.
-func parseColor(s string) color.RGBA {
+func ParseColor(s string) color.RGBA {
 	if len(s) < 2 || s[0] != '#' {
 		return color.RGBA{A: 255} // Default opaque black
 	}

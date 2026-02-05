@@ -8,7 +8,6 @@ import (
 	"github.com/tri2820/cheese/client-toolkit/shell"
 	"github.com/tri2820/cheese/client-toolkit/surface"
 	"github.com/tri2820/cheese/protocols/client"
-	"github.com/tri2820/cheese/signals"
 	"github.com/tri2820/cheese/ui"
 )
 
@@ -26,6 +25,20 @@ func main() {
 	}
 	defer disp.Close()
 
+	// Create UI layout with virtual desktop
+	layout := ui.NewLayout()
+
+	// Start render loop
+	go layout.RenderLoop()
+
+	// Create a rectangle for the bar
+	bar := layout.NewRectangle()
+	ui.Eq(bar.Left, 0).Add()
+	ui.Eq(bar.Top, 0).Add()
+
+	// Set color to dark gray (like bar.go)
+	bar.Color.Set("#303030")
+
 	// Create surface
 	surf, err := surface.New(disp.Compositor())
 	if err != nil {
@@ -33,7 +46,7 @@ func main() {
 	}
 	defer surf.Close()
 
-	// Create layer surface
+	// Create layer surface (compositor chooses output)
 	layer, err := shell.NewLayer(surf, disp.LayerShell(), shell.LayerConfig{
 		Layer:         shell.LayerPositionTop,
 		Name:          "ui-test",
@@ -47,41 +60,24 @@ func main() {
 	}
 	defer layer.Close()
 
-	// Create renderer
-	renderer, err := buffer.NewRenderer(buffer.RendererConfig{
-		Shm:     disp.Shm(),
-		Target:  layer,
+	// Create frame
+	frame, err := buffer.NewFrame(disp.Shm(), layer, disp, buffer.FrameConfig{
 		Format:  client.WlShmFormatArgb8888,
 		Buffers: 2,
 	})
 	if err != nil {
-		log.Fatalf("Failed to create renderer: %v", err)
+		log.Fatalf("Failed to create frame: %v", err)
 	}
-	defer renderer.Close()
+	defer frame.Close()
+	frame.SetManualMode(true)
 
-	// Create UI layout - this sets up OnRender callback
-	layout := ui.NewLayout()
-	renderer.SetManualMode(true)
-	layout.SetRenderer(renderer)
-
-	// Create a frame for the bar
-	bar := layout.NewFrame()
-	ui.Eq(bar.Left, 0).Add()
-	ui.Eq(bar.Top, 0).Add()
-
-	// Set color to dark gray (like bar.go)
-	bar.Color.Set("#303030")
-
-	// Watch for renderer dimension changes and update bar bounds reactively
-	signals.Effect(func() {
-		w := layout.Width().Get()
-		h := layout.Height().Get()
-		if w > 0 && h > 0 {
-			log.Printf("Renderer dimensions: %dx%d", w, h)
-			bar.Right.Set(float64(w))
-			bar.Bottom.Set(float64(h))
-		}
-	}, layout.Width(), layout.Height())
+	// Add frame to layout - Layout handles OnConfigured and OnRender wiring
+	layout.AddFrame(frame, func(w, h int) {
+		log.Printf("Output configured: %dx%d at output pos (%d, %d)", w, h, frame.OutputX(), frame.OutputY())
+		// Update bar bounds to match virtual dimensions
+		bar.Right.Set(float64(frame.OutputX()) + float64(w))
+		bar.Bottom.Set(float64(frame.OutputY()) + float64(h))
+	})
 
 	log.Println("Gray bar running... Press Ctrl+C to exit")
 
