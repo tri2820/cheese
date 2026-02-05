@@ -82,4 +82,32 @@ func main() {
 	fmt.Println("  constraint.IsRequired()       → Required")
 	fmt.Println("  constraint.IsWeak()           → Weak")
 	fmt.Println("  Effect(fn, deps...)           → Runs on dep change")
+
+	fmt.Println("=== Test 7: Area Effect ===")
+	// Area as (Right - Left) * (Bottom - Top)
+	area := signals.Derive(func() float64 {
+		width := child.Right.Get() - child.Left.Get()
+		height := child.Bottom.Get() - child.Top.Get()
+		return width * height
+	}, child.Left, child.Right, child.Top, child.Bottom)
+	areaEffectRuns := 0
+	signals.Effect(func() {
+		areaEffectRuns++
+		fmt.Printf("  [Area Effect #%d] Area (Width*Height): %.0f\n", areaEffectRuns, area.Get())
+	}, area)
+	fmt.Printf("  Initial area: %.0f\n", area.Get())
+	fmt.Println()
+
+	// Test 8: Change parent bounds to trigger area effect
+	fmt.Println("Test 8: Changing parent bounds (triggers Area Effect)")
+	parent.Left.Set(50)
+	parent.Bottom.Set(600)
+	fmt.Printf("  Parent bounds: (50, 0) to (1000, 600)\n")
+	width := child.Right.Get() - child.Left.Get()
+	height := child.Bottom.Get() - child.Top.Get()
+	fmt.Printf("  Child: Left=%v, Top=%v, Width=%v, Height=%v\n",
+		child.Left.Get(), child.Top.Get(), width, height)
+	fmt.Printf("  Area: %.0f\n", area.Get())
+	fmt.Printf("  Area Effect ran %d time(s)\n", areaEffectRuns)
+	fmt.Println()
 }

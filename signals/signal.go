@@ -100,13 +100,20 @@ func New[T any](value T) Signal[T] {
 }
 
 // Derive creates a computed Signal from dependencies.
+// Uses OnChangeQuiet if available (for constraint resolution support).
 func Derive[T any](fn func() T, deps ...Dep) Signal[T] {
 	sig := &signal[T]{value: fn()}
 
 	for _, dep := range deps {
-		dep.OnChange(func() {
-			sig.Set(fn())
-		})
+		if qd, ok := dep.(QuietDep); ok {
+			qd.OnChangeQuiet(func() {
+				sig.Set(fn())
+			})
+		} else {
+			dep.OnChange(func() {
+				sig.Set(fn())
+			})
+		}
 	}
 
 	return sig
