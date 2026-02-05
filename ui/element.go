@@ -1,5 +1,13 @@
 package ui
 
+// withSolver attaches the solver to all constraints
+func withSolver(solver *Solver, c Constraints) Constraints {
+	for i := range c {
+		c[i].solver = solver
+	}
+	return c
+}
+
 // Point represents a 2D point with X and Y expressions
 type Point struct {
 	X, Y Expr
@@ -54,66 +62,64 @@ func (e *Element) Size() Point {
 // Inside returns constraints ensuring this element is fully inside another
 // Returns Constraints for: Left>=other.Left, Right<=other.Right, Top>=other.Top, Bottom<=other.Bottom
 func (e *Element) Inside(other *Element) Constraints {
-	result := append(Gte(e.Left, other.Left), Lte(e.Right, other.Right)...)
-	result = append(result, Gte(e.Top, other.Top)...)
-	result = append(result, Lte(e.Bottom, other.Bottom)...)
-	return result
+	return withSolver(e.solver, append(
+		append(Gte(e.Left, other.Left), Lte(e.Right, other.Right)...),
+		append(Gte(e.Top, other.Top), Lte(e.Bottom, other.Bottom)...)...,
+	))
 }
 
 // Outside returns constraints ensuring this element is completely to the left of another
 // (most common interpretation of "outside")
 // For other directions, use LeftOf, RightOf, Above, Below
 func (e *Element) Outside(other *Element) Constraints {
-	return Lte(e.Right, other.Left) // e.Right <= other.Left
+	return withSolver(e.solver, Lte(e.Right, other.Left))
 }
 
 // LeftOf returns constraint: this element's right edge is at or before other's left edge
 func (e *Element) LeftOf(other *Element, gap float64) Constraints {
 	if gap == 0 {
-		return Lte(e.Right, other.Left) // e.Right <= other.Left
+		return withSolver(e.solver, Lte(e.Right, other.Left))
 	}
-	return Lte(e.Right.Sub(gap), other.Left) // e.Right - gap <= other.Left
+	return withSolver(e.solver, Lte(e.Right.Sub(gap), other.Left))
 }
 
 // RightOf returns constraint: this element's left edge is at or after other's right edge
 func (e *Element) RightOf(other *Element, gap float64) Constraints {
 	if gap == 0 {
-		return Gte(e.Left, other.Right) // e.Left >= other.Right
+		return withSolver(e.solver, Gte(e.Left, other.Right))
 	}
-	return Gte(e.Left, other.Right.Add(gap)) // e.Left >= other.Right + gap
+	return withSolver(e.solver, Gte(e.Left, other.Right.Add(gap)))
 }
 
 // Above returns constraint: this element's bottom edge is at or before other's top edge
 func (e *Element) Above(other *Element, gap float64) Constraints {
 	if gap == 0 {
-		return Lte(e.Bottom, other.Top) // e.Bottom <= other.Top
+		return withSolver(e.solver, Lte(e.Bottom, other.Top))
 	}
-	return Lte(e.Bottom.Sub(gap), other.Top) // e.Bottom - gap <= other.Top
+	return withSolver(e.solver, Lte(e.Bottom.Sub(gap), other.Top))
 }
 
 // Below returns constraint: this element's top edge is at or after other's bottom edge
 func (e *Element) Below(other *Element, gap float64) Constraints {
 	if gap == 0 {
-		return Gte(e.Top, other.Bottom) // e.Top >= other.Bottom
+		return withSolver(e.solver, Gte(e.Top, other.Bottom))
 	}
-	return Gte(e.Top, other.Bottom.Add(gap)) // e.Top >= other.Bottom + gap
+	return withSolver(e.solver, Gte(e.Top, other.Bottom.Add(gap)))
 }
 
 // NearX constrains this element's horizontal position to be within maxDistance of another
 // Bounds the X axis distance between centers
 func (e *Element) NearX(other *Element, maxDistance float64) Constraints {
-	return Near(e.CenterX(), other.CenterX(), maxDistance)
+	return withSolver(e.solver, Near(e.CenterX(), other.CenterX(), maxDistance))
 }
 
 // NearY constrains this element's vertical position to be within maxDistance of another
 // Bounds the Y axis distance between centers
 func (e *Element) NearY(other *Element, maxDistance float64) Constraints {
-	return Near(e.CenterY(), other.CenterY(), maxDistance)
+	return withSolver(e.solver, Near(e.CenterY(), other.CenterY(), maxDistance))
 }
 
 // Near constrains this element to be within maxDistance of another (both axes)
 func (e *Element) Near(other *Element, maxDistance float64) Constraints {
-	result := e.NearX(other, maxDistance)
-	result = append(result, e.NearY(other, maxDistance)...)
-	return result
+	return append(e.NearX(other, maxDistance), e.NearY(other, maxDistance)...)
 }

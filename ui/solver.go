@@ -31,24 +31,49 @@ func NewSolver() *Solver {
 	}
 }
 
-// Add adds constraints to the solver
-// Accepts both single constraints and slices of constraints
-// Uses the constraint's stored priority (zero/Strong is default)
-func (s *Solver) Add(constraints ...Constraints) {
-	for _, group := range constraints {
-		for _, c := range group {
-			s.inner.AddConstraintWithPriority(c.priority, c.ToCasso())
-		}
+// ConstraintHandle represents a handle to a constraint that can be removed
+type ConstraintHandle struct {
+	solver  *Solver
+	markers []casso.Symbol
+}
+
+// Remove removes these constraints from the solver
+func (h ConstraintHandle) Remove() {
+	for _, marker := range h.markers {
+		h.solver.inner.RemoveConstraint(marker)
 	}
 }
 
-// AddWithPriority adds constraints with a specific priority (overrides stored priority)
-func (s *Solver) AddWithPriority(priority Priority, constraints ...Constraints) {
+// Add adds constraints to the solver
+// Accepts both single constraints and slices of constraints
+// Uses the constraint's stored priority (defaults to Strong if not set)
+// Returns a handle that can be used to remove the constraints
+func (s *Solver) Add(constraints ...Constraints) ConstraintHandle {
+	var markers []casso.Symbol
 	for _, group := range constraints {
 		for _, c := range group {
-			s.inner.AddConstraintWithPriority(priority, c.ToCasso())
+			priority := c.priority
+			if priority == 0 {
+				priority = Strong
+			}
+			marker, _ := s.inner.AddConstraintWithPriority(priority, c.ToCasso())
+			markers = append(markers, marker)
 		}
 	}
+	return ConstraintHandle{solver: s, markers: markers}
+}
+
+// AddWithPriority adds constraints with a specific priority (overrides stored priority)
+// Returns a handle that can be used to remove the constraints
+func (s *Solver) AddWithPriority(priority Priority, constraints ...Constraints) ConstraintHandle {
+	var markers []casso.Symbol
+	for _, group := range constraints {
+		for _, c := range group {
+			marker, _ := s.inner.AddConstraintWithPriority(priority, c.ToCasso())
+			markers = append(markers, marker)
+		}
+	}
+	return ConstraintHandle{solver: s, markers: markers}
 }
 
 // NewVar creates a new variable expression (signal + symbol pair)
@@ -71,11 +96,10 @@ func (s *Solver) NewVar() Expr {
 
 // resolve syncs signals → casso → signals
 // Runs immediately on every signal.Set()
-// SetQuiet prevents infinite recursion
 func (s *Solver) resolve(changedSymbol casso.Symbol) {
-	// Suggest the changed variable to casso
 	sig := s.vars[changedSymbol]
-	s.inner.Edit(changedSymbol, Strong)
+	// Edit with Weak priority so Strong constraints can override
+	s.inner.Edit(changedSymbol, Weak)
 	s.inner.Suggest(changedSymbol, sig.Get())
 
 	// Get resolved values from casso and update signals

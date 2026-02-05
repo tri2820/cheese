@@ -285,6 +285,7 @@ type Constraint struct {
 	left     Expr
 	right    Expr
 	priority Priority // zero value = Strong (default)
+	solver   *Solver  // solver to add this constraint to
 }
 
 // Constraints is a slice of Constraint with helper methods
@@ -439,6 +440,15 @@ func (c Constraints) IsWeak() Constraints {
 		c[i].priority = Weak
 	}
 	return c
+}
+
+// Add adds these constraints to the solver
+// Returns a handle that can be used to remove the constraints
+func (c Constraints) Add() ConstraintHandle {
+	if len(c) == 0 || c[0].solver == nil {
+		panic("Add(): constraint has no solver - use Element methods like element.RightOf(other)")
+	}
+	return c[0].solver.Add(c)
 }
 
 // ToCasso converts the constraint to a casso constraint
