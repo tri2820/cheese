@@ -472,13 +472,15 @@ func Between(expr any, min, max float64) Constraints {
 // AspectRatio constrains an element to have the given aspect ratio
 // AspectRatio(child, 16, 9) means width:height = 16:9
 // Returns: child.Width() * 9 == child.Height() * 16
+// Formula: width * heightRatio == height * widthRatio
+// So: width/height = widthRatio/heightRatio
 func AspectRatio(element *Element, widthRatio, heightRatio float64) Constraints {
 	width := element.Width()
 	height := element.Height()
 	return Constraints{{
 		relation: relEq,
-		left:     width.Mul(widthRatio),
-		right:    height.Mul(heightRatio),
+		left:     width.Mul(heightRatio),
+		right:    height.Mul(widthRatio),
 		layout:   width.getLayout(),
 	}}
 }
