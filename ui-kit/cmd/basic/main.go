@@ -17,11 +17,22 @@ func main() {
 	child2X := casso.New()
 	child2CompWidth := casso.New()
 
+	// Constraint formula: Constant + (Symbol1 × Coeff1) + (Symbol2 × Coeff2) ... [Relation] 0
+	//
 	// c1: childX == (50.0 / 1024) * containerWidth
+	//     → 0 + (childX × 1.0) + (containerWidth × -50.0/1024) == 0
+	//
 	// c2: childCompWidth == (200.0 / 1024) * containerWidth
+	//     → 0 + (childCompWidth × 1.0) + (containerWidth × -200.0/1024) == 0
+	//
 	// c3: childCompWidth >= 200.0
+	//     → -200 + (childCompWidth × 1.0) >= 0
+	//
 	// c4: child2X - childX - childCompWidth == 50
+	//     → -50 + (child2X × 1.0) + (childX × -1.0) + (childCompWidth × -1.0) == 0
+	//
 	// c5: child2CompWidth == 50 + containerWidth + child2X
+	//     → 50 + (child2CompWidth × 1.0) + (containerWidth × -1.0) + (child2X × 1.0) == 0
 
 	c1 := casso.NewConstraint(casso.EQ, 0, childX.T(1.0), containerWidth.T(-50.0/1024))
 	c2 := casso.NewConstraint(casso.EQ, 0, childCompWidth.T(1.0), containerWidth.T(-200.0/1024))
