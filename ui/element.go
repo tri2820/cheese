@@ -1,4 +1,4 @@
-package uikit
+package ui
 
 import "github.com/lithdew/casso"
 

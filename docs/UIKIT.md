@@ -1,53 +1,28 @@
-# UI Toolkit - SolidJS-Style Retained Mode for Wayland
+# UI Toolkit - Constraint-Based Reactive Layout for Wayland
 
-A reactive UI toolkit for Go with fine-grained reactivity, built on Wayland.
+A reactive UI toolkit for Go combining **signals** (fine-grained reactivity) with **constraint solving** (casso) for automatic layout.
 
 ## Core Philosophy
 
+- **Constraint-based layout** - Declare relationships between elements, solver computes positions
+- **Reactive signals** - Changes propagate automatically through dependency graph
 - **Retained mode** - Objects exist in scene graph, update in place
-- **Fine-grained reactivity** - Signals track dependencies, only affected parts re-render
 - **Thread-safe** - RWMutex protects concurrent access
-- **Explicit dependencies** - Derive/Effect take deps explicitly, no magic tracking
-- **Performant** - Bounding box hit testing, dirty tracking
+- **Explicit dependencies** - Compute/Effect take deps explicitly, no magic tracking
 
 ## Architecture
 
 ```
-Signal[T] / Derive  (reactive core)
+Signal[T] (reactive inputs)
          ↓
-       Object       (retained scene graph objects)
+   Cassowary Solver (constraint solving)
          ↓
-       Scene        (hit testing, rendering, events)
+       Computed Layout (positions, sizes)
+         ↓
+       Scene (rendering, events)
 ```
 
-## Object Interface
-
-```go
-type Object interface {
-    // Rendering
-    Draw(dst *image.RGBA)
-    Bounds() image.Rectangle
-    Children() []Object
-
-    // Layout
-    Measure(constraints Constraints) Size
-    Layout(bounds Rect)
-
-    // Events
-    SetOnClick(func())
-    SetOnEnter(func())
-    SetOnLeave(func())
-}
-```
-
-## Built-in Objects
-
-- **Label** - Text display
-- **Button** - Clickable with label
-- **Box** - Container (row/column layout)
-- **Image** - Image display
-
-**Component pattern:** Objects accept `Dep` (signals) for reactive props, use `Derive()` for computed values.
+## Signals (Reactivity)
 
 ```go
 // Dep interface that all signals implement
@@ -71,121 +46,187 @@ func New[T any](value T) *Signal[T]
 func Compute[T any](fn func() T, deps ...Dep) *Signal[T]
 
 // Effect runs a side effect when dependencies change
-// Runs immediately, then on each dependency change
 func Effect(fn func(), deps ...Dep)
 ```
 
-## Layout
+## Constraint Solver (Layout)
 
-Simple constraint-based layout:
-
-```go
-type Constraints struct {
-    MinWidth, MaxWidth   float64
-    MinHeight, MaxHeight float64
-}
-
-type BoxProps struct {
-    Direction Row | Column
-    Gap       float64
-    Align     Start | Center | End
-    Children  []Object
-}
-```
-
-## Styling
+Uses [casso](https://github.com/lithdew/casso) - a Cassowary constraint solver:
 
 ```go
-type Style struct {
-    Background   *Signal[color.Color]
-    Foreground   *Signal[color.Color]
-    Opacity      *Signal[float64]
-    Padding      *Signal[Insets]
-    Border       *Signal[Border]
-    CornerRadius *Signal[float64]
-    Width, Height *Signal[float64]
-}
+import "github.com/lithdew/casso"
+
+solver := casso.NewSolver()
+
+// Create variables for layout properties
+width := casso.New()
+height := casso.New()
+x := casso.New()
+y := casso.New()
+
+// Add constraints:
+// - Equality: width == 100
+// - Relationship: x >= parent.X + 10
+// - Ratios: width == 0.5 * parent.Width
+// - Minimums: width >= 50 (with priority)
+
+c1 := casso.NewConstraint(casso.EQ, 0, width.T(1.0), casso.T(-100))
+c2 := casso.NewConstraint(casso.GTE, -50, width.T(1.0))
+
+solver.AddConstraint(c1)
+solver.AddConstraintWithPriority(casso.Weak, c2)
+
+// Mark editable variables and suggest values
+solver.Edit(width, casso.Strong)
+solver.Suggest(width, 200)
+
+// Read computed values
+finalWidth := solver.Val(width)
 ```
 
-## Events
+## Combined: Reactive Constraints
 
-- **Pointer** - Click, enter/leave, motion
-- **Keyboard** - Focus, key events
-- **Drag** - Drag and drop
+```go
+// LayoutState holds computed layout values
+type LayoutState struct {
+    X, Y, Width, Height float64
+}
 
-Hit testing: Bounding box (AABB), scene graph walk top-to-bottom.
+// Solver encapsulates constraint system
+type Solver struct {
+    solver *casso.Solver
+    x, y, width, height casso.Symbol
+}
+
+// Create a signal for container width
+containerWidth := signals.New(1024.0)
+
+// Computed signal - auto-recalculates layout when containerWidth changes
+layout := signals.Compute(func() LayoutState {
+    w := containerWidth.Get()
+    solver.Suggest(solver.width, w)
+    return LayoutState{
+        Width:  solver.Val(solver.width),
+        X:      solver.Val(solver.x),
+        // ...
+    }
+}, containerWidth)
+
+// Subscribe to layout changes
+layout.Subscribe(func(state LayoutState) {
+    // Re-render with new layout
+    scene.MarkDirty()
+})
+
+// Update container - layout automatically recomputes
+containerWidth.Set(2048.0)
+```
+
+## Constraint Types
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `casso.EQ` | Equality | `width == 100` |
+| `casso.GTE` | Greater than or equal | `width >= 50` |
+| `casso.LTE` | Less than or equal | `width <= 500` |
+
+## Constraint Priorities
+
+- **Required** (`casso.Required`) - Must be satisfied
+- **Strong** (`casso.Strong`) - High priority
+- **Weak** (`casso.Weak`) - Low priority, can be violated
+
+Used for constraints with trade-offs (e.g., "prefer this size but allow shrinking")
+
+## Layout Examples
+
+### Fixed Size
+```go
+width := casso.New()
+height := casso.New()
+
+solver.AddConstraint(
+    casso.NewConstraint(casso.EQ, 0, width.T(1.0), casso.T(-100))
+)
+solver.AddConstraint(
+    casso.NewConstraint(casso.EQ, 0, height.T(1.0), casso.T(-50))
+)
+```
+
+### Relative to Parent
+```go
+// childWidth == 0.5 * parentWidth
+childWidth.T(1.0), parentWidth.T(-0.5)
+
+// childX == parentX + 10
+childX.T(1.0), parentX.T(-1.0), casso.T(-10)
+```
+
+### Center Alignment
+```go
+// childX + childWidth/2 == parentX + parentWidth/2
+casso.NewConstraint(
+    casso.EQ, 0,
+    childX.T(1.0), childWidth.T(0.5),
+    parentX.T(-1.0), parentWidth.T(-0.5),
+)
+```
+
+### Chaining Elements
+```go
+// nextX == prevX + prevWidth + gap
+casso.NewConstraint(
+    casso.EQ, -gap,
+    nextX.T(1.0), prevX.T(-1.0), prevWidth.T(-1.0),
+)
+```
 
 ## File Structure
 
 ```
-client-toolkit/ui/
-├── signals/
-│   ├── signal.go      # Signal[T], Dep interface, New, Compute, Deps, Effect
-├── scene/
-│   ├── object.go      # Object interface, BaseObject
-│   ├── scene.go       # Scene, hit testing
-│   └── context.go     # Build context
-├── objects/
-│   ├── label.go
-│   ├── button.go
-│   ├── box.go
-│   └── image.go
-├── layout/
-│   ├── constraints.go # Constraints, Size
-│   └── box.go         # Box layout
-├── style/
-│   └── style.go       # Style struct
-└── events/
-    └── pointer.go     # Hit testing, dispatch
+ui-kit/
+├── kit.go                 # Package exports
+├── go.mod
+├── cmd/
+│   ├── basic/             # Basic casso solver demo
+│   │   └── main.go
+│   └── reactive/          # Reactive + constraints demo
+│       └── main.go
+└── lib/                   # (future)
+    ├── solver.go          # Constraint solver wrapper
+    ├── signals.go         # Signal integration
+    └── layout.go          # Layout abstractions
 ```
 
-## Usage Example
+## Usage Examples
 
-```go
-// Create source signals
-count := New(0)
-prefix := New("Count: ")
-
-// Computed signal - auto-updates when dependencies change
-labelText := Compute(func() string {
-    return prefix.Get() + fmt.Sprint(count.Get())
-}, count, prefix)
-
-// Effect for side effects (logging, rendering, etc.)
-Effect(func() {
-    fmt.Println("Label changed:", labelText.Get())
-    scene.MarkDirty()  // Request re-render
-}, labelText)
-
-// Subscribe to value changes
-labelText.Subscribe(func(v string) {
-    fmt.Println("Got:", v)
-})
-
-btn := NewButton(ButtonProps{
-    Label: NewLabel(LabelProps{
-        Text: labelText,
-    }),
-    OnClick: func() {
-        count.Set(count.Get() + 1)
-    },
-})
-
-scene.Add(btn)
+### Basic Constraint Solving
+```bash
+go run ./cmd/basic
 ```
 
-**Patterns:**
-- `New()` - Create source signals with initial values (type inferred)
-- `Compute()` - Create computed signals that auto-update when dependencies change
-- `Deps()` - Group multiple dependencies into a single signal for batch tracking
-- `Effect()` - Run side effects when dependencies change (runs immediately + on changes)
-- `Subscribe()` - Get notified of value changes, called immediately with current value
+Demonstrates pure casso constraint solving:
+- Editable variable (`containerWidth`)
+- Multiple constraints with different priorities
+- Suggesting values and reading computed results
+
+### Reactive Constraints
+```bash
+go run ./cmd/reactive
+```
+
+Demonstrates signals + constraints:
+- Signal drives constraint solver
+- `Compute()` creates reactive layout
+- `Subscribe()` reacts to layout changes
+- Derived computed signals
 
 ## Implementation Phases
 
-1. **Signals** - Signal[T], Dep interface, New, Compute, Deps, Effect, Subscribe (thread-safe) ✓
-2. **Scene** - Object interface, BaseObject, hit testing
-3. **Objects** - Label, Button, Box
-4. **Layout** - Constraints, box layout
-5. **Events** - Pointer handlers, dispatch
-6. **Integration** - Wayland surface, render loop
+1. **✓ Signals** - Signal[T], Dep interface, New, Compute, Effect (thread-safe)
+2. **✓ Constraints** - Cassowary solver integration (casso)
+3. **✓ Reactive Layout** - Signals driving constraint solver
+4. **Scene** - Object interface, hit testing, rendering
+5. **Objects** - Label, Button, Box with constraint-based layout
+6. **Events** - Pointer handlers, dispatch
+7. **Integration** - Wayland surface, render loop

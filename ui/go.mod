@@ -1,4 +1,4 @@
-module github.com/tri2820/cheese/ui-kit
+module github.com/tri2820/cheese/ui
 
 go 1.23
 
