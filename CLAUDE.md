@@ -4,8 +4,12 @@ Use `go run main.go` for running (to avoid littering the codebase with binary ar
 
 # Use `cd` with full path
 
+The bash tool doesn't persist working directory between commands. Each command starts fresh from the original directory. You need to use a single command with 'cd /path && cmd' or use the -C flag.
+
+Example:
+
 ```sh
-cd full_path && command
+cd full_path && go vet ./...
 ```
 
 # Using Nix

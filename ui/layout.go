@@ -28,11 +28,15 @@ type Viewport struct {
 // RenderFunc is a function that renders to a viewport's pixel buffer.
 type RenderFunc func(width, height int, time uint32, pixels []byte)
 
+// Widget is an interface for renderable UI elements.
+type Widget interface {
+	Draw(pixels []byte, stride, width, height int)
+}
+
 // Layout wraps a casso.Solver with convenient methods for our types
 type Layout struct {
 	inner       *casso.Solver
 	vars        map[casso.Symbol]*exprState // symbol → shared state
-	cmdList     *CommandList                // UI draw commands
 	renderReq   chan struct{}               // Render request channel (batched)
 	resolving   bool                        // In constraint resolution pass
 	resolveMut  sync.Mutex                  // Protects resolving flag
@@ -49,6 +53,9 @@ type Layout struct {
 	framesMut     sync.Mutex          // Protects frames slice
 	dirty         bool                // True when virtual buffer needs re-rendering
 	dirtyMut      sync.Mutex          // Protects dirty flag
+
+	widgets     []Widget // Widgets to render
+	widgetsMut  sync.Mutex // Protects widgets slice
 }
 
 // NewLayout creates a new constraint solver
@@ -56,7 +63,6 @@ func NewLayout() *Layout {
 	return &Layout{
 		inner:         casso.NewSolver(),
 		vars:          make(map[casso.Symbol]*exprState),
-		cmdList:       &CommandList{},
 		renderReq:     make(chan struct{}, 1),
 		stopRender:    make(chan struct{}),
 		virtualWidth:  signals.New(0),
@@ -219,7 +225,7 @@ func (l *Layout) RenderLoop() {
 	}
 }
 
-// renderToVirtual executes all draw commands to the virtual buffer.
+// renderToVirtual renders all widgets to the virtual buffer.
 func (l *Layout) renderToVirtual() {
 	if l.virtualBuffer == nil {
 		return
@@ -232,13 +238,25 @@ func (l *Layout) renderToVirtual() {
 		return
 	}
 
-	// Execute all draw commands to virtual buffer
-	l.cmdList.Execute(l.virtualBuffer, l.virtualStride, w, h)
-	l.cmdList.Clear()
+	// Draw all widgets to virtual buffer
+	l.widgetsMut.Lock()
+	widgets := l.widgets
+	l.widgetsMut.Unlock()
+
+	for _, widget := range widgets {
+		widget.Draw(l.virtualBuffer, l.virtualStride, w, h)
+	}
 
 	l.dirtyMut.Lock()
 	l.dirty = false
 	l.dirtyMut.Unlock()
+}
+
+// addWidget adds a widget to the layout for rendering.
+func (l *Layout) addWidget(w Widget) {
+	l.widgetsMut.Lock()
+	l.widgets = append(l.widgets, w)
+	l.widgetsMut.Unlock()
 }
 
 // maybeRenderToVirtual executes draw commands only if dirty flag is set.
