@@ -4,12 +4,15 @@ import (
 	"fmt"
 
 	"github.com/lithdew/casso"
+
+	"github.com/tri2820/cheese/signals"
 )
 
 // Expr represents a constraint expression
 type Expr struct {
 	kind exprKind
-	// For symbol: the casso Symbol
+	// For exprVar: both signal (reactive) and symbol (casso)
+	signal *signals.Signal[float64]
 	symbol casso.Symbol
 	// For constant: the float64 value
 	constant float64
@@ -23,7 +26,7 @@ type exprKind int
 
 const (
 	exprConst exprKind = iota
-	exprSymbol
+	exprVar            // signal-backed variable (was exprSymbol)
 	exprOp
 )
 
@@ -36,9 +39,72 @@ const (
 	opDiv
 )
 
-// Symbol creates a new expression from a casso Symbol
-func Symbol(sym casso.Symbol) Expr {
-	return Expr{kind: exprSymbol, symbol: sym}
+// Get reads the current value from the expression
+func (e Expr) Get() float64 {
+	switch e.kind {
+	case exprVar:
+		return e.signal.Get()
+	case exprConst:
+		return e.constant
+	case exprOp:
+		return e.eval()
+	}
+	return 0
+}
+
+// Set updates the value and triggers solver resolve
+// Priority must be Strong or Weak (defaults to Strong)
+func (e Expr) Set(value float64, priority ...Priority) {
+	p := Strong
+	if len(priority) > 0 {
+		p = priority[0]
+		if p != Strong && p != Weak {
+			panic("Set(): priority must be Strong or Weak")
+		}
+	}
+	if e.kind != exprVar {
+		panic("Set() only valid for variable expressions")
+	}
+	e.signal.Set(value)
+}
+
+// OnChange implements Dep interface for Effect()
+// For exprVar: watches the signal directly
+// For exprOp: recursively watches variable dependencies
+func (e Expr) OnChange(fn func()) {
+	e.traverseVars(func(v Expr) {
+		if v.kind == exprVar {
+			v.signal.OnChange(fn)
+		}
+	})
+}
+
+// traverseVars visits all variable expressions that this expr depends on
+func (e Expr) traverseVars(fn func(Expr)) {
+	switch e.kind {
+	case exprVar:
+		fn(e)
+	case exprConst:
+		// no dependencies
+	case exprOp:
+		e.left.traverseVars(fn)
+		e.right.traverseVars(fn)
+	}
+}
+
+// eval computes value for operation expressions
+func (e Expr) eval() float64 {
+	switch e.op {
+	case opAdd:
+		return e.left.Get() + e.right.Get()
+	case opSub:
+		return e.left.Get() - e.right.Get()
+	case opMul:
+		return e.left.Get() * e.right.Get()
+	case opDiv:
+		return e.left.Get() / e.right.Get()
+	}
+	return 0
 }
 
 // Const creates a constant expression
@@ -89,8 +155,8 @@ func (e Expr) String() string {
 	switch e.kind {
 	case exprConst:
 		return fmt.Sprintf("%v", e.constant)
-	case exprSymbol:
-		return "sym"
+	case exprVar:
+		return "var"
 	case exprOp:
 		opStr := ""
 		switch e.op {
@@ -106,14 +172,6 @@ func (e Expr) String() string {
 		return fmt.Sprintf("(%s %s %s)", e.left.String(), opStr, e.right.String())
 	}
 	return "?"
-}
-
-// Symbol returns the underlying casso.Symbol (only valid for symbol expressions)
-func (e Expr) Symbol() casso.Symbol {
-	if e.kind != exprSymbol {
-		panic("Symbol() called on non-symbol expression")
-	}
-	return e.symbol
 }
 
 // flatten walks the expression tree and returns (constant, []terms)
@@ -144,7 +202,7 @@ func (e Expr) flattenRec() (float64, []term) {
 	switch e.kind {
 	case exprConst:
 		return e.constant, nil
-	case exprSymbol:
+	case exprVar:
 		return 0, []term{{sym: e.symbol, coeff: 1.0}}
 	case exprOp:
 		leftConst, leftTerms := e.left.flattenRec()
@@ -255,10 +313,11 @@ func toExpr(v any) Expr {
 // Supports Expr, float64, int, or Point (generates 2 constraints for Point)
 //
 // Examples:
-//   Eq(a, b)           → a == b
-//   Eq(a, b, c)        → a == b, b == c, a == c
-//   Eq(p1, p2)         → p1.X == p2.X, p1.Y == p2.Y (Point)
-//   Eq(p1, p2, p3)     → all X equal, all Y equal
+//
+//	Eq(a, b)           → a == b
+//	Eq(a, b, c)        → a == b, b == c, a == c
+//	Eq(p1, p2)         → p1.X == p2.X, p1.Y == p2.Y (Point)
+//	Eq(p1, p2, p3)     → all X equal, all Y equal
 func Eq(args ...any) Constraints {
 	if len(args) < 2 {
 		panic("Eq: requires at least 2 arguments")
@@ -389,7 +448,7 @@ func (c Constraint) ToCasso() casso.Constraint {
 
 	constant := leftConst - rightConst
 	terms := append(leftTerms, rightTerms...)
-	for i := range rightTerms {
+	for i := len(leftTerms); i < len(terms); i++ {
 		terms[i].coeff *= -1
 	}
 

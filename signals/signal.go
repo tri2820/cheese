@@ -35,6 +35,14 @@ func (s *Signal[T]) Set(v T) {
 	}
 }
 
+// SetQuiet updates the signal's value without notifying subscribers.
+// Used internally to avoid circular updates.
+func (s *Signal[T]) SetQuiet(v T) {
+	s.mu.Lock()
+	s.value = v
+	s.mu.Unlock()
+}
+
 // Subscribe registers a callback that receives the current value immediately
 // and future values on every change.
 func (s *Signal[T]) Subscribe(fn func(T)) {
@@ -61,9 +69,9 @@ func New[T any](value T) *Signal[T] {
 	return &Signal[T]{value: value}
 }
 
-// Compute creates a computed signal that derives its value from dependencies.
+// Derive creates a computed signal that derives its value from dependencies.
 // The computation function runs immediately and whenever any dependency changes.
-func Compute[T any](fn func() T, deps ...Dep) *Signal[T] {
+func Derive[T any](fn func() T, deps ...Dep) *Signal[T] {
 	sig := &Signal[T]{value: fn()}
 
 	for _, dep := range deps {
@@ -78,13 +86,13 @@ func Compute[T any](fn func() T, deps ...Dep) *Signal[T] {
 // Deps groups multiple dependencies into a single signal.
 // Useful for batching or tracking multiple dependencies together.
 func Deps(deps ...Dep) *Signal[bool] {
-	return Compute(func() bool { return false }, deps...)
+	return Derive(func() bool { return false }, deps...)
 }
 
 // Effect runs a side effect function when dependencies change.
 // The effect runs immediately and then on every dependency change.
 func Effect(fn func(), deps ...Dep) {
-	Compute(func() bool {
+	Derive(func() bool {
 		fn()
 		return false // Dummy return value
 	}, deps...)

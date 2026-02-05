@@ -102,7 +102,7 @@ type Solver struct {
 containerWidth := signals.New(1024.0)
 
 // Computed signal - auto-recalculates layout when containerWidth changes
-layout := signals.Compute(func() LayoutState {
+layout := signals.Derive(func() LayoutState {
     w := containerWidth.Get()
     solver.Suggest(solver.width, w)
     return LayoutState{

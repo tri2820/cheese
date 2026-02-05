@@ -11,8 +11,8 @@ func main() {
 	fmt.Println()
 
 	solver := ui.NewSolver()
-	parent := ui.NewElement()
-	child := ui.NewElement()
+	parent := solver.NewElement()
+	child := solver.NewElement()
 
 	// Test 1: Default (Strong)
 	fmt.Println("Test 1: Default priority (Strong)")
@@ -37,7 +37,7 @@ func main() {
 
 	// Test 4: Chaining - multiple constraints with same priority
 	fmt.Println("Test 4: Multiple constraints with .IsRequired()")
-	another := ui.NewElement()
+	another := solver.NewElement()
 	solver.Add(
 		ui.Eq(child.Width(), another.Width()),
 		ui.Eq(child.Height(), another.Height()),
@@ -48,13 +48,13 @@ func main() {
 
 	// Test 5: Verify it compiles and runs
 	fmt.Println("Test 5: Setting values")
-	solver.Set(parent.Left, 0, ui.Required)
-	solver.Set(parent.Right, 1000, ui.Required)
-	solver.Set(parent.Top, 0, ui.Required)
-	solver.Set(parent.Bottom, 500, ui.Required)
+	parent.Left.Set(0)
+	parent.Right.Set(1000)
+	parent.Top.Set(0)
+	parent.Bottom.Set(500)
 
 	fmt.Printf("  Parent bounds: (0, 0) to (1000, 500)\n")
-	fmt.Printf("  Child at: (%v, %v)\n", solver.Val(child.Left), solver.Val(child.Top))
+	fmt.Printf("  Child at: (%v, %v)\n", child.Left.Get(), child.Top.Get())
 	fmt.Println()
 
 	fmt.Println("=== API Summary ===")

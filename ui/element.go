@@ -1,7 +1,5 @@
 package ui
 
-import "github.com/lithdew/casso"
-
 // Point represents a 2D point with X and Y expressions
 type Point struct {
 	X, Y Expr
@@ -9,21 +7,13 @@ type Point struct {
 
 // Element represents a UI element with layout properties
 type Element struct {
+	// Reference to solver that created this element
+	solver *Solver
 	// Stored as Expr fields
 	Left   Expr
 	Right  Expr
 	Top    Expr
 	Bottom Expr
-}
-
-// NewElement creates a new element with fresh layout variables
-func NewElement() *Element {
-	return &Element{
-		Left:   Symbol(casso.New()),
-		Right:  Symbol(casso.New()),
-		Top:    Symbol(casso.New()),
-		Bottom: Symbol(casso.New()),
-	}
 }
 
 // Width returns the computed width: Right - Left
