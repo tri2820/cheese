@@ -2,8 +2,6 @@ package ui
 
 import (
 	"github.com/lithdew/casso"
-
-	"github.com/tri2820/cheese/signals"
 )
 
 // Priority represents constraint strength (alias for casso.Priority)
@@ -17,17 +15,15 @@ const (
 
 // Solver wraps a casso.Solver with convenient methods for our types
 type Solver struct {
-	inner   *casso.Solver
-	vars    map[casso.Symbol]*signals.Signal[float64] // symbol → signal
-	symbols map[*signals.Signal[float64]]casso.Symbol // signal → symbol
+	inner *casso.Solver
+	vars  map[casso.Symbol]*exprState // symbol → shared state
 }
 
 // NewSolver creates a new constraint solver
 func NewSolver() *Solver {
 	return &Solver{
-		inner:   casso.NewSolver(),
-		vars:    make(map[casso.Symbol]*signals.Signal[float64]),
-		symbols: make(map[*signals.Signal[float64]]casso.Symbol),
+		inner: casso.NewSolver(),
+		vars:  make(map[casso.Symbol]*exprState),
 	}
 }
 
@@ -76,38 +72,42 @@ func (s *Solver) AddWithPriority(priority Priority, constraints ...Constraints) 
 	return ConstraintHandle{solver: s, markers: markers}
 }
 
-// NewVar creates a new variable expression (signal + symbol pair)
+// NewVar creates a new variable expression
 func (s *Solver) NewVar() Expr {
-	sym := casso.New()
-	sig := signals.New(0.0)
-
-	s.vars[sym] = sig
-	s.symbols[sig] = sym
+	state := &exprState{
+		symbol: casso.New(),
+		value:  0,
+	}
+	s.vars[state.symbol] = state
 
 	// Capture symbol for closure
-	symCopy := sym
-	// Watch signal for changes - immediate resolve on every Set()
-	sig.OnChange(func() {
+	symCopy := state.symbol
+	// Watch for changes - immediate resolve on every Set()
+	state.onChange = append(state.onChange, func() {
 		s.resolve(symCopy)
 	})
 
-	return Expr{kind: exprVar, symbol: sym, signal: sig}
+	return Expr{kind: exprVar, state: state}
 }
 
-// resolve syncs signals → casso → signals
-// Runs immediately on every signal.Set()
+// resolve syncs expr values → casso → expr values
+// Runs immediately on every Expr.Set()
 func (s *Solver) resolve(changedSymbol casso.Symbol) {
-	sig := s.vars[changedSymbol]
+	state := s.vars[changedSymbol]
 	// Edit with Weak priority so Strong constraints can override
 	s.inner.Edit(changedSymbol, Weak)
-	s.inner.Suggest(changedSymbol, sig.Get())
+	s.inner.Suggest(changedSymbol, state.value)
 
-	// Get resolved values from casso and update signals
-	// Use SetQuiet to avoid triggering onChange (prevents infinite loop)
-	for sym, sig := range s.vars {
+	// Get resolved values from casso and update expressions
+	// Use SetQuiet to avoid triggering OnChange (prevents infinite loop)
+	for sym, state := range s.vars {
 		newVal := s.inner.Val(sym)
-		if newVal != sig.Get() {
-			sig.SetQuiet(newVal)
+		if newVal != state.value {
+			state.value = newVal
+			// Trigger quiet observers only
+			for _, fn := range state.onChangeQuiet {
+				fn()
+			}
 		}
 	}
 }

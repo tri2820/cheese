@@ -1,16 +1,18 @@
 package ui
 
-import (
-	"github.com/tri2820/cheese/signals"
-)
-
-// Effect watches Exprs and runs fn when they change
-// Works with both variable and computed expressions
-// The effect runs immediately and then on every dependency change
+// Effect runs a side effect function when dependencies change.
+// Runs immediately and then on every dependency change (both regular and quiet).
 func Effect(fn func(), deps ...Expr) {
-	signalDeps := make([]signals.Dep, len(deps))
-	for i, dep := range deps {
-		signalDeps[i] = dep // Expr implements Dep via OnChange()
+	// Run immediately
+	fn()
+
+	// Register to run on all changes (regular and quiet)
+	for _, dep := range deps {
+		dep.traverseVars(func(v *Expr) {
+			if v.kind == exprVar && v.state != nil {
+				v.state.onChange = append(v.state.onChange, fn)
+				v.state.onChangeQuiet = append(v.state.onChangeQuiet, fn)
+			}
+		})
 	}
-	signals.Effect(fn, signalDeps...)
 }

@@ -4,18 +4,21 @@ import (
 	"fmt"
 
 	"github.com/lithdew/casso"
-
-	"github.com/tri2820/cheese/signals"
-	// Register Expr as implementing QuietDep
-	_ "github.com/tri2820/cheese/signals"
 )
+
+// exprState holds the mutable state for a variable expression
+// This is shared among all Expr references to the same variable.
+type exprState struct {
+	value         float64
+	onChange      []func()
+	onChangeQuiet  []func()
+	symbol        casso.Symbol
+}
 
 // Expr represents a constraint expression
 type Expr struct {
-	kind exprKind
-	// For exprVar: both signal (reactive) and symbol (casso)
-	signal *signals.Signal[float64]
-	symbol casso.Symbol
+	kind  exprKind
+	state *exprState // Shared state for exprVar
 	// For constant: the float64 value
 	constant float64
 	// For operations: the operator and operands
@@ -28,7 +31,7 @@ type exprKind int
 
 const (
 	exprConst exprKind = iota
-	exprVar            // signal-backed variable (was exprSymbol)
+	exprVar
 	exprOp
 )
 
@@ -45,7 +48,7 @@ const (
 func (e Expr) Get() float64 {
 	switch e.kind {
 	case exprVar:
-		return e.signal.Get()
+		return e.state.value
 	case exprConst:
 		return e.constant
 	case exprOp:
@@ -56,7 +59,7 @@ func (e Expr) Get() float64 {
 
 // Set updates the value and triggers solver resolve
 // Priority must be Strong or Weak (defaults to Strong)
-func (e Expr) Set(value float64, priority ...Priority) {
+func (e *Expr) Set(value float64, priority ...Priority) {
 	p := Strong
 	if len(priority) > 0 {
 		p = priority[0]
@@ -64,19 +67,26 @@ func (e Expr) Set(value float64, priority ...Priority) {
 			panic("Set(): priority must be Strong or Weak")
 		}
 	}
-	if e.kind != exprVar {
+	if e.kind != exprVar || e.state == nil {
 		panic("Set() only valid for variable expressions")
 	}
-	e.signal.Set(value)
+	e.state.value = value
+	// Trigger all observers
+	for _, fn := range e.state.onChange {
+		fn()
+	}
+	for _, fn := range e.state.onChangeQuiet {
+		fn()
+	}
 }
 
 // OnChange implements Dep interface for Effect()
-// For exprVar: watches the signal directly
+// For exprVar: registers callback
 // For exprOp: recursively watches variable dependencies
 func (e Expr) OnChange(fn func()) {
-	e.traverseVars(func(v Expr) {
-		if v.kind == exprVar {
-			v.signal.OnChange(fn)
+	e.traverseVars(func(v *Expr) {
+		if v.kind == exprVar && v.state != nil {
+			v.state.onChange = append(v.state.onChange, fn)
 		}
 	})
 }
@@ -84,18 +94,32 @@ func (e Expr) OnChange(fn func()) {
 // OnChangeQuiet registers a callback that runs even when SetQuiet is used
 // For effects that should run during constraint resolution
 func (e Expr) OnChangeQuiet(fn func()) {
-	e.traverseVars(func(v Expr) {
-		if v.kind == exprVar {
-			v.signal.OnChangeQuiet(fn)
+	e.traverseVars(func(v *Expr) {
+		if v.kind == exprVar && v.state != nil {
+			v.state.onChangeQuiet = append(v.state.onChangeQuiet, fn)
 		}
 	})
 }
 
+// SetQuiet updates the value without triggering OnChange callbacks.
+// Only notifies OnChangeQuiet observers.
+// Used internally by the solver to avoid infinite loops.
+func (e *Expr) SetQuiet(value float64) {
+	if e.kind != exprVar || e.state == nil {
+		return
+	}
+	e.state.value = value
+	// Only trigger quiet observers
+	for _, fn := range e.state.onChangeQuiet {
+		fn()
+	}
+}
+
 // traverseVars visits all variable expressions that this expr depends on
-func (e Expr) traverseVars(fn func(Expr)) {
+func (e Expr) traverseVars(fn func(*Expr)) {
 	switch e.kind {
 	case exprVar:
-		fn(e)
+		fn(&e)
 	case exprConst:
 		// no dependencies
 	case exprOp:
@@ -215,7 +239,7 @@ func (e Expr) flattenRec() (float64, []term) {
 	case exprConst:
 		return e.constant, nil
 	case exprVar:
-		return 0, []term{{sym: e.symbol, coeff: 1.0}}
+		return 0, []term{{sym: e.state.symbol, coeff: 1.0}}
 	case exprOp:
 		leftConst, leftTerms := e.left.flattenRec()
 		rightConst, rightTerms := e.right.flattenRec()
