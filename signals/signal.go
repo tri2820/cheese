@@ -9,11 +9,18 @@ type Dep interface {
 	OnChange(fn func())
 }
 
+// QuietDep is an optional interface for dependencies that support quiet notifications.
+type QuietDep interface {
+	Dep
+	OnChangeQuiet(fn func())
+}
+
 // Signal is a thread-safe reactive signal holding a value of type T.
 type Signal[T any] struct {
-	value       T
-	subscribers []func(T)
-	mu          sync.RWMutex
+	value          T
+	subscribers    []func(T)
+	quietObservers []func() // Called by SetQuiet, for effects
+	mu             sync.RWMutex
 }
 
 // Get returns the current value of the signal.
@@ -35,12 +42,17 @@ func (s *Signal[T]) Set(v T) {
 	}
 }
 
-// SetQuiet updates the signal's value without notifying subscribers.
-// Used internally to avoid circular updates.
+// SetQuiet updates the signal's value without triggering OnChange callbacks.
+// Still notifies quiet observers (effects) so they can run.
 func (s *Signal[T]) SetQuiet(v T) {
 	s.mu.Lock()
 	s.value = v
+	observers := s.quietObservers
 	s.mu.Unlock()
+
+	for _, obs := range observers {
+		obs()
+	}
 }
 
 // Subscribe registers a callback that receives the current value immediately
@@ -61,6 +73,14 @@ func (s *Signal[T]) OnChange(fn func()) {
 	s.subscribers = append(s.subscribers, func(_ T) {
 		fn()
 	})
+	s.mu.Unlock()
+}
+
+// OnChangeQuiet registers a callback that runs even when SetQuiet is used.
+// For effects that should run during constraint resolution.
+func (s *Signal[T]) OnChangeQuiet(fn func()) {
+	s.mu.Lock()
+	s.quietObservers = append(s.quietObservers, fn)
 	s.mu.Unlock()
 }
 
@@ -92,8 +112,15 @@ func Deps(deps ...Dep) *Signal[bool] {
 // Effect runs a side effect function when dependencies change.
 // The effect runs immediately and then on every dependency change.
 func Effect(fn func(), deps ...Dep) {
-	Derive(func() bool {
-		fn()
-		return false // Dummy return value
-	}, deps...)
+	// Run immediately
+	fn()
+
+	// Register to run on changes (including quiet changes from SetQuiet)
+	for _, dep := range deps {
+		if qd, ok := dep.(QuietDep); ok {
+			qd.OnChangeQuiet(fn)
+		} else {
+			dep.OnChange(fn)
+		}
+	}
 }

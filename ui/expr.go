@@ -6,6 +6,8 @@ import (
 	"github.com/lithdew/casso"
 
 	"github.com/tri2820/cheese/signals"
+	// Register Expr as implementing QuietDep
+	_ "github.com/tri2820/cheese/signals"
 )
 
 // Expr represents a constraint expression
@@ -75,6 +77,16 @@ func (e Expr) OnChange(fn func()) {
 	e.traverseVars(func(v Expr) {
 		if v.kind == exprVar {
 			v.signal.OnChange(fn)
+		}
+	})
+}
+
+// OnChangeQuiet registers a callback that runs even when SetQuiet is used
+// For effects that should run during constraint resolution
+func (e Expr) OnChangeQuiet(fn func()) {
+	e.traverseVars(func(v Expr) {
+		if v.kind == exprVar {
+			v.signal.OnChangeQuiet(fn)
 		}
 	})
 }
