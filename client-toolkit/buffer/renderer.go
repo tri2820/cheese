@@ -196,6 +196,10 @@ func (r *Renderer) SetManualMode(enabled bool) {
 // Render performs a complete render cycle: acquire buffer, render, and present.
 // Should only be used in manual mode and after the surface is configured.
 func (r *Renderer) ManualRender(time uint32) {
+	// warn if not in manual mode
+	if !r.manualMode {
+		fmt.Println("Warning: ManualRender() called while not in manual mode")
+	}
 	r.render(time)
 }
 
