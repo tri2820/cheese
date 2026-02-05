@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/tri2820/cheese/signals"
 	"github.com/tri2820/cheese/ui"
 )
 
@@ -10,13 +11,13 @@ func main() {
 	fmt.Println("=== Test: IsRequired() and IsWeak() API ===")
 	fmt.Println()
 
-	solver := ui.NewSolver()
-	parent := solver.NewElement()
-	child := solver.NewElement()
+	layout := ui.NewLayout()
+	parent := layout.NewElement()
+	child := layout.NewElement()
 
 	// Test Effect with computed expressions
 	effectRuns := 0
-	ui.Effect(func() {
+	signals.Effect(func() {
 		effectRuns++
 		left := child.Left.Get()
 		top := child.Top.Get()
@@ -26,33 +27,33 @@ func main() {
 
 	// Test 1: Default (Strong)
 	fmt.Println("Test 1: Default priority (Strong)")
-	solver.Add(ui.Eq(child.Left, parent.Left.Add(10)))
-	fmt.Println("  solver.Add(Eq(child.Left, parent.Left.Add(10)))")
+	layout.Add(ui.Eq(child.Left, parent.Left.Add(10)))
+	fmt.Println("  layout.Add(Eq(child.Left, parent.Left.Add(10)))")
 	fmt.Println("  → Uses Strong (default)")
 	fmt.Println()
 
 	// Test 2: IsRequired()
 	fmt.Println("Test 2: IsRequired()")
-	solver.Add(child.Inside(parent).IsRequired())
-	fmt.Println("  solver.Add(child.Inside(parent).IsRequired())")
+	layout.Add(child.Inside(parent).IsRequired())
+	fmt.Println("  layout.Add(child.Inside(parent).IsRequired())")
 	fmt.Println("  → Uses Required priority")
 	fmt.Println()
 
 	// Test 3: IsWeak()
 	fmt.Println("Test 3: IsWeak()")
-	solver.Add(ui.Between(child.Width(), 50, 200).IsWeak())
-	fmt.Println("  solver.Add(Between(child.Width(), 50, 200).IsWeak())")
+	layout.Add(ui.Between(child.Width(), 50, 200).IsWeak())
+	fmt.Println("  layout.Add(Between(child.Width(), 50, 200).IsWeak())")
 	fmt.Println("  → Uses Weak priority")
 	fmt.Println()
 
 	// Test 4: Chaining - multiple constraints with same priority
 	fmt.Println("Test 4: Multiple constraints with .IsRequired()")
-	another := solver.NewElement()
-	solver.Add(
+	another := layout.NewElement()
+	layout.Add(
 		ui.Eq(child.Width(), another.Width()),
 		ui.Eq(child.Height(), another.Height()),
 	)
-	fmt.Println("  solver.Add(Eq(child.Width(), another.Width()), Eq(child.Height(), another.Height()))")
+	fmt.Println("  layout.Add(Eq(child.Width(), another.Width()), Eq(child.Height(), another.Height()))")
 	fmt.Println("  → Both use Strong (default)")
 	fmt.Println()
 

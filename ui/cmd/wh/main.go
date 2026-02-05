@@ -7,16 +7,16 @@ import (
 )
 
 func main() {
-	fmt.Println("=== Test: Solver.Add() vs Element.Method().Add() ===")
+	fmt.Println("=== Test: layout.Add() vs Element.Method().Add() ===")
 	fmt.Println()
 
-	// Method 1: solver.Add() for standalone constraints
-	fmt.Println("Method 1: solver.Add() for Width/Height")
-	solver := ui.NewSolver()
-	box := solver.NewElement()
+	// Method 1: layout.Add() for standalone constraints
+	fmt.Println("Method 1: layout.Add() for Width/Height")
+	layout := ui.NewLayout()
+	box := layout.NewElement()
 
-	solver.Add(ui.Eq(box.Width(), 200))
-	solver.Add(ui.Eq(box.Height(), 100))
+	layout.Add(ui.Eq(box.Width(), 200))
+	layout.Add(ui.Eq(box.Height(), 100))
 	box.Left.Set(0)
 	box.Top.Set(0)
 
@@ -24,9 +24,9 @@ func main() {
 
 	// Method 2: .Add() for element relationship constraints
 	fmt.Println("\nMethod 2: Element.Method().Add() for relationships")
-	solver2 := ui.NewSolver()
-	parent := solver2.NewElement()
-	child := solver2.NewElement()
+	layout2 := ui.NewLayout()
+	parent := layout2.NewElement()
+	child := layout2.NewElement()
 
 	// Child is right of parent with gap
 	child.RightOf(parent, 10).IsRequired().Add()
@@ -38,13 +38,13 @@ func main() {
 
 	// Method 3: Combine both
 	fmt.Println("\nMethod 3: Combine both APIs")
-	solver3 := ui.NewSolver()
-	A := solver3.NewElement()
-	B := solver3.NewElement()
+	layout3 := ui.NewLayout()
+	A := layout3.NewElement()
+	B := layout3.NewElement()
 
-	B.RightOf(A, 20).Add()              // Fluent API
-	solver3.Add(ui.Eq(A.Width(), 100))  // solver.Add()
-	solver3.Add(ui.Eq(B.Width(), 150))  // solver.Add()
+	B.RightOf(A, 20).Add()             // Fluent API
+	layout3.Add(ui.Eq(A.Width(), 100)) // layout.Add()
+	layout3.Add(ui.Eq(B.Width(), 150)) // layout.Add()
 
 	A.Left.Set(0)
 	A.Right.Set(100)

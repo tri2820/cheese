@@ -19,6 +19,7 @@ type exprState struct {
 type Expr struct {
 	kind  exprKind
 	state *exprState // Shared state for exprVar
+	layout *Layout   // Layout for exprVar (where it was created)
 	// For constant: the float64 value
 	constant float64
 	// For operations: the operator and operands
@@ -126,6 +127,17 @@ func (e Expr) traverseVars(fn func(*Expr)) {
 		e.left.traverseVars(fn)
 		e.right.traverseVars(fn)
 	}
+}
+
+// getLayout traverses the expression tree to find the layout from any variable expression
+func (e Expr) getLayout() *Layout {
+	var layout *Layout
+	e.traverseVars(func(v *Expr) {
+		if v.kind == exprVar && v.layout != nil && layout == nil {
+			layout = v.layout
+		}
+	})
+	return layout
 }
 
 // eval computes value for operation expressions
@@ -321,7 +333,7 @@ type Constraint struct {
 	left     Expr
 	right    Expr
 	priority Priority // zero value = Strong (default)
-	solver   *Solver  // solver to add this constraint to
+	layout   *Layout  // layout to add this constraint to
 }
 
 // Constraints is a slice of Constraint with helper methods
@@ -384,8 +396,8 @@ func Eq(args ...any) Constraints {
 		var result Constraints
 		for i := 0; i < len(points)-1; i++ {
 			result = append(result,
-				Constraint{relation: relEq, left: points[i].X, right: points[i+1].X},
-				Constraint{relation: relEq, left: points[i].Y, right: points[i+1].Y},
+				Constraint{relation: relEq, left: points[i].X, right: points[i+1].X, layout: points[i].X.getLayout()},
+				Constraint{relation: relEq, left: points[i].Y, right: points[i+1].Y, layout: points[i].Y.getLayout()},
 			)
 		}
 		return result
@@ -398,9 +410,10 @@ func Eq(args ...any) Constraints {
 
 	// Chain equality
 	var result Constraints
+	layout := exprs[0].getLayout()
 	for i := 0; i < len(exprs)-1; i++ {
 		result = append(result,
-			Constraint{relation: relEq, left: exprs[i], right: exprs[i+1]},
+			Constraint{relation: relEq, left: exprs[i], right: exprs[i+1], layout: layout},
 		)
 	}
 	return result
@@ -410,28 +423,28 @@ func Eq(args ...any) Constraints {
 func Gte(a, b any) Constraints {
 	left := toExpr(a)
 	right := toExpr(b)
-	return Constraints{{relation: relGte, left: left, right: right}}
+	return Constraints{{relation: relGte, left: left, right: right, layout: left.getLayout()}}
 }
 
 // Lte creates: a <= b
 func Lte(a, b any) Constraints {
 	left := toExpr(a)
 	right := toExpr(b)
-	return Constraints{{relation: relLte, left: left, right: right}}
+	return Constraints{{relation: relLte, left: left, right: right, layout: left.getLayout()}}
 }
 
 // Gt creates: a > b
 func Gt(a, b any) Constraints {
 	left := toExpr(a)
 	right := toExpr(b)
-	return Constraints{{relation: relGt, left: left, right: right}}
+	return Constraints{{relation: relGt, left: left, right: right, layout: left.getLayout()}}
 }
 
 // Lt creates: a < b
 func Lt(a, b any) Constraints {
 	left := toExpr(a)
 	right := toExpr(b)
-	return Constraints{{relation: relLt, left: left, right: right}}
+	return Constraints{{relation: relLt, left: left, right: right, layout: left.getLayout()}}
 }
 
 // Percent returns a percentage of an expression
@@ -444,21 +457,44 @@ func Percent(e Expr, percentage float64) Expr {
 // Returns: expr >= min, expr <= max
 func Between(expr any, min, max float64) Constraints {
 	e := toExpr(expr)
-	return append(Gte(e, min), Lte(e, max)...)
+	layout := e.getLayout()
+	result := Gte(e, min)
+	for i := range result {
+		result[i].layout = layout
+	}
+	result = append(result, Lte(e, max)...)
+	for i := range result {
+		result[i].layout = layout
+	}
+	return result
 }
 
 // AspectRatio constrains an element to have the given aspect ratio
 // AspectRatio(child, 16, 9) means width:height = 16:9
 // Returns: child.Width() * 9 == child.Height() * 16
 func AspectRatio(element *Element, widthRatio, heightRatio float64) Constraints {
-	return Eq(element.Width().Mul(widthRatio), element.Height().Mul(heightRatio))
+	width := element.Width()
+	height := element.Height()
+	return Constraints{{
+		relation: relEq,
+		left:     width.Mul(widthRatio),
+		right:    height.Mul(heightRatio),
+		layout:   width.getLayout(),
+	}}
 }
 
 // Near constrains a to be within maxDistance of b (in either direction)
 // Near(a, b, 100) means |a - b| <= 100, which is: a <= b + 100 AND a >= b - 100
 func Near(a, b Expr, maxDistance float64) Constraints {
+	layout := a.getLayout()
 	result := Lte(a, b.Add(maxDistance))
+	for i := range result {
+		result[i].layout = layout
+	}
 	result = append(result, Gte(a, b.Sub(maxDistance))...)
+	for i := range result {
+		result[i].layout = layout
+	}
 	return result
 }
 
@@ -481,10 +517,10 @@ func (c Constraints) IsWeak() Constraints {
 // Add adds these constraints to the solver
 // Returns a handle that can be used to remove the constraints
 func (c Constraints) Add() ConstraintHandle {
-	if len(c) == 0 || c[0].solver == nil {
-		panic("Add(): constraint has no solver - use Element methods like element.RightOf(other)")
+	if len(c) == 0 || c[0].layout == nil {
+		panic("Add(): constraint has no layout - use Element methods like element.RightOf(other)")
 	}
-	return c[0].solver.Add(c)
+	return c[0].layout.Add(c)
 }
 
 // ToCasso converts the constraint to a casso constraint

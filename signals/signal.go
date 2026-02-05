@@ -9,18 +9,26 @@ type Dep interface {
 	OnChange(fn func())
 }
 
+// QuietDep is an optional interface for quiet notifications (during batch/constraint updates).
+type QuietDep interface {
+	Dep
+	OnChangeQuiet(fn func())
+}
+
 // Signal is a reactive value that can be get, set, and watched for changes.
 type Signal[T any] interface {
 	Get() T
 	Set(v T)
 	Dep
+	QuietDep
 }
 
 // signal is the concrete implementation of Signal[T].
 type signal[T any] struct {
-	value       T
-	subscribers []func(T)
-	mu          sync.RWMutex
+	value          T
+	subscribers    []func(T)
+	quietObservers []func()
+	mu             sync.RWMutex
 }
 
 // Get returns the current value.
@@ -35,10 +43,14 @@ func (s *signal[T]) Set(v T) {
 	s.mu.Lock()
 	s.value = v
 	subscribers := s.subscribers
+	quietObservers := s.quietObservers
 	s.mu.Unlock()
 
 	for _, sub := range subscribers {
 		sub(v)
+	}
+	for _, obs := range quietObservers {
+		obs()
 	}
 }
 
@@ -49,6 +61,26 @@ func (s *signal[T]) OnChange(fn func()) {
 		fn()
 	})
 	s.mu.Unlock()
+}
+
+// OnChangeQuiet registers a callback that runs even during SetQuiet.
+func (s *signal[T]) OnChangeQuiet(fn func()) {
+	s.mu.Lock()
+	s.quietObservers = append(s.quietObservers, fn)
+	s.mu.Unlock()
+}
+
+// SetQuiet updates the value without triggering regular OnChange callbacks.
+// Still notifies quiet observers.
+func (s *signal[T]) SetQuiet(v T) {
+	s.mu.Lock()
+	s.value = v
+	observers := s.quietObservers
+	s.mu.Unlock()
+
+	for _, obs := range observers {
+		obs()
+	}
 }
 
 // Subscribe registers a callback that receives the current value immediately
@@ -86,9 +118,18 @@ func Deps(deps ...Dep) Signal[bool] {
 }
 
 // Effect runs a side effect function when dependencies change.
+// Works with Signal[T] and Expr (which implements Signal[float64]).
+// Uses OnChangeQuiet if available (for constraint resolution support).
 func Effect(fn func(), deps ...Dep) {
+	// Run immediately
 	fn()
+
+	// Register to run on changes (including quiet changes if supported)
 	for _, dep := range deps {
-		dep.OnChange(fn)
+		if qd, ok := dep.(QuietDep); ok {
+			qd.OnChangeQuiet(fn)
+		} else {
+			dep.OnChange(fn)
+		}
 	}
 }

@@ -13,15 +13,15 @@ const (
 	Weak     Priority = casso.Weak
 )
 
-// Solver wraps a casso.Solver with convenient methods for our types
-type Solver struct {
+// Layout wraps a casso.Solver with convenient methods for our types
+type Layout struct {
 	inner *casso.Solver
 	vars  map[casso.Symbol]*exprState // symbol → shared state
 }
 
-// NewSolver creates a new constraint solver
-func NewSolver() *Solver {
-	return &Solver{
+// NewLayout creates a new constraint solver
+func NewLayout() *Layout {
+	return &Layout{
 		inner: casso.NewSolver(),
 		vars:  make(map[casso.Symbol]*exprState),
 	}
@@ -29,14 +29,14 @@ func NewSolver() *Solver {
 
 // ConstraintHandle represents a handle to a constraint that can be removed
 type ConstraintHandle struct {
-	solver  *Solver
+	layout  *Layout
 	markers []casso.Symbol
 }
 
 // Remove removes these constraints from the solver
 func (h ConstraintHandle) Remove() {
 	for _, marker := range h.markers {
-		h.solver.inner.RemoveConstraint(marker)
+		h.layout.inner.RemoveConstraint(marker)
 	}
 }
 
@@ -44,7 +44,7 @@ func (h ConstraintHandle) Remove() {
 // Accepts both single constraints and slices of constraints
 // Uses the constraint's stored priority (defaults to Strong if not set)
 // Returns a handle that can be used to remove the constraints
-func (s *Solver) Add(constraints ...Constraints) ConstraintHandle {
+func (l *Layout) Add(constraints ...Constraints) ConstraintHandle {
 	var markers []casso.Symbol
 	for _, group := range constraints {
 		for _, c := range group {
@@ -52,56 +52,56 @@ func (s *Solver) Add(constraints ...Constraints) ConstraintHandle {
 			if priority == 0 {
 				priority = Strong
 			}
-			marker, _ := s.inner.AddConstraintWithPriority(priority, c.ToCasso())
+			marker, _ := l.inner.AddConstraintWithPriority(priority, c.ToCasso())
 			markers = append(markers, marker)
 		}
 	}
-	return ConstraintHandle{solver: s, markers: markers}
+	return ConstraintHandle{layout: l, markers: markers}
 }
 
 // AddWithPriority adds constraints with a specific priority (overrides stored priority)
 // Returns a handle that can be used to remove the constraints
-func (s *Solver) AddWithPriority(priority Priority, constraints ...Constraints) ConstraintHandle {
+func (l *Layout) AddWithPriority(priority Priority, constraints ...Constraints) ConstraintHandle {
 	var markers []casso.Symbol
 	for _, group := range constraints {
 		for _, c := range group {
-			marker, _ := s.inner.AddConstraintWithPriority(priority, c.ToCasso())
+			marker, _ := l.inner.AddConstraintWithPriority(priority, c.ToCasso())
 			markers = append(markers, marker)
 		}
 	}
-	return ConstraintHandle{solver: s, markers: markers}
+	return ConstraintHandle{layout: l, markers: markers}
 }
 
 // NewVar creates a new variable expression
-func (s *Solver) NewVar() Expr {
+func (l *Layout) NewVar() Expr {
 	state := &exprState{
 		symbol: casso.New(),
 		value:  0,
 	}
-	s.vars[state.symbol] = state
+	l.vars[state.symbol] = state
 
 	// Capture symbol for closure
 	symCopy := state.symbol
 	// Watch for changes - immediate resolve on every Set()
 	state.onChange = append(state.onChange, func() {
-		s.resolve(symCopy)
+		l.resolve(symCopy)
 	})
 
-	return Expr{kind: exprVar, state: state}
+	return Expr{kind: exprVar, state: state, layout: l}
 }
 
 // resolve syncs expr values → casso → expr values
 // Runs immediately on every Expr.Set()
-func (s *Solver) resolve(changedSymbol casso.Symbol) {
-	state := s.vars[changedSymbol]
+func (l *Layout) resolve(changedSymbol casso.Symbol) {
+	state := l.vars[changedSymbol]
 	// Edit with Weak priority so Strong constraints can override
-	s.inner.Edit(changedSymbol, Weak)
-	s.inner.Suggest(changedSymbol, state.value)
+	l.inner.Edit(changedSymbol, Weak)
+	l.inner.Suggest(changedSymbol, state.value)
 
 	// Get resolved values from casso and update expressions
 	// Use SetQuiet to avoid triggering OnChange (prevents infinite loop)
-	for sym, state := range s.vars {
-		newVal := s.inner.Val(sym)
+	for sym, state := range l.vars {
+		newVal := l.inner.Val(sym)
 		if newVal != state.value {
 			state.value = newVal
 			// Trigger quiet observers only
@@ -112,18 +112,18 @@ func (s *Solver) resolve(changedSymbol casso.Symbol) {
 	}
 }
 
-// NewElement creates element via solver
-func (s *Solver) NewElement() *Element {
+// NewElement creates element via layout
+func (l *Layout) NewElement() *Element {
 	return &Element{
-		solver: s,
-		Left:   s.NewVar(),
-		Right:  s.NewVar(),
-		Top:    s.NewVar(),
-		Bottom: s.NewVar(),
+		layout: l,
+		Left:   l.NewVar(),
+		Right:  l.NewVar(),
+		Top:    l.NewVar(),
+		Bottom: l.NewVar(),
 	}
 }
 
 // Inner returns the underlying casso.Solver for advanced use
-func (s *Solver) Inner() *casso.Solver {
-	return s.inner
+func (l *Layout) Inner() *casso.Solver {
+	return l.inner
 }
