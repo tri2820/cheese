@@ -5,7 +5,6 @@ import (
 
 	"github.com/lithdew/casso"
 	"github.com/tri2820/cheese/client-toolkit/buffer"
-	"github.com/tri2820/cheese/client-toolkit/display"
 )
 
 // Priority represents constraint strength (alias for casso.Priority)
@@ -146,55 +145,55 @@ func (l *Layout) renderFrame(frame *buffer.Frame, pixels []byte, width, height i
 		widget.mu.RUnlock()
 
 		for _, d := range drawables {
-		// Get layoutitem bounds
-		layoutitem := d.GetLayoutItem()
-		if layoutitem == nil {
-			continue
-		}
+			// Get layoutitem bounds
+			layoutitem := d.GetLayoutItem()
+			if layoutitem == nil {
+				continue
+			}
 
-		layoutitemLeft := int(layoutitem.Left.Get())
-		layoutitemTop := int(layoutitem.Top.Get())
-		layoutitemRight := int(layoutitem.Right.Get())
-		layoutitemBottom := int(layoutitem.Bottom.Get())
+			layoutitemLeft := int(layoutitem.Left.Get())
+			layoutitemTop := int(layoutitem.Top.Get())
+			layoutitemRight := int(layoutitem.Right.Get())
+			layoutitemBottom := int(layoutitem.Bottom.Get())
 
-		layoutitemW := layoutitemRight - layoutitemLeft
-		layoutitemH := layoutitemBottom - layoutitemTop
+			layoutitemW := layoutitemRight - layoutitemLeft
+			layoutitemH := layoutitemBottom - layoutitemTop
 
-		if layoutitemW <= 0 || layoutitemH <= 0 {
-			continue
-		}
+			if layoutitemW <= 0 || layoutitemH <= 0 {
+				continue
+			}
 
-		// Calculate layoutitem position relative to this Frame's layoutitemport
-		relX := layoutitemLeft - layoutitemportX
-		relY := layoutitemTop - layoutitemportY
+			// Calculate layoutitem position relative to this Frame's layoutitemport
+			relX := layoutitemLeft - layoutitemportX
+			relY := layoutitemTop - layoutitemportY
 
-		// Visibility check (culling)
-		if relX+layoutitemW <= 0 || relY+layoutitemH <= 0 || relX >= width || relY >= height {
-			continue // Off-screen, skip
-		}
+			// Visibility check (culling)
+			if relX+layoutitemW <= 0 || relY+layoutitemH <= 0 || relX >= width || relY >= height {
+				continue // Off-screen, skip
+			}
 
-		// Calculate clip region in layoutitem's local space
-		clipX := max(-relX, 0)                         // Clip left if off-left
-		clipY := max(-relY, 0)                         // Clip top if off-top
-		clipW := min(layoutitemW, width-relX) - clipX  // Clip right
-		clipH := min(layoutitemH, height-relY) - clipY // Clip bottom
+			// Calculate clip region in layoutitem's local space
+			clipX := max(-relX, 0)                         // Clip left if off-left
+			clipY := max(-relY, 0)                         // Clip top if off-top
+			clipW := min(layoutitemW, width-relX) - clipX  // Clip right
+			clipH := min(layoutitemH, height-relY) - clipY // Clip bottom
 
-		if clipW <= 0 || clipH <= 0 {
-			continue
-		}
+			if clipW <= 0 || clipH <= 0 {
+				continue
+			}
 
-		// Draw layoutitem with pre-offset pixel slice
-		// LayoutItem draws in local space (0,0) in the framebuffer
-		offsetY := max(relY, 0)
-		offsetX := max(relX, 0)
-		offset := offsetY*stride + offsetX*4
-		fb := Framebuffer{
-			pixels: pixels[offset:],
-			stride: stride,
-			width:  clipW,
-			height: clipH,
-		}
-		d.Draw(fb, dpi)
+			// Draw layoutitem with pre-offset pixel slice
+			// LayoutItem draws in local space (0,0) in the framebuffer
+			offsetY := max(relY, 0)
+			offsetX := max(relX, 0)
+			offset := offsetY*stride + offsetX*4
+			fb := Framebuffer{
+				pixels: pixels[offset:],
+				stride: stride,
+				width:  clipW,
+				height: clipH,
+			}
+			d.Draw(fb, dpi)
 		}
 	}
 
@@ -384,21 +383,4 @@ func (l *Layout) NewLayoutItem() *LayoutItem {
 		Top:    l.NewVar(),
 		Bottom: l.NewVar(),
 	}
-}
-
-// Inner returns the underlying casso.Solver for advanced use
-func (l *Layout) Inner() *casso.Solver {
-	return l.inner
-}
-
-// OutputDPI returns the DPI for a given output, or 96 if unavailable.
-func OutputDPI(output *display.Output) float64 {
-	if output == nil {
-		return 96
-	}
-	dpi := output.DPI()
-	if dpi == 0 {
-		return 96
-	}
-	return dpi
 }
