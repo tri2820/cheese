@@ -35,6 +35,18 @@ func main() {
 	fmt.Println("Created child frame (200x100 at 50,50)")
 	fmt.Println()
 
+	// Create a label
+	labelWidget := ui.NewWidget(layout)
+	label := labelWidget.NewLabel("Hello World!")
+	layout.Add(
+		ui.Eq(label.Left, root.Left.Add(300)),
+		ui.Eq(label.Top, root.Top.Add(100)),
+		ui.Eq(label.Width(), 300),
+		ui.Eq(label.Height(), 50),
+	)
+	fmt.Println("Created label (300x50 at 300,100)")
+	fmt.Println()
+
 	// Change color to trigger effect
 	fmt.Println("Changing child color...")
 	child.Color.Set("#FF0000")
@@ -52,11 +64,21 @@ func main() {
 	root.Bottom.Set(800)
 	fmt.Println()
 
+	// Change label properties
+	fmt.Println("Changing label text and color...")
+	label.Text.Set("New Text!")
+	label.Color.Set("#00FF00") // Green
+	label.FontSize.Set(16.0)
+	fmt.Println()
+
 	// Check final state
 	fmt.Println("=== Final State ===")
 	fmt.Printf("Root: %s\n", formatRect(root))
 	fmt.Printf("Child: %s\n", formatRect(child))
 	fmt.Printf("Child Color: %s\n", child.Color.Get())
+	fmt.Printf("Label Text: %s\n", label.Text.Get())
+	fmt.Printf("Label Color: %s\n", label.Color.Get())
+	fmt.Printf("Label Font Size: %.1fpt\n", label.FontSize.Get())
 }
 
 func formatRect(r *ui.Rectangle) string {

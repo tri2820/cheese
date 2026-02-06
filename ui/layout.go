@@ -5,6 +5,7 @@ import (
 
 	"github.com/lithdew/casso"
 	"github.com/tri2820/cheese/client-toolkit/buffer"
+	"github.com/tri2820/cheese/client-toolkit/display"
 )
 
 // Priority represents constraint strength (alias for casso.Priority)
@@ -24,39 +25,11 @@ type Rect struct {
 	X, Y, W, H int
 }
 
-// Framebuffer represents a pixel buffer that layoutitems can draw into.
-// The origin (0,0) is at the visible region of the layoutitem in the frame.
-type Framebuffer struct {
-	pixels []byte
-	stride int
-	width  int
-	height int
-}
-
-// SetPixel sets a single pixel at the given coordinates.
-func (fb Framebuffer) SetPixel(x, y int, r, g, b, a uint8) {
-	if x < 0 || x >= fb.width || y < 0 || y >= fb.height {
-		return
-	}
-	offset := y*fb.stride + x*4
-	fb.pixels[offset] = b
-	fb.pixels[offset+1] = g
-	fb.pixels[offset+2] = r
-	fb.pixels[offset+3] = a
-}
-
-// Width returns the framebuffer width.
-func (fb Framebuffer) Width() int { return fb.width }
-
-// Height returns the framebuffer height.
-func (fb Framebuffer) Height() int { return fb.height }
-
-// Drawable is an interface for renderable UI elements.
-// Drawables draw in their local coordinate space (0,0 = top-left corner).
-// Layout handles coordinate translation, clipping, and DPI.
-type Drawable interface {
+// Content is an interface for renderable UI elements.
+// Contents are coordinate-free - they draw based on the framebuffer provided.
+// Layout handles coordinate translation, clipping, and DPI via masks.
+type Content interface {
 	Draw(fb Framebuffer, dpi float64)
-	GetLayoutItem() *LayoutItem
 }
 
 // Layout wraps a casso.Solver with convenient methods for our types
@@ -68,32 +41,38 @@ type Layout struct {
 	resolveMut sync.Mutex                  // Protects resolving flag
 	stopRender chan struct{}               // Stop render loop
 
-	frames    []*buffer.Frame // Frames to notify when render is needed
-	framesMut sync.Mutex      // Protects frames slice
-	dirty     bool            // True when rendering is needed
-	dirtyMut  sync.Mutex      // Protects dirty flag
+	display *display.Display // Display connection for mask frame creation
+
+	frames      []*buffer.Frame        // Frames to notify when render is needed
+	maskForFrame map[*buffer.Frame]*Mask // Maps frame to its mask
+	framesMut   sync.Mutex             // Protects frames slice and maskForFrame map
+	dirty       bool                   // True when rendering is needed
+	dirtyMut    sync.Mutex             // Protects dirty flag
 
 	widgets    []*Widget  // Widgets to manage
 	widgetsMut sync.Mutex // Protects widgets slice
 }
 
 // NewLayout creates a new constraint solver
-func NewLayout() *Layout {
+func NewLayout(disp *display.Display) *Layout {
 	return &Layout{
-		inner:      casso.NewSolver(),
-		vars:       make(map[casso.Symbol]*exprState),
-		renderReq:  make(chan struct{}, 1),
-		stopRender: make(chan struct{}),
+		inner:        casso.NewSolver(),
+		vars:         make(map[casso.Symbol]*exprState),
+		renderReq:    make(chan struct{}, 1),
+		stopRender:   make(chan struct{}),
+		display:      disp,
+		maskForFrame: make(map[*buffer.Frame]*Mask),
 	}
 }
 
 // AddFrame adds a frame to the layout.
 // Sets up the frame's OnConfigured and OnRender handlers automatically.
 // The onConfigured callback is invoked after the frame is configured, with the frame dimensions.
-func (l *Layout) AddFrame(frame *buffer.Frame, onConfigured func(w, h int)) {
-	// Store frame for render notifications
+func (l *Layout) AddFrame(frame *buffer.Frame, mask *Mask, onConfigured func(w, h int)) {
+	// Store frame for render notifications and map to mask
 	l.framesMut.Lock()
 	l.frames = append(l.frames, frame)
+	l.maskForFrame[frame] = mask
 	l.framesMut.Unlock()
 
 	// Set up configure handler
@@ -112,13 +91,24 @@ func (l *Layout) AddFrame(frame *buffer.Frame, onConfigured func(w, h int)) {
 	})
 }
 
-// renderFrame renders all drawables to a single frame's pixel buffer.
+// renderFrame renders all contents from the widget to a single frame's pixel buffer.
 func (l *Layout) renderFrame(frame *buffer.Frame, pixels []byte, width, height int) {
 	stride := width * 4
 
-	// Get layoutitemport position (output position)
-	layoutitemportX := int(frame.OutputX())
-	layoutitemportY := int(frame.OutputY())
+	// Get mask for this frame
+	l.framesMut.Lock()
+	mask := l.maskForFrame[frame]
+	l.framesMut.Unlock()
+
+	if mask == nil {
+		return
+	}
+
+	// Get widget that owns this mask
+	widget := mask.widget
+	if widget == nil {
+		return
+	}
 
 	// Get DPI from output
 	dpi := 96.0
@@ -134,66 +124,112 @@ func (l *Layout) renderFrame(frame *buffer.Frame, pixels []byte, width, height i
 		pixels[i] = 0
 	}
 
-	// Render all drawables from all widgets
-	l.widgetsMut.Lock()
-	widgets := l.widgets
-	l.widgetsMut.Unlock()
+	// Get mask bounds (positions mask within frame)
+	maskLeft := int(mask.LayoutItem.Left.Get())
+	maskTop := int(mask.LayoutItem.Top.Get())
+	maskRight := int(mask.LayoutItem.Right.Get())
+	maskBottom := int(mask.LayoutItem.Bottom.Get())
 
-	for _, widget := range widgets {
-		widget.mu.RLock()
-		drawables := widget.drawables
-		widget.mu.RUnlock()
+	maskW := maskRight - maskLeft
+	maskH := maskBottom - maskTop
 
-		for _, d := range drawables {
-			// Get layoutitem bounds
-			layoutitem := d.GetLayoutItem()
-			if layoutitem == nil {
-				continue
+	if maskW <= 0 || maskH <= 0 {
+		return
+	}
+
+	// Visibility check (culling)
+	if maskRight <= 0 || maskBottom <= 0 || maskLeft >= width || maskTop >= height {
+		return
+	}
+
+	// Calculate visible region within frame
+	visX := max(-maskLeft, 0)
+	visY := max(-maskTop, 0)
+	visW := min(maskW, width-maskLeft) - visX
+	visH := min(maskH, height-maskTop) - visY
+
+	if visW <= 0 || visH <= 0 {
+		return
+	}
+
+	// Get contents
+	widget.mu.RLock()
+	contents := widget.contents
+	contentWidth := widget.ContentWidth_at96DPI
+	contentHeight := widget.ContentHeight_at96DPI
+	widget.mu.RUnlock()
+
+	// Create framebuffer for visible region
+	offsetY := max(maskTop, 0)
+	offsetX := max(maskLeft, 0)
+	offset := offsetY*stride + offsetX*4
+	fb := Framebuffer{
+		pixels: pixels[offset:],
+		stride: stride,
+		width:  visW,
+		height: visH,
+	}
+
+	// If ContentWidth_at96DPI is set, use DPI-normalized rendering
+	if contentWidth > 0 && contentHeight > 0 {
+		// Compute physical content size at this DPI
+		contentW := int(contentWidth * dpi / 96.0)
+		contentH := int(contentHeight * dpi / 96.0)
+
+		// Create temp buffer for full content
+		tempPixels := make([]byte, contentW*contentH*4)
+		tempStride := contentW * 4
+		tempFb := Framebuffer{
+			pixels: tempPixels,
+			stride: tempStride,
+			width:  contentW,
+			height: contentH,
+		}
+
+		// Render all contents to temp buffer
+		for _, content := range contents {
+			content.Draw(tempFb, dpi)
+		}
+
+		// Get clipping config from mask (which portion of content to show)
+		clipX := 0.0
+		clipY := 0.0
+		clipW := 1.0
+		clipH := 1.0
+		if mask.ClipRelW > 0 {
+			clipX = mask.ClipRelX
+			clipW = mask.ClipRelW
+		}
+		if mask.ClipRelH > 0 {
+			clipY = mask.ClipRelY
+			clipH = mask.ClipRelH
+		}
+
+		// Calculate source start position in content buffer
+		srcStartX := int(clipX * float64(contentW))
+		srcStartY := int(clipY * float64(contentH))
+		srcW := int(clipW * float64(contentW))
+		srcH := int(clipH * float64(contentH))
+
+		// Copy visible region from temp buffer to frame
+		// Copy from clipped region in content buffer
+		copyW := min(visW, srcW, contentW-srcStartX)
+		copyH := min(visH, srcH, contentH-srcStartY)
+		for y := 0; y < copyH; y++ {
+			for x := 0; x < copyW; x++ {
+				srcOffset := (srcStartY+y)*tempStride + (srcStartX+x)*4
+				dstOffset := y*stride + x*4
+				// Copy BGRA pixel
+				fb.pixels[dstOffset] = tempPixels[srcOffset]
+				fb.pixels[dstOffset+1] = tempPixels[srcOffset+1]
+				fb.pixels[dstOffset+2] = tempPixels[srcOffset+2]
+				fb.pixels[dstOffset+3] = tempPixels[srcOffset+3]
 			}
-
-			layoutitemLeft := int(layoutitem.Left.Get())
-			layoutitemTop := int(layoutitem.Top.Get())
-			layoutitemRight := int(layoutitem.Right.Get())
-			layoutitemBottom := int(layoutitem.Bottom.Get())
-
-			layoutitemW := layoutitemRight - layoutitemLeft
-			layoutitemH := layoutitemBottom - layoutitemTop
-
-			if layoutitemW <= 0 || layoutitemH <= 0 {
-				continue
-			}
-
-			// Calculate layoutitem position relative to this Frame's layoutitemport
-			relX := layoutitemLeft - layoutitemportX
-			relY := layoutitemTop - layoutitemportY
-
-			// Visibility check (culling)
-			if relX+layoutitemW <= 0 || relY+layoutitemH <= 0 || relX >= width || relY >= height {
-				continue // Off-screen, skip
-			}
-
-			// Calculate clip region in layoutitem's local space
-			clipX := max(-relX, 0)                         // Clip left if off-left
-			clipY := max(-relY, 0)                         // Clip top if off-top
-			clipW := min(layoutitemW, width-relX) - clipX  // Clip right
-			clipH := min(layoutitemH, height-relY) - clipY // Clip bottom
-
-			if clipW <= 0 || clipH <= 0 {
-				continue
-			}
-
-			// Draw layoutitem with pre-offset pixel slice
-			// LayoutItem draws in local space (0,0) in the framebuffer
-			offsetY := max(relY, 0)
-			offsetX := max(relX, 0)
-			offset := offsetY*stride + offsetX*4
-			fb := Framebuffer{
-				pixels: pixels[offset:],
-				stride: stride,
-				width:  clipW,
-				height: clipH,
-			}
-			d.Draw(fb, dpi)
+		}
+	} else {
+		// No DPI normalization - render directly to framebuffer
+		for _, content := range contents {
+			content.Draw(fb, dpi)
 		}
 	}
 
@@ -307,6 +343,8 @@ func (l *Layout) Add(constraints ...Constraints) ConstraintHandle {
 			markers = append(markers, marker)
 		}
 	}
+	// Sync values from solver after adding constraints
+	l.syncFromSolver()
 	return ConstraintHandle{layout: l, markers: markers}
 }
 
@@ -320,6 +358,8 @@ func (l *Layout) AddWithPriority(priority Priority, constraints ...Constraints) 
 			markers = append(markers, marker)
 		}
 	}
+	// Sync values from solver after adding constraints
+	l.syncFromSolver()
 	return ConstraintHandle{layout: l, markers: markers}
 }
 
@@ -341,20 +381,14 @@ func (l *Layout) NewVar() Expr {
 	return Expr{kind: exprVar, state: state, layout: l}
 }
 
-// resolve syncs expr values → casso → expr values
-// Runs immediately on every Expr.Set()
-func (l *Layout) resolve(changedSymbol casso.Symbol) {
+// syncFromSolver reads all values from cassowary and updates expr states.
+// Called after adding constraints to immediately sync values.
+func (l *Layout) syncFromSolver() {
 	l.resolveMut.Lock()
 	l.resolving = true
 	l.resolveMut.Unlock()
 
-	state := l.vars[changedSymbol]
-	// Edit with Weak priority so Strong constraints can override
-	l.inner.Edit(changedSymbol, Weak)
-	l.inner.Suggest(changedSymbol, state.value)
-
 	// Get resolved values from casso and update expressions
-	// Use SetQuiet to avoid triggering OnChange (prevents infinite loop)
 	for sym, state := range l.vars {
 		newVal := l.inner.Val(sym)
 		if newVal != state.value {
@@ -372,6 +406,26 @@ func (l *Layout) resolve(changedSymbol casso.Symbol) {
 
 	// Request render after constraint pass completes
 	l.RequestRender()
+}
+
+// resolve syncs expr values → casso → expr values
+// Runs immediately on every Expr.Set()
+func (l *Layout) resolve(changedSymbol casso.Symbol) {
+	l.resolveMut.Lock()
+	l.resolving = true
+	l.resolveMut.Unlock()
+
+	state := l.vars[changedSymbol]
+	// Edit with Weak priority so Strong constraints can override
+	l.inner.Edit(changedSymbol, Weak)
+	l.inner.Suggest(changedSymbol, state.value)
+
+	l.resolveMut.Lock()
+	l.resolving = false
+	l.resolveMut.Unlock()
+
+	// Sync all values from solver
+	l.syncFromSolver()
 }
 
 // NewLayoutItem creates layoutitem via layout
