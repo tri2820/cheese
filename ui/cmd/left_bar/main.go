@@ -66,6 +66,7 @@ func main() {
 
 	log.Printf("Virtual desktop: %dx%d, %d outputs", maxX, maxY, len(outputs))
 
+	// [LAYER SETUP]
 	// Create a surface+layer+frame for EACH output
 	for i, output := range outputs {
 		log.Printf("Setting up output %d: %s at (%d, %d) size %dx%d",
