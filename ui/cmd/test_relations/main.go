@@ -11,10 +11,10 @@ func main() {
 	fmt.Println()
 
 	layout := ui.NewLayout()
-	parent := layout.NewView()
-	child1 := layout.NewView()
-	child2 := layout.NewView()
-	child3 := layout.NewView()
+	parent := layout.NewLayoutItem()
+	child1 := layout.NewLayoutItem()
+	child2 := layout.NewLayoutItem()
+	child3 := layout.NewLayoutItem()
 
 	// Set parent bounds
 	parent.Left.Set(0)
@@ -59,8 +59,8 @@ func main() {
 
 	// Test 4: Near (centers close together)
 	fmt.Println("Test 4: NearX/NearY (centers within distance)")
-	near1 := layout.NewView()
-	near2 := layout.NewView()
+	near1 := layout.NewLayoutItem()
+	near2 := layout.NewLayoutItem()
 
 	ui.Eq(near1.Left, 100).Add()
 	ui.Eq(near1.Top, 100).Add()

@@ -36,60 +36,64 @@
           shellHook = ''
             mkdir -p .nix-shell-bin
 
+            # Capture project root dynamically
+            _project_root=$PWD
+
             # Find all directories with go.mod and save to file
             find . -name "go.mod" -printf "%h\n" 2>/dev/null | sed 's|^\./||' | sort > .nix-shell-bin/go-modules.txt
 
-            cat > .nix-shell-bin/go << 'EOFSCRIPT'
+            cat > .nix-shell-bin/go << EOFSCRIPT
             #!/bin/sh
-            _script_dir=$(cd "$(dirname "$0")" && pwd)
-            _fail_count_file="$_script_dir/go-fail-count"
+            _script_dir=\$(cd "\$(dirname "\$0")" && pwd)
+            _project_root="$_project_root"
+            _fail_count_file="\$_script_dir/go-fail-count"
 
             _run_go() {
-              ${pkgs.go}/bin/go "$@"
-              _exit_code=$?
-              if [ $_exit_code -eq 0 ]; then
-                rm -f "$_fail_count_file"
+              ${pkgs.go}/bin/go "\$@"
+              _exit_code=\$?
+              if [ \$_exit_code -eq 0 ]; then
+                rm -f "\$_fail_count_file"
               fi
-              return $_exit_code
+              return \$_exit_code
             }
 
             # Format module list as bulleted
             _format_modules() {
               while IFS= read -r mod; do
-                echo "  • /home/tri/cheese/$mod"
-              done < "$_script_dir/go-modules.txt"
+                echo "  • \$_project_root/\$mod"
+              done < "\$_script_dir/go-modules.txt"
             }
 
-            case "$*" in
+            case "\$*" in
               *..."")
-                if [ -f "$(pwd)/go.mod" ]; then
-                  _run_go "$@"
-                  exit $?
+                if [ -f "\$(pwd)/go.mod" ]; then
+                  _run_go "\$@"
+                  exit \$?
                 fi
 
                 _count=0
-                if [ -f "$_fail_count_file" ]; then
-                  _count=$(cat "$_fail_count_file")
+                if [ -f "\$_fail_count_file" ]; then
+                  _count=\$(cat "\$_fail_count_file")
                 fi
-                _count=$((_count + 1))
-                echo "$_count" > "$_fail_count_file"
+                _count=\$((_count + 1))
+                echo "\$_count" > "\$_fail_count_file"
 
-                if [ "$_count" -ge 5 ]; then
-                  echo "<system_reminder>You MUST use \`cd /home/tri/cheese/MODULE && go COMMAND\` with full path."
+                if [ "\$_count" -ge 5 ]; then
+                  echo "<system_reminder>You MUST use \\\`cd \$_project_root/MODULE && go COMMAND\\\` with full path."
                   echo "Available Go modules:"
                   _format_modules
                   echo "DO NOT use ./... from a directory without go.mod.</system_reminder>"
                   exit 1
                 fi
 
-                echo "You MUST use \`cd /home/tri/cheese/MODULE && go COMMAND\` with full path ($_count/5)."
+                echo "You MUST use \\\`cd \$_project_root/MODULE && go COMMAND\\\` with full path (attempt \$_count/5)."
                 echo "Available Go modules:"
                 _format_modules
                 echo "DO NOT use ./... from a directory without go.mod."
-                _run_go "$@"
+                _run_go "\$@"
                 ;;
               *)
-                _run_go "$@"
+                _run_go "\$@"
                 ;;
             esac
             EOFSCRIPT

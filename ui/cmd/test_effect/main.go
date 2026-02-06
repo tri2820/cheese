@@ -12,8 +12,8 @@ func main() {
 	fmt.Println()
 
 	layout := ui.NewLayout()
-	parent := layout.NewView()
-	child := layout.NewView()
+	parent := layout.NewLayoutItem()
+	child := layout.NewLayoutItem()
 
 	// Test 1: Effect triggers on dependency change
 	fmt.Println("Test 1: Effect with Expr dependencies")

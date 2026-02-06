@@ -17,7 +17,7 @@ const (
 	Weak     Priority = casso.Weak
 )
 
-// RenderFunc is a function that renders to a viewport's pixel buffer.
+// RenderFunc is a function that renders to a layoutitemport's pixel buffer.
 type RenderFunc func(width, height int, time uint32, pixels []byte)
 
 // Rect represents a rectangle for clipping.
@@ -25,8 +25,8 @@ type Rect struct {
 	X, Y, W, H int
 }
 
-// Framebuffer represents a pixel buffer that views can draw into.
-// The origin (0,0) is at the visible region of the view in the frame.
+// Framebuffer represents a pixel buffer that layoutitems can draw into.
+// The origin (0,0) is at the visible region of the layoutitem in the frame.
 type Framebuffer struct {
 	pixels []byte
 	stride int
@@ -57,7 +57,7 @@ func (fb Framebuffer) Height() int { return fb.height }
 // Layout handles coordinate translation, clipping, and DPI.
 type Drawable interface {
 	Draw(fb Framebuffer, dpi float64)
-	GetView() *View
+	GetLayoutItem() *LayoutItem
 }
 
 // Layout wraps a casso.Solver with convenient methods for our types
@@ -117,9 +117,9 @@ func (l *Layout) AddFrame(frame *buffer.Frame, onConfigured func(w, h int)) {
 func (l *Layout) renderFrame(frame *buffer.Frame, pixels []byte, width, height int) {
 	stride := width * 4
 
-	// Get viewport position (output position)
-	viewportX := int(frame.OutputX())
-	viewportY := int(frame.OutputY())
+	// Get layoutitemport position (output position)
+	layoutitemportX := int(frame.OutputX())
+	layoutitemportY := int(frame.OutputY())
 
 	// Get DPI from output
 	dpi := 96.0
@@ -141,45 +141,45 @@ func (l *Layout) renderFrame(frame *buffer.Frame, pixels []byte, width, height i
 	l.drawablesMut.Unlock()
 
 	for _, d := range drawables {
-		// Get view bounds
-		view := d.GetView()
-		if view == nil {
+		// Get layoutitem bounds
+		layoutitem := d.GetLayoutItem()
+		if layoutitem == nil {
 			continue
 		}
 
-		viewLeft := int(view.Left.Get())
-		viewTop := int(view.Top.Get())
-		viewRight := int(view.Right.Get())
-		viewBottom := int(view.Bottom.Get())
+		layoutitemLeft := int(layoutitem.Left.Get())
+		layoutitemTop := int(layoutitem.Top.Get())
+		layoutitemRight := int(layoutitem.Right.Get())
+		layoutitemBottom := int(layoutitem.Bottom.Get())
 
-		viewW := viewRight - viewLeft
-		viewH := viewBottom - viewTop
+		layoutitemW := layoutitemRight - layoutitemLeft
+		layoutitemH := layoutitemBottom - layoutitemTop
 
-		if viewW <= 0 || viewH <= 0 {
+		if layoutitemW <= 0 || layoutitemH <= 0 {
 			continue
 		}
 
-		// Calculate view position relative to this Frame's viewport
-		relX := viewLeft - viewportX
-		relY := viewTop - viewportY
+		// Calculate layoutitem position relative to this Frame's layoutitemport
+		relX := layoutitemLeft - layoutitemportX
+		relY := layoutitemTop - layoutitemportY
 
 		// Visibility check (culling)
-		if relX+viewW <= 0 || relY+viewH <= 0 || relX >= width || relY >= height {
+		if relX+layoutitemW <= 0 || relY+layoutitemH <= 0 || relX >= width || relY >= height {
 			continue // Off-screen, skip
 		}
 
-		// Calculate clip region in view's local space
-		clipX := max(-relX, 0)                   // Clip left if off-left
-		clipY := max(-relY, 0)                   // Clip top if off-top
-		clipW := min(viewW, width-relX) - clipX  // Clip right
-		clipH := min(viewH, height-relY) - clipY // Clip bottom
+		// Calculate clip region in layoutitem's local space
+		clipX := max(-relX, 0)                         // Clip left if off-left
+		clipY := max(-relY, 0)                         // Clip top if off-top
+		clipW := min(layoutitemW, width-relX) - clipX  // Clip right
+		clipH := min(layoutitemH, height-relY) - clipY // Clip bottom
 
 		if clipW <= 0 || clipH <= 0 {
 			continue
 		}
 
-		// Draw view with pre-offset pixel slice
-		// View draws in local space (0,0) in the framebuffer
+		// Draw layoutitem with pre-offset pixel slice
+		// LayoutItem draws in local space (0,0) in the framebuffer
 		offsetY := max(relY, 0)
 		offsetX := max(relX, 0)
 		offset := offsetY*stride + offsetX*4
@@ -349,9 +349,9 @@ func (l *Layout) resolve(changedSymbol casso.Symbol) {
 	l.RequestRender()
 }
 
-// NewView creates view via layout
-func (l *Layout) NewView() *View {
-	return &View{
+// NewLayoutItem creates layoutitem via layout
+func (l *Layout) NewLayoutItem() *LayoutItem {
+	return &LayoutItem{
 		layout: l,
 		Left:   l.NewVar(),
 		Right:  l.NewVar(),

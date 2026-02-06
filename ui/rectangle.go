@@ -11,20 +11,20 @@ type drawCommand struct {
 	color struct{ r, g, b, a uint8 }
 }
 
-// Rectangle is a view that extends View with background color.
+// Rectangle is a layoutitem that extends LayoutItem with background color.
 type Rectangle struct {
-	*View                         // Embedding: Rectangle IS-A View
-	Color  signals.Signal[string] // Background color (e.g., "#FF0000")
-	layout *Layout                // Reference to layout for render requests
-	cmd    signals.Signal[drawCommand]
+	*LayoutItem                        // Embedding: Rectangle IS-A LayoutItem
+	Color       signals.Signal[string] // Background color (e.g., "#FF0000")
+	layout      *Layout                // Reference to layout for render requests
+	cmd         signals.Signal[drawCommand]
 }
 
-// NewRectangle creates a new Rectangle view.
+// NewRectangle creates a new Rectangle layoutitem.
 func (l *Layout) NewRectangle() *Rectangle {
 	r := &Rectangle{
-		View:   l.NewView(),
-		Color:  signals.New("#FFFFFF"), // Default white
-		layout: l,
+		LayoutItem: l.NewLayoutItem(),
+		Color:      signals.New("#FFFFFF"), // Default white
+		layout:     l,
 	}
 
 	// Track drawable in layout for rendering
@@ -52,7 +52,7 @@ func (l *Layout) NewRectangle() *Rectangle {
 }
 
 // Draw renders the rectangle to the pixel buffer.
-// The framebuffer origin (0,0) is at the view's visible region.
+// The framebuffer origin (0,0) is at the layoutitem's visible region.
 func (r *Rectangle) Draw(fb Framebuffer, dpi float64) {
 	cmd := r.cmd.Get()
 
@@ -64,7 +64,7 @@ func (r *Rectangle) Draw(fb Framebuffer, dpi float64) {
 	}
 }
 
-// GetView returns the embedded View (for Drawable interface).
-func (r *Rectangle) GetView() *View {
-	return r.View
+// GetLayoutItem returns the embedded LayoutItem (for Drawable interface).
+func (r *Rectangle) GetLayoutItem() *LayoutItem {
+	return r.LayoutItem
 }

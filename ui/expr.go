@@ -469,14 +469,14 @@ func Between(expr any, min, max float64) Constraints {
 	return result
 }
 
-// AspectRatio constrains an view to have the given aspect ratio
+// AspectRatio constrains an layoutitem to have the given aspect ratio
 // AspectRatio(child, 16, 9) means width:height = 16:9
 // Returns: child.Width() * 9 == child.Height() * 16
 // Formula: width * heightRatio == height * widthRatio
 // So: width/height = widthRatio/heightRatio
-func AspectRatio(view *View, widthRatio, heightRatio float64) Constraints {
-	width := view.Width()
-	height := view.Height()
+func AspectRatio(layoutitem *LayoutItem, widthRatio, heightRatio float64) Constraints {
+	width := layoutitem.Width()
+	height := layoutitem.Height()
 	return Constraints{{
 		relation: relEq,
 		left:     width.Mul(heightRatio),
@@ -520,7 +520,7 @@ func (c Constraints) IsWeak() Constraints {
 // Returns a handle that can be used to remove the constraints
 func (c Constraints) Add() ConstraintHandle {
 	if len(c) == 0 || c[0].layout == nil {
-		panic("Add(): constraint has no layout - use View methods like view.RightOf(other)")
+		panic("Add(): constraint has no layout - use LayoutItem methods like layoutitem.RightOf(other)")
 	}
 	return c[0].layout.Add(c)
 }

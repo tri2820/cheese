@@ -7,13 +7,13 @@ import (
 )
 
 func main() {
-	fmt.Println("=== Test: layout.Add() vs View.Method().Add() ===")
+	fmt.Println("=== Test: layout.Add() vs LayoutItem.Method().Add() ===")
 	fmt.Println()
 
 	// Method 1: layout.Add() for standalone constraints
 	fmt.Println("Method 1: layout.Add() for Width/Height")
 	layout := ui.NewLayout()
-	box := layout.NewView()
+	box := layout.NewLayoutItem()
 
 	layout.Add(ui.Eq(box.Width(), 200))
 	layout.Add(ui.Eq(box.Height(), 100))
@@ -22,11 +22,11 @@ func main() {
 
 	fmt.Printf("  Box: Width=%.0f Height=%.0f ✓\n", box.Width().Get(), box.Height().Get())
 
-	// Method 2: .Add() for view relationship constraints
-	fmt.Println("\nMethod 2: View.Method().Add() for relationships")
+	// Method 2: .Add() for layoutitem relationship constraints
+	fmt.Println("\nMethod 2: LayoutItem.Method().Add() for relationships")
 	layout2 := ui.NewLayout()
-	parent := layout2.NewView()
-	child := layout2.NewView()
+	parent := layout2.NewLayoutItem()
+	child := layout2.NewLayoutItem()
 
 	// Child is right of parent with gap
 	child.RightOf(parent, 10).IsRequired().Add()
@@ -39,8 +39,8 @@ func main() {
 	// Method 3: Combine both
 	fmt.Println("\nMethod 3: Combine both APIs")
 	layout3 := ui.NewLayout()
-	A := layout3.NewView()
-	B := layout3.NewView()
+	A := layout3.NewLayoutItem()
+	B := layout3.NewLayoutItem()
 
 	B.RightOf(A, 20).Add()             // Fluent API
 	layout3.Add(ui.Eq(A.Width(), 100)) // layout.Add()

@@ -11,15 +11,15 @@ func main() {
 	fmt.Println()
 
 	layout := ui.NewLayout()
-	parent := layout.NewView()
-	child := layout.NewView()
+	parent := layout.NewLayoutItem()
+	child := layout.NewLayoutItem()
 
 	// Test 1: Fluent API on standalone constraints
 	fmt.Println("Test 1: ui.Eq(child.Left, parent.Left.Add(10)).Add()")
 	ui.Eq(child.Left, parent.Left.Add(10)).Add()
 	ui.Eq(child.Top, parent.Top.Add(20)).Add()
 
-	// Test 2: Fluent API on view methods
+	// Test 2: Fluent API on layoutitem methods
 	fmt.Println("Test 2: child.Inside(parent).Add()")
 	child.Inside(parent).Add()
 
@@ -40,7 +40,7 @@ func main() {
 
 	// Test 4: Multiple constraints in one Add()
 	fmt.Println("Test 4: Multiple constraints with single .Add()")
-	another := layout.NewView()
+	another := layout.NewLayoutItem()
 	ui.Eq(child.Width(), another.Width()).Add()
 	ui.Eq(child.Height(), another.Height()).Add()
 

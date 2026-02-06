@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	fmt.Println("=== Frame View Example ===")
+	fmt.Println("=== Frame LayoutItem Example ===")
 	fmt.Println()
 
 	layout := ui.NewLayout()
