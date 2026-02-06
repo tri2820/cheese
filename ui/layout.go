@@ -25,12 +25,38 @@ type Rect struct {
 	X, Y, W, H int
 }
 
+// Framebuffer represents a pixel buffer that widgets can draw into.
+// The origin (0,0) is at the visible region of the widget in the frame.
+type Framebuffer struct {
+	pixels []byte
+	stride int
+	width  int
+	height int
+}
+
+// SetPixel sets a single pixel at the given coordinates.
+func (fb Framebuffer) SetPixel(x, y int, r, g, b, a uint8) {
+	if x < 0 || x >= fb.width || y < 0 || y >= fb.height {
+		return
+	}
+	offset := y*fb.stride + x*4
+	fb.pixels[offset] = b
+	fb.pixels[offset+1] = g
+	fb.pixels[offset+2] = r
+	fb.pixels[offset+3] = a
+}
+
+// Width returns the framebuffer width.
+func (fb Framebuffer) Width() int { return fb.width }
+
+// Height returns the framebuffer height.
+func (fb Framebuffer) Height() int { return fb.height }
+
 // Widget is an interface for renderable UI elements.
 // Widgets draw in their local coordinate space (0,0 = top-left corner).
 // Layout handles coordinate translation, clipping, and DPI.
-// The pixels slice is already offset to the widget's origin.
 type Widget interface {
-	Draw(pixels []byte, stride int, clip Rect, dpi float64)
+	Draw(fb Framebuffer, dpi float64)
 }
 
 // Layout wraps a casso.Solver with convenient methods for our types
@@ -153,9 +179,17 @@ func (l *Layout) renderFrame(frame *buffer.Frame, pixels []byte, width, height i
 		}
 
 		// Draw widget with pre-offset pixel slice
-		// Widget can now draw from (0,0) in local space
-		offset := relY*stride + relX*4
-		widget.Draw(pixels[offset:], stride, Rect{X: clipX, Y: clipY, W: clipW, H: clipH}, dpi)
+		// Widget draws in local space (0,0) in the framebuffer
+		offsetY := max(relY, 0)
+		offsetX := max(relX, 0)
+		offset := offsetY*stride + offsetX*4
+		fb := Framebuffer{
+			pixels: pixels[offset:],
+			stride: stride,
+			width:  clipW,
+			height: clipH,
+		}
+		widget.Draw(fb, dpi)
 	}
 
 	// Clear dirty flag

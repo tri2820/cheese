@@ -57,19 +57,14 @@ func (r *Rectangle) GetElement() *Element {
 }
 
 // Draw renders the rectangle to the pixel buffer.
-// The pixels slice is already offset to the widget's origin, so the widget
-// can draw from (0,0) in its local coordinate space.
-func (r *Rectangle) Draw(pixels []byte, stride int, clip Rect, dpi float64) {
+// The framebuffer origin (0,0) is at the widget's visible region.
+func (r *Rectangle) Draw(fb Framebuffer, dpi float64) {
 	cmd := r.cmd.Get()
 
-	// Only draw within the clip region (in widget's local space)
-	for localY := clip.Y; localY < clip.Y+clip.H; localY++ {
-		pixelRow := pixels[localY*stride:]
-
-		for localX := clip.X; localX < clip.X+clip.W; localX++ {
-			// ARGB8888 format: B,G,R,A on little-endian
-			bgra := []byte{cmd.color.b, cmd.color.g, cmd.color.r, cmd.color.a}
-			copy(pixelRow[localX*4:], bgra)
+	// Draw to the entire framebuffer (already clipped by layout)
+	for y := 0; y < fb.Height(); y++ {
+		for x := 0; x < fb.Width(); x++ {
+			fb.SetPixel(x, y, cmd.color.r, cmd.color.g, cmd.color.b, cmd.color.a)
 		}
 	}
 }

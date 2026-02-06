@@ -25,63 +25,83 @@ func main() {
 	}
 	defer disp.Close()
 
-	// Create UI layout with virtual desktop
+	// Create ONE shared layout for all outputs
 	layout := ui.NewLayout()
-
-	// Start render loop
 	go layout.RenderLoop()
 
-	// Create a rectangle for the bar
-	bar := layout.NewRectangle()
-	ui.Eq(bar.Left, 0).Add()
-	ui.Eq(bar.Top, 0).Add()
+	// Create ONE rect that will span all monitors
+	rect := layout.NewRectangle()
+	ui.Eq(rect.Left, 0).Add()
+	ui.Eq(rect.Top, 0).Add()
+	rect.Color.Set("#303030")
 
-	// Set color to dark gray (like bar.go)
-	bar.Color.Set("#303030")
-
-	// Create surface
-	surf, err := surface.New(disp.Compositor())
-	if err != nil {
-		log.Fatalf("Failed to create surface: %v", err)
+	// Calculate virtual desktop bounds
+	outputs := disp.ReadyOutputs()
+	var maxX, maxY int
+	for _, output := range outputs {
+		outputX := int(output.X)
+		outputY := int(output.Y)
+		right := outputX + int(output.ModeWidth)
+		bottom := outputY + int(output.ModeHeight)
+		if right > maxX {
+			maxX = right
+		}
+		if bottom > maxY {
+			maxY = bottom
+		}
 	}
-	defer surf.Close()
 
-	// Create layer surface (compositor chooses output)
-	layer, err := shell.NewLayer(surf, disp.LayerShell(), shell.LayerConfig{
-		Layer:         shell.LayerPositionTop,
-		Name:          "ui-test",
-		Anchor:        shell.AnchorTop | shell.AnchorLeft | shell.AnchorRight,
-		Width:         0, // Full width
-		Height:        24,
-		ExclusiveZone: 24,
-	})
-	if err != nil {
-		log.Fatalf("Failed to create layer: %v", err)
+	// Set rect to span entire virtual desktop (vertical rect on left)
+	rect.Right.Set(30) // Fixed width 30px
+	rect.Bottom.Set(float64(maxY))
+
+	log.Printf("Virtual desktop: %dx%d, %d outputs", maxX, maxY, len(outputs))
+
+	// Create a surface+layer+frame for EACH output
+	for i, output := range outputs {
+		log.Printf("Setting up output %d: %s at (%d, %d) size %dx%d",
+			i, output.Name, output.X, output.Y, output.ModeWidth, output.ModeHeight)
+
+		// Create surface for this output
+		surf, err := surface.New(disp.Compositor())
+		if err != nil {
+			log.Fatalf("Failed to create surface: %v", err)
+		}
+
+		// Create layer surface for THIS output
+		layer, err := shell.NewLayer(surf, disp.LayerShell(), shell.LayerConfig{
+			Layer:         shell.LayerPositionTop,
+			Name:          "ui-test",
+			Anchor:        shell.AnchorTop | shell.AnchorLeft | shell.AnchorBottom,
+			Width:         30,
+			Height:        0,
+			ExclusiveZone: 30,
+			Output:        output.WlOutput(), // Bind to this output
+		})
+		if err != nil {
+			log.Fatalf("Failed to create layer: %v", err)
+		}
+
+		// Create frame for this layer
+		frame, err := buffer.NewFrame(disp.Shm(), layer, disp, buffer.FrameConfig{
+			Format:  client.WlShmFormatArgb8888,
+			Buffers: 2,
+		})
+		if err != nil {
+			log.Fatalf("Failed to create frame: %v", err)
+		}
+		frame.SetManualMode(true)
+
+		// Add frame to shared layout
+		layout.AddFrame(frame, func(w, h int) {
+			log.Printf("Frame configured: %dx%d at output pos (%d, %d)",
+				w, h, frame.OutputX(), frame.OutputY())
+		})
 	}
-	defer layer.Close()
 
-	// Create frame
-	frame, err := buffer.NewFrame(disp.Shm(), layer, disp, buffer.FrameConfig{
-		Format:  client.WlShmFormatArgb8888,
-		Buffers: 2,
-	})
-	if err != nil {
-		log.Fatalf("Failed to create frame: %v", err)
-	}
-	defer frame.Close()
-	frame.SetManualMode(true)
+	log.Println("Gray rect running... Press Ctrl+C to exit")
 
-	// Add frame to layout - Layout handles OnConfigured and OnRender wiring
-	layout.AddFrame(frame, func(w, h int) {
-		log.Printf("Output configured: %dx%d at output pos (%d, %d)", w, h, frame.OutputX(), frame.OutputY())
-		// Update bar bounds to match virtual dimensions
-		bar.Right.Set(float64(frame.OutputX()) + float64(w))
-		bar.Bottom.Set(float64(frame.OutputY()) + float64(h))
-	})
-
-	log.Println("Gray bar running... Press Ctrl+C to exit")
-
-	// Run event loop (dispatches Wayland events including configure)
+	// Run event loop
 	if err := disp.Run(); err != nil {
 		log.Fatalf("Dispatch error: %v", err)
 	}
