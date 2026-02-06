@@ -11,8 +11,8 @@ func main() {
 	fmt.Println()
 
 	layout := ui.NewLayout()
-	parent := layout.NewElement()
-	child := layout.NewElement()
+	parent := layout.NewView()
+	child := layout.NewView()
 
 	// Test 1: Required (highest priority - must be satisfied)
 	fmt.Println("Test 1: Required priority")
@@ -37,9 +37,9 @@ func main() {
 
 	// Test 4: Conflict resolution
 	fmt.Println("Test 4: Priority conflict resolution")
-	smallChild := layout.NewElement()
+	smallChild := layout.NewView()
 	smallChild.Inside(parent).IsRequired().Add()
-	ui.Eq(smallChild.Width(), 500).Add()           // Strong: wants width=500
+	ui.Eq(smallChild.Width(), 500).Add()                   // Strong: wants width=500
 	ui.Between(smallChild.Width(), 50, 100).IsWeak().Add() // Weak: wants 50-100
 
 	parent.Left.Set(0)

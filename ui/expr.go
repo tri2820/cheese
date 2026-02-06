@@ -11,15 +11,15 @@ import (
 type exprState struct {
 	value         float64
 	onChange      []func()
-	onChangeQuiet  []func()
+	onChangeQuiet []func()
 	symbol        casso.Symbol
 }
 
 // Expr represents a constraint expression
 type Expr struct {
-	kind  exprKind
-	state *exprState // Shared state for exprVar
-	layout *Layout   // Layout for exprVar (where it was created)
+	kind   exprKind
+	state  *exprState // Shared state for exprVar
+	layout *Layout    // Layout for exprVar (where it was created)
 	// For constant: the float64 value
 	constant float64
 	// For operations: the operator and operands
@@ -469,14 +469,14 @@ func Between(expr any, min, max float64) Constraints {
 	return result
 }
 
-// AspectRatio constrains an element to have the given aspect ratio
+// AspectRatio constrains an view to have the given aspect ratio
 // AspectRatio(child, 16, 9) means width:height = 16:9
 // Returns: child.Width() * 9 == child.Height() * 16
 // Formula: width * heightRatio == height * widthRatio
 // So: width/height = widthRatio/heightRatio
-func AspectRatio(element *Element, widthRatio, heightRatio float64) Constraints {
-	width := element.Width()
-	height := element.Height()
+func AspectRatio(view *View, widthRatio, heightRatio float64) Constraints {
+	width := view.Width()
+	height := view.Height()
 	return Constraints{{
 		relation: relEq,
 		left:     width.Mul(heightRatio),
@@ -520,7 +520,7 @@ func (c Constraints) IsWeak() Constraints {
 // Returns a handle that can be used to remove the constraints
 func (c Constraints) Add() ConstraintHandle {
 	if len(c) == 0 || c[0].layout == nil {
-		panic("Add(): constraint has no layout - use Element methods like element.RightOf(other)")
+		panic("Add(): constraint has no layout - use View methods like view.RightOf(other)")
 	}
 	return c[0].layout.Add(c)
 }

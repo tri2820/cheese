@@ -29,13 +29,22 @@ func main() {
 	layout := ui.NewLayout()
 	go layout.RenderLoop()
 
+	// [APP] means *This is specific logic for this Bar app*
+
 	// Create ONE rect that will span all monitors
+	// [APP] Since we know that we are creating a vertical bar on the left, we can use a single view that spans the entire virtual desktop.
+	// Each output's layer will then render the relevant portion of this shared view.
+	// The reason this works is because our outputs are ALSO stacked vertically also, and ALSO aligned left.
+	// If we wanted to draw the bar on the right, or draw so that it appears horizontally continuous across outputs at the top,
+	// then we would need to create separate view for each output
+	// and synchronize them.
 	rect := layout.NewRectangle()
 	ui.Eq(rect.Left, 0).Add()
 	ui.Eq(rect.Top, 0).Add()
 	rect.Color.Set("#303030")
 
 	// Calculate virtual desktop bounds
+	// [APP] This is needed because we need to set the rect size to cover the entire desktop
 	outputs := disp.ReadyOutputs()
 	var maxX, maxY int
 	for _, output := range outputs {

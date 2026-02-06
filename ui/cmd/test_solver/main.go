@@ -30,7 +30,7 @@ func main() {
 func testBasicWidthHeight() {
 	fmt.Println("Test 1: Basic Width/Height Correctness")
 	layout := ui.NewLayout()
-	box := layout.NewElement()
+	box := layout.NewView()
 
 	// Direct set of bounds
 	box.Left.Set(0)
@@ -57,7 +57,7 @@ func testBasicWidthHeight() {
 func testDerivedSignalArea() {
 	fmt.Println("Test 2: Derived Signal from Expr (Area = Width * Height)")
 	layout := ui.NewLayout()
-	box := layout.NewElement()
+	box := layout.NewView()
 
 	box.Left.Set(0)
 	box.Right.Set(150)
@@ -102,7 +102,7 @@ func testDerivedSignalArea() {
 func testMixSignalAndExpr() {
 	fmt.Println("Test 3: Mix Signal[T] and Expr in Effect")
 	layout := ui.NewLayout()
-	box := layout.NewElement()
+	box := layout.NewView()
 
 	// Create a standalone signal
 	scaleFactor := signals.New(2.0)
@@ -151,8 +151,8 @@ func testMixSignalAndExpr() {
 func testSolverCorrectnessWithConflicts() {
 	fmt.Println("Test 4: Solver Correctness with Conflicting Constraints")
 	layout := ui.NewLayout()
-	box := layout.NewElement()
-	container := layout.NewElement()
+	box := layout.NewView()
+	container := layout.NewView()
 
 	// Set container bounds
 	container.Left.Set(0)
@@ -194,7 +194,7 @@ func testSolverCorrectnessWithConflicts() {
 func testComputedExpressionReactivity() {
 	fmt.Println("Test 5: Computed Expression Correctness")
 	layout := ui.NewLayout()
-	box := layout.NewElement()
+	box := layout.NewView()
 
 	centerUpdates := 0
 	sizeUpdates := 0
@@ -283,7 +283,7 @@ func testComputedExpressionReactivity() {
 func testAspectRatio() {
 	fmt.Println("Test 6: Aspect Ratio Constraint")
 	layout := ui.NewLayout()
-	box := layout.NewElement()
+	box := layout.NewView()
 
 	// Note: Edits with Weak priority can be overridden by Strong constraints
 	// When setting bounds individually, the solver may adjust some values to satisfy the aspect ratio

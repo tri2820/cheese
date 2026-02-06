@@ -22,6 +22,7 @@ go.work.sum
 result
 result-*
 .direnv/
+.nix-shell-bin/
 
 # Temporary files
 *.tmp

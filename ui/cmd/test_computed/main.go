@@ -11,7 +11,7 @@ func main() {
 	fmt.Println()
 
 	layout := ui.NewLayout()
-	box := layout.NewElement()
+	box := layout.NewView()
 
 	// Set bounds
 	box.Left.Set(100)
@@ -52,7 +52,7 @@ func main() {
 
 	// Test 5: Constrain using computed expressions
 	fmt.Println("Test 5: Constraints with computed expressions")
-	other := layout.NewElement()
+	other := layout.NewView()
 	ui.Eq(other.CenterX(), box.CenterX()).Add()
 	ui.Eq(other.CenterY(), box.CenterY()).Add()
 	ui.Eq(other.Width(), 100).Add()

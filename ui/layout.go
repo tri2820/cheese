@@ -25,8 +25,8 @@ type Rect struct {
 	X, Y, W, H int
 }
 
-// Framebuffer represents a pixel buffer that widgets can draw into.
-// The origin (0,0) is at the visible region of the widget in the frame.
+// Framebuffer represents a pixel buffer that views can draw into.
+// The origin (0,0) is at the visible region of the view in the frame.
 type Framebuffer struct {
 	pixels []byte
 	stride int
@@ -52,29 +52,30 @@ func (fb Framebuffer) Width() int { return fb.width }
 // Height returns the framebuffer height.
 func (fb Framebuffer) Height() int { return fb.height }
 
-// Widget is an interface for renderable UI elements.
-// Widgets draw in their local coordinate space (0,0 = top-left corner).
+// Drawable is an interface for renderable UI elements.
+// Drawables draw in their local coordinate space (0,0 = top-left corner).
 // Layout handles coordinate translation, clipping, and DPI.
-type Widget interface {
+type Drawable interface {
 	Draw(fb Framebuffer, dpi float64)
+	GetView() *View
 }
 
 // Layout wraps a casso.Solver with convenient methods for our types
 type Layout struct {
-	inner       *casso.Solver
-	vars        map[casso.Symbol]*exprState // symbol → shared state
-	renderReq   chan struct{}               // Render request channel (batched)
-	resolving   bool                        // In constraint resolution pass
-	resolveMut  sync.Mutex                  // Protects resolving flag
-	stopRender  chan struct{}               // Stop render loop
+	inner      *casso.Solver
+	vars       map[casso.Symbol]*exprState // symbol → shared state
+	renderReq  chan struct{}               // Render request channel (batched)
+	resolving  bool                        // In constraint resolution pass
+	resolveMut sync.Mutex                  // Protects resolving flag
+	stopRender chan struct{}               // Stop render loop
 
-	frames   []*buffer.Frame // Frames to notify when render is needed
+	frames    []*buffer.Frame // Frames to notify when render is needed
 	framesMut sync.Mutex      // Protects frames slice
-	dirty    bool            // True when rendering is needed
-	dirtyMut sync.Mutex      // Protects dirty flag
+	dirty     bool            // True when rendering is needed
+	dirtyMut  sync.Mutex      // Protects dirty flag
 
-	widgets    []Widget   // Widgets to render
-	widgetsMut sync.Mutex // Protects widgets slice
+	drawables    []Drawable // Drawables to render
+	drawablesMut sync.Mutex // Protects drawables slice
 }
 
 // NewLayout creates a new constraint solver
@@ -112,7 +113,7 @@ func (l *Layout) AddFrame(frame *buffer.Frame, onConfigured func(w, h int)) {
 	})
 }
 
-// renderFrame renders all widgets to a single frame's pixel buffer.
+// renderFrame renders all drawables to a single frame's pixel buffer.
 func (l *Layout) renderFrame(frame *buffer.Frame, pixels []byte, width, height int) {
 	stride := width * 4
 
@@ -134,52 +135,51 @@ func (l *Layout) renderFrame(frame *buffer.Frame, pixels []byte, width, height i
 		pixels[i] = 0
 	}
 
-	// Render all widgets
-	l.widgetsMut.Lock()
-	widgets := l.widgets
-	l.widgetsMut.Unlock()
+	// Render all drawables
+	l.drawablesMut.Lock()
+	drawables := l.drawables
+	l.drawablesMut.Unlock()
 
-	for _, widget := range widgets {
-		// Get widget bounds
-		elem := widget.(interface{ GetElement() *Element })
-		if elem == nil {
-			continue
-		}
-		element := elem.GetElement()
-
-		widgetLeft := int(element.Left.Get())
-		widgetTop := int(element.Top.Get())
-		widgetRight := int(element.Right.Get())
-		widgetBottom := int(element.Bottom.Get())
-
-		widgetW := widgetRight - widgetLeft
-		widgetH := widgetBottom - widgetTop
-
-		if widgetW <= 0 || widgetH <= 0 {
+	for _, d := range drawables {
+		// Get view bounds
+		view := d.GetView()
+		if view == nil {
 			continue
 		}
 
-		// Calculate widget position relative to this Frame's viewport
-		relX := widgetLeft - viewportX
-		relY := widgetTop - viewportY
+		viewLeft := int(view.Left.Get())
+		viewTop := int(view.Top.Get())
+		viewRight := int(view.Right.Get())
+		viewBottom := int(view.Bottom.Get())
+
+		viewW := viewRight - viewLeft
+		viewH := viewBottom - viewTop
+
+		if viewW <= 0 || viewH <= 0 {
+			continue
+		}
+
+		// Calculate view position relative to this Frame's viewport
+		relX := viewLeft - viewportX
+		relY := viewTop - viewportY
 
 		// Visibility check (culling)
-		if relX+widgetW <= 0 || relY+widgetH <= 0 || relX >= width || relY >= height {
+		if relX+viewW <= 0 || relY+viewH <= 0 || relX >= width || relY >= height {
 			continue // Off-screen, skip
 		}
 
-		// Calculate clip region in widget's local space
-		clipX := max(-relX, 0)                       // Clip left if off-left
-		clipY := max(-relY, 0)                       // Clip top if off-top
-		clipW := min(widgetW, width-relX) - clipX   // Clip right
-		clipH := min(widgetH, height-relY) - clipY  // Clip bottom
+		// Calculate clip region in view's local space
+		clipX := max(-relX, 0)                   // Clip left if off-left
+		clipY := max(-relY, 0)                   // Clip top if off-top
+		clipW := min(viewW, width-relX) - clipX  // Clip right
+		clipH := min(viewH, height-relY) - clipY // Clip bottom
 
 		if clipW <= 0 || clipH <= 0 {
 			continue
 		}
 
-		// Draw widget with pre-offset pixel slice
-		// Widget draws in local space (0,0) in the framebuffer
+		// Draw view with pre-offset pixel slice
+		// View draws in local space (0,0) in the framebuffer
 		offsetY := max(relY, 0)
 		offsetX := max(relX, 0)
 		offset := offsetY*stride + offsetX*4
@@ -189,7 +189,7 @@ func (l *Layout) renderFrame(frame *buffer.Frame, pixels []byte, width, height i
 			width:  clipW,
 			height: clipH,
 		}
-		widget.Draw(fb, dpi)
+		d.Draw(fb, dpi)
 	}
 
 	// Clear dirty flag
@@ -241,11 +241,11 @@ func (l *Layout) RenderLoop() {
 	}
 }
 
-// addWidget adds a widget to the layout for rendering.
-func (l *Layout) addWidget(w Widget) {
-	l.widgetsMut.Lock()
-	l.widgets = append(l.widgets, w)
-	l.widgetsMut.Unlock()
+// addDrawable adds a drawable to the layout for rendering.
+func (l *Layout) addDrawable(d Drawable) {
+	l.drawablesMut.Lock()
+	l.drawables = append(l.drawables, d)
+	l.drawablesMut.Unlock()
 }
 
 // StopRenderLoop stops the automatic render loop.
@@ -349,9 +349,9 @@ func (l *Layout) resolve(changedSymbol casso.Symbol) {
 	l.RequestRender()
 }
 
-// NewElement creates element via layout
-func (l *Layout) NewElement() *Element {
-	return &Element{
+// NewView creates view via layout
+func (l *Layout) NewView() *View {
+	return &View{
 		layout: l,
 		Left:   l.NewVar(),
 		Right:  l.NewVar(),
@@ -376,4 +376,3 @@ func OutputDPI(output *display.Output) float64 {
 	}
 	return dpi
 }
-

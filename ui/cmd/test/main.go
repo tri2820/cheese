@@ -12,8 +12,8 @@ func main() {
 	fmt.Println()
 
 	layout := ui.NewLayout()
-	parent := layout.NewElement()
-	child := layout.NewElement()
+	parent := layout.NewView()
+	child := layout.NewView()
 
 	// Test Effect with computed expressions
 	effectRuns := 0
@@ -48,7 +48,7 @@ func main() {
 
 	// Test 4: Chaining - multiple constraints with same priority
 	fmt.Println("Test 4: Multiple constraints with .IsRequired()")
-	another := layout.NewElement()
+	another := layout.NewView()
 	layout.Add(
 		ui.Eq(child.Width(), another.Width()),
 		ui.Eq(child.Height(), another.Height()),

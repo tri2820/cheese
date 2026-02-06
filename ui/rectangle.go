@@ -11,24 +11,24 @@ type drawCommand struct {
 	color struct{ r, g, b, a uint8 }
 }
 
-// Rectangle is a widget that extends Element with background color.
+// Rectangle is a view that extends View with background color.
 type Rectangle struct {
-	*Element                        // Embedding: Rectangle IS-A Element
-	Color    signals.Signal[string] // Background color (e.g., "#FF0000")
-	layout   *Layout                // Reference to layout for render requests
-	cmd      signals.Signal[drawCommand]
+	*View                         // Embedding: Rectangle IS-A View
+	Color  signals.Signal[string] // Background color (e.g., "#FF0000")
+	layout *Layout                // Reference to layout for render requests
+	cmd    signals.Signal[drawCommand]
 }
 
-// NewRectangle creates a new Rectangle widget.
+// NewRectangle creates a new Rectangle view.
 func (l *Layout) NewRectangle() *Rectangle {
 	r := &Rectangle{
-		Element: l.NewElement(),
-		Color:   signals.New("#FFFFFF"), // Default white
-		layout:  l,
+		View:   l.NewView(),
+		Color:  signals.New("#FFFFFF"), // Default white
+		layout: l,
 	}
 
-	// Track widget in layout for rendering
-	l.addWidget(r)
+	// Track drawable in layout for rendering
+	l.addDrawable(r)
 
 	// Derive draw command from bounds and color
 	r.cmd = signals.Derive(func() drawCommand {
@@ -51,13 +51,8 @@ func (l *Layout) NewRectangle() *Rectangle {
 	return r
 }
 
-// GetElement returns the embedded Element (for Widget interface reflection).
-func (r *Rectangle) GetElement() *Element {
-	return r.Element
-}
-
 // Draw renders the rectangle to the pixel buffer.
-// The framebuffer origin (0,0) is at the widget's visible region.
+// The framebuffer origin (0,0) is at the view's visible region.
 func (r *Rectangle) Draw(fb Framebuffer, dpi float64) {
 	cmd := r.cmd.Get()
 
@@ -67,4 +62,9 @@ func (r *Rectangle) Draw(fb Framebuffer, dpi float64) {
 			fb.SetPixel(x, y, cmd.color.r, cmd.color.g, cmd.color.b, cmd.color.a)
 		}
 	}
+}
+
+// GetView returns the embedded View (for Drawable interface).
+func (r *Rectangle) GetView() *View {
+	return r.View
 }
