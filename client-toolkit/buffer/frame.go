@@ -268,6 +268,11 @@ func (f *Frame) OutputY() int32 {
 	return f.outputY
 }
 
+// Output returns the current output this surface is on.
+func (f *Frame) Output() *display.Output {
+	return f.output
+}
+
 // SetOutputPosition sets the output position. Call this from OnOutputEnter
 // when you receive wl_output enter events.
 func (f *Frame) SetOutputPosition(x, y int32) {

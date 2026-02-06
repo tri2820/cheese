@@ -5,7 +5,7 @@ import (
 
 	"github.com/lithdew/casso"
 	"github.com/tri2820/cheese/client-toolkit/buffer"
-	"github.com/tri2820/cheese/signals"
+	"github.com/tri2820/cheese/client-toolkit/display"
 )
 
 // Priority represents constraint strength (alias for casso.Priority)
@@ -17,20 +17,20 @@ const (
 	Weak     Priority = casso.Weak
 )
 
-// Viewport represents a region of the virtual desktop.
-type Viewport struct {
-	X      int // X position in virtual space
-	Y      int // Y position in virtual space
-	Width  int // Width of this viewport
-	Height int // Height of this viewport
-}
-
 // RenderFunc is a function that renders to a viewport's pixel buffer.
 type RenderFunc func(width, height int, time uint32, pixels []byte)
 
+// Rect represents a rectangle for clipping.
+type Rect struct {
+	X, Y, W, H int
+}
+
 // Widget is an interface for renderable UI elements.
+// Widgets draw in their local coordinate space (0,0 = top-left corner).
+// Layout handles coordinate translation, clipping, and DPI.
+// The pixels slice is already offset to the widget's origin.
 type Widget interface {
-	Draw(pixels []byte, stride, width, height int)
+	Draw(pixels []byte, stride int, clip Rect, dpi float64)
 }
 
 // Layout wraps a casso.Solver with convenient methods for our types
@@ -42,71 +42,41 @@ type Layout struct {
 	resolveMut  sync.Mutex                  // Protects resolving flag
 	stopRender  chan struct{}               // Stop render loop
 
-	// Virtual desktop
-	virtualWidth  signals.Signal[int] // Virtual desktop width
-	virtualHeight signals.Signal[int] // Virtual desktop height
-	virtualBuffer []byte              // Virtual pixel buffer
-	virtualStride int                 // Bytes per row in virtual buffer
-	viewports     []*Viewport         // Registered viewports
-	viewportsMut  sync.Mutex          // Protects viewports slice
-	frames        []*buffer.Frame     // Frames to notify when render is needed
-	framesMut     sync.Mutex          // Protects frames slice
-	dirty         bool                // True when virtual buffer needs re-rendering
-	dirtyMut      sync.Mutex          // Protects dirty flag
+	frames   []*buffer.Frame // Frames to notify when render is needed
+	framesMut sync.Mutex      // Protects frames slice
+	dirty    bool            // True when rendering is needed
+	dirtyMut sync.Mutex      // Protects dirty flag
 
-	widgets     []Widget // Widgets to render
-	widgetsMut  sync.Mutex // Protects widgets slice
+	widgets    []Widget   // Widgets to render
+	widgetsMut sync.Mutex // Protects widgets slice
 }
 
 // NewLayout creates a new constraint solver
 func NewLayout() *Layout {
 	return &Layout{
-		inner:         casso.NewSolver(),
-		vars:          make(map[casso.Symbol]*exprState),
-		renderReq:     make(chan struct{}, 1),
-		stopRender:    make(chan struct{}),
-		virtualWidth:  signals.New(0),
-		virtualHeight: signals.New(0),
+		inner:      casso.NewSolver(),
+		vars:       make(map[casso.Symbol]*exprState),
+		renderReq:  make(chan struct{}, 1),
+		stopRender: make(chan struct{}),
 	}
 }
 
 // AddFrame adds a frame to the layout.
 // Sets up the frame's OnConfigured and OnRender handlers automatically.
-// The onConfigured callback is invoked after the viewport is created, with the viewport dimensions.
+// The onConfigured callback is invoked after the frame is configured, with the frame dimensions.
 func (l *Layout) AddFrame(frame *buffer.Frame, onConfigured func(w, h int)) {
 	// Store frame for render notifications
 	l.framesMut.Lock()
 	l.frames = append(l.frames, frame)
 	l.framesMut.Unlock()
 
-	// Set up configure handler to create viewport when frame gets dimensions
+	// Set up configure handler
 	frame.OnConfigured(func(w, h int) {
-		x := int(frame.OutputX())
-		y := int(frame.OutputY())
-
-		l.viewportsMut.Lock()
-		viewport := &Viewport{
-			X:      x,
-			Y:      y,
-			Width:  w,
-			Height: h,
-		}
-		l.viewports = append(l.viewports, viewport)
-		l.viewportsMut.Unlock()
-
-		// Expand virtual buffer if needed
-		l.expandVirtualBuffer(x+w, y+h)
-
-		// Create render function for this viewport
+		// Set up render function for this frame
 		renderFunc := func(frameW, frameH int, frameTime uint32, pixels []byte) {
-			// Render to virtual buffer if dirty
-			l.maybeRenderToVirtual()
-
-			// Blit from virtual buffer to this viewport's pixels
-			l.blitToViewport(pixels, frameW, frameH, x, y)
+			l.renderFrame(frame, pixels, frameW, frameH)
 		}
 
-		// Set render function on frame
 		frame.OnRender(renderFunc)
 
 		// Call app's configured callback if provided
@@ -116,70 +86,82 @@ func (l *Layout) AddFrame(frame *buffer.Frame, onConfigured func(w, h int)) {
 	})
 }
 
-// expandVirtualBuffer enlarges the virtual buffer to accommodate the given dimensions.
-func (l *Layout) expandVirtualBuffer(minWidth, minHeight int) {
-	currentW := l.virtualWidth.Get()
-	currentH := l.virtualHeight.Get()
+// renderFrame renders all widgets to a single frame's pixel buffer.
+func (l *Layout) renderFrame(frame *buffer.Frame, pixels []byte, width, height int) {
+	stride := width * 4
 
-	newW := currentW
-	newH := currentH
+	// Get viewport position (output position)
+	viewportX := int(frame.OutputX())
+	viewportY := int(frame.OutputY())
 
-	if minWidth > newW {
-		newW = minWidth
-	}
-	if minHeight > newH {
-		newH = minHeight
-	}
-
-	if newW != currentW || newH != currentH {
-		// Allocate new virtual buffer
-		l.virtualWidth.Set(newW)
-		l.virtualHeight.Set(newH)
-		l.virtualStride = newW * 4
-		l.virtualBuffer = make([]byte, l.virtualStride*newH)
-	}
-}
-
-// blitToViewport copies a region from virtual buffer to viewport pixels.
-func (l *Layout) blitToViewport(dstPixels []byte, dstW, dstH, srcX, srcY int) {
-	if l.virtualBuffer == nil {
-		return
+	// Get DPI from output
+	dpi := 96.0
+	if output := frame.Output(); output != nil {
+		dpi = output.DPI()
+		if dpi == 0 {
+			dpi = 96
+		}
 	}
 
-	vw := l.virtualWidth.Get()
-	vh := l.virtualHeight.Get()
-
-	// Calculate intersection
-	srcX2 := srcX
-	srcY2 := srcY
-	if srcX2 < 0 {
-		srcX2 = 0
-	}
-	if srcY2 < 0 {
-		srcY2 = 0
+	// Clear frame to transparent
+	for i := range pixels {
+		pixels[i] = 0
 	}
 
-	srcW := dstW
-	srcH := dstH
-	if srcX2+srcW > vw {
-		srcW = vw - srcX2
-	}
-	if srcY2+srcH > vh {
-		srcH = vh - srcY2
+	// Render all widgets
+	l.widgetsMut.Lock()
+	widgets := l.widgets
+	l.widgetsMut.Unlock()
+
+	for _, widget := range widgets {
+		// Get widget bounds
+		elem := widget.(interface{ GetElement() *Element })
+		if elem == nil {
+			continue
+		}
+		element := elem.GetElement()
+
+		widgetLeft := int(element.Left.Get())
+		widgetTop := int(element.Top.Get())
+		widgetRight := int(element.Right.Get())
+		widgetBottom := int(element.Bottom.Get())
+
+		widgetW := widgetRight - widgetLeft
+		widgetH := widgetBottom - widgetTop
+
+		if widgetW <= 0 || widgetH <= 0 {
+			continue
+		}
+
+		// Calculate widget position relative to this Frame's viewport
+		relX := widgetLeft - viewportX
+		relY := widgetTop - viewportY
+
+		// Visibility check (culling)
+		if relX+widgetW <= 0 || relY+widgetH <= 0 || relX >= width || relY >= height {
+			continue // Off-screen, skip
+		}
+
+		// Calculate clip region in widget's local space
+		clipX := max(-relX, 0)                       // Clip left if off-left
+		clipY := max(-relY, 0)                       // Clip top if off-top
+		clipW := min(widgetW, width-relX) - clipX   // Clip right
+		clipH := min(widgetH, height-relY) - clipY  // Clip bottom
+
+		if clipW <= 0 || clipH <= 0 {
+			continue
+		}
+
+		// Draw widget with pre-offset pixel slice
+		// Widget can now draw from (0,0) in local space
+		offset := relY*stride + relX*4
+		widget.Draw(pixels[offset:], stride, Rect{X: clipX, Y: clipY, W: clipW, H: clipH}, dpi)
 	}
 
-	if srcW <= 0 || srcH <= 0 {
-		return
-	}
-
-	dstStride := dstW * 4
-
-	// Blit row by row
-	for y := 0; y < srcH; y++ {
-		srcOffset := (srcY2+y)*l.virtualStride + srcX2*4
-		dstOffset := y * dstStride
-		copy(dstPixels[dstOffset:dstOffset+srcW*4], l.virtualBuffer[srcOffset:srcOffset+srcW*4])
-	}
+	// Clear dirty flag
+	l.dirtyMut.Lock()
+	l.dirty = false
+	l.dirtyMut.Unlock()
 }
 
 // RequestRender schedules a render request.
@@ -205,7 +187,7 @@ func (l *Layout) RequestRender() {
 }
 
 // RenderLoop runs the automatic render loop.
-// Call this in a goroutine to trigger renders to all viewports when needed.
+// Call this in a goroutine to trigger renders to all frames when needed.
 func (l *Layout) RenderLoop() {
 	for {
 		select {
@@ -225,49 +207,11 @@ func (l *Layout) RenderLoop() {
 	}
 }
 
-// renderToVirtual renders all widgets to the virtual buffer.
-func (l *Layout) renderToVirtual() {
-	if l.virtualBuffer == nil {
-		return
-	}
-
-	w := l.virtualWidth.Get()
-	h := l.virtualHeight.Get()
-
-	if w <= 0 || h <= 0 {
-		return
-	}
-
-	// Draw all widgets to virtual buffer
-	l.widgetsMut.Lock()
-	widgets := l.widgets
-	l.widgetsMut.Unlock()
-
-	for _, widget := range widgets {
-		widget.Draw(l.virtualBuffer, l.virtualStride, w, h)
-	}
-
-	l.dirtyMut.Lock()
-	l.dirty = false
-	l.dirtyMut.Unlock()
-}
-
 // addWidget adds a widget to the layout for rendering.
 func (l *Layout) addWidget(w Widget) {
 	l.widgetsMut.Lock()
 	l.widgets = append(l.widgets, w)
 	l.widgetsMut.Unlock()
-}
-
-// maybeRenderToVirtual executes draw commands only if dirty flag is set.
-func (l *Layout) maybeRenderToVirtual() {
-	l.dirtyMut.Lock()
-	dirty := l.dirty
-	l.dirtyMut.Unlock()
-
-	if dirty {
-		l.renderToVirtual()
-	}
 }
 
 // StopRenderLoop stops the automatic render loop.
@@ -387,12 +331,15 @@ func (l *Layout) Inner() *casso.Solver {
 	return l.inner
 }
 
-// VirtualWidth returns the virtual desktop width signal.
-func (l *Layout) VirtualWidth() signals.Signal[int] {
-	return l.virtualWidth
+// OutputDPI returns the DPI for a given output, or 96 if unavailable.
+func OutputDPI(output *display.Output) float64 {
+	if output == nil {
+		return 96
+	}
+	dpi := output.DPI()
+	if dpi == 0 {
+		return 96
+	}
+	return dpi
 }
 
-// VirtualHeight returns the virtual desktop height signal.
-func (l *Layout) VirtualHeight() signals.Signal[int] {
-	return l.virtualHeight
-}

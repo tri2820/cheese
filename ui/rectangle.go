@@ -7,8 +7,8 @@ import (
 
 // drawCommand contains all pre-computed data needed to draw the rectangle.
 type drawCommand struct {
-	x, y, w, h int
-	color      struct{ r, g, b, a uint8 }
+	w, h  int
+	color struct{ r, g, b, a uint8 }
 }
 
 // Rectangle is a widget that extends Element with background color.
@@ -32,15 +32,13 @@ func (l *Layout) NewRectangle() *Rectangle {
 
 	// Derive draw command from bounds and color
 	r.cmd = signals.Derive(func() drawCommand {
-		x := int(r.Left.Get())
-		y := int(r.Top.Get())
 		w := int(r.Right.Get() - r.Left.Get())
 		h := int(r.Bottom.Get() - r.Top.Get())
 
 		c := common.ParseColor(r.Color.Get())
 
 		return drawCommand{
-			x: x, y: y, w: w, h: h,
+			w: w, h: h,
 			color: struct{ r, g, b, a uint8 }{r: c.R, g: c.G, b: c.B, a: c.A},
 		}
 	}, r.Left, r.Top, r.Right, r.Bottom, r.Color)
@@ -53,42 +51,25 @@ func (l *Layout) NewRectangle() *Rectangle {
 	return r
 }
 
+// GetElement returns the embedded Element (for Widget interface reflection).
+func (r *Rectangle) GetElement() *Element {
+	return r.Element
+}
+
 // Draw renders the rectangle to the pixel buffer.
-func (r *Rectangle) Draw(pixels []byte, stride, width, height int) {
+// The pixels slice is already offset to the widget's origin, so the widget
+// can draw from (0,0) in its local coordinate space.
+func (r *Rectangle) Draw(pixels []byte, stride int, clip Rect, dpi float64) {
 	cmd := r.cmd.Get()
-	x, y, w, h := cmd.x, cmd.y, cmd.w, cmd.h
 
-	// Skip drawing if bounds are invalid
-	if w <= 0 || h <= 0 {
-		return
-	}
+	// Only draw within the clip region (in widget's local space)
+	for localY := clip.Y; localY < clip.Y+clip.H; localY++ {
+		pixelRow := pixels[localY*stride:]
 
-	// Clamp bounds to surface
-	if x < 0 {
-		w += x
-		x = 0
-	}
-	if y < 0 {
-		h += y
-		y = 0
-	}
-	if x+w > width {
-		w = width - x
-	}
-	if y+h > height {
-		h = height - y
-	}
-	if w <= 0 || h <= 0 {
-		return
-	}
-
-	// ARGB8888 format: B,G,R,A on little-endian
-	bgra := []byte{cmd.color.b, cmd.color.g, cmd.color.r, cmd.color.a}
-
-	for row := y; row < y+h; row++ {
-		pixelRow := pixels[row*stride:]
-		for col := x; col < x+w; col++ {
-			copy(pixelRow[col*4:], bgra)
+		for localX := clip.X; localX < clip.X+clip.W; localX++ {
+			// ARGB8888 format: B,G,R,A on little-endian
+			bgra := []byte{cmd.color.b, cmd.color.g, cmd.color.r, cmd.color.a}
+			copy(pixelRow[localX*4:], bgra)
 		}
 	}
 }
