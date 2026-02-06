@@ -13,6 +13,8 @@ require (
 	golang.org/x/sys v0.29.0 // indirect
 )
 
+replace github.com/lithdew/casso => ../casso
+
 replace github.com/tri2820/cheese/signals => ../signals
 
 replace github.com/tri2820/cheese/client-toolkit => ../client-toolkit

@@ -74,8 +74,8 @@ type Layout struct {
 	dirty     bool            // True when rendering is needed
 	dirtyMut  sync.Mutex      // Protects dirty flag
 
-	drawables    []Drawable // Drawables to render
-	drawablesMut sync.Mutex // Protects drawables slice
+	widgets    []*Widget  // Widgets to manage
+	widgetsMut sync.Mutex // Protects widgets slice
 }
 
 // NewLayout creates a new constraint solver
@@ -135,12 +135,17 @@ func (l *Layout) renderFrame(frame *buffer.Frame, pixels []byte, width, height i
 		pixels[i] = 0
 	}
 
-	// Render all drawables
-	l.drawablesMut.Lock()
-	drawables := l.drawables
-	l.drawablesMut.Unlock()
+	// Render all drawables from all widgets
+	l.widgetsMut.Lock()
+	widgets := l.widgets
+	l.widgetsMut.Unlock()
 
-	for _, d := range drawables {
+	for _, widget := range widgets {
+		widget.mu.RLock()
+		drawables := widget.drawables
+		widget.mu.RUnlock()
+
+		for _, d := range drawables {
 		// Get layoutitem bounds
 		layoutitem := d.GetLayoutItem()
 		if layoutitem == nil {
@@ -190,6 +195,7 @@ func (l *Layout) renderFrame(frame *buffer.Frame, pixels []byte, width, height i
 			height: clipH,
 		}
 		d.Draw(fb, dpi)
+		}
 	}
 
 	// Clear dirty flag
@@ -241,11 +247,31 @@ func (l *Layout) RenderLoop() {
 	}
 }
 
-// addDrawable adds a drawable to the layout for rendering.
-func (l *Layout) addDrawable(d Drawable) {
-	l.drawablesMut.Lock()
-	l.drawables = append(l.drawables, d)
-	l.drawablesMut.Unlock()
+// addWidget adds a widget to the layout.
+func (l *Layout) addWidget(w *Widget) {
+	l.widgetsMut.Lock()
+	defer l.widgetsMut.Unlock()
+	l.widgets = append(l.widgets, w)
+}
+
+// removeWidget removes a widget from the layout.
+func (l *Layout) removeWidget(w *Widget) {
+	l.widgetsMut.Lock()
+	defer l.widgetsMut.Unlock()
+	for i, widget := range l.widgets {
+		if widget == w {
+			l.widgets = append(l.widgets[:i], l.widgets[i+1:]...)
+			return
+		}
+	}
+}
+
+// removeVar removes a variable from the solver and vars map.
+func (l *Layout) removeVar(sym casso.Symbol) {
+	// Remove from casso solver
+	_ = l.inner.RemoveVariable(sym)
+	// Remove from vars map
+	delete(l.vars, sym)
 }
 
 // StopRenderLoop stops the automatic render loop.

@@ -19,36 +19,45 @@ type Rectangle struct {
 	cmd         signals.Signal[drawCommand]
 }
 
-// NewRectangle creates a new Rectangle layoutitem.
-func (l *Layout) NewRectangle() *Rectangle {
-	r := &Rectangle{
-		LayoutItem: l.NewLayoutItem(),
+// NewRectangle creates a new Rectangle drawable in this widget.
+func (w *Widget) NewRectangle() *Rectangle {
+	// Create rectangle drawable
+	rect := &Rectangle{
+		LayoutItem: w.layout.NewLayoutItem(),
 		Color:      signals.New("#FFFFFF"), // Default white
-		layout:     l,
+		layout:     w.layout,
 	}
 
-	// Track drawable in layout for rendering
-	l.addDrawable(r)
-
 	// Derive draw command from bounds and color
-	r.cmd = signals.Derive(func() drawCommand {
-		w := int(r.Right.Get() - r.Left.Get())
-		h := int(r.Bottom.Get() - r.Top.Get())
+	rect.cmd = signals.Derive(func() drawCommand {
+		width := int(rect.Right.Get() - rect.Left.Get())
+		height := int(rect.Bottom.Get() - rect.Top.Get())
 
-		c := common.ParseColor(r.Color.Get())
+		c := common.ParseColor(rect.Color.Get())
 
 		return drawCommand{
-			w: w, h: h,
+			w: width, h: height,
 			color: struct{ r, g, b, a uint8 }{r: c.R, g: c.G, b: c.B, a: c.A},
 		}
-	}, r.Left, r.Top, r.Right, r.Bottom, r.Color)
+	}, rect.Left, rect.Top, rect.Right, rect.Bottom, rect.Color)
 
 	// Request render when draw command changes
 	signals.Effect(func() {
-		l.RequestRender()
-	}, r.cmd)
+		w.layout.RequestRender()
+	}, rect.cmd)
 
-	return r
+	// Track symbols from the LayoutItem
+	w.symbols = append(w.symbols,
+		rect.Left.state.symbol,
+		rect.Right.state.symbol,
+		rect.Top.state.symbol,
+		rect.Bottom.state.symbol,
+	)
+
+	// Add drawable to widget
+	w.AddDrawable(rect)
+
+	return rect
 }
 
 // Draw renders the rectangle to the pixel buffer.

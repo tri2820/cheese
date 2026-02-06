@@ -38,7 +38,8 @@ func main() {
 	// If we wanted to draw the bar on the right, or draw so that it appears horizontally continuous across outputs at the top,
 	// then we would need to create separate layoutitem for each output
 	// and synchronize them.
-	rect := layout.NewRectangle()
+	widget := ui.NewWidget(layout)
+	rect := widget.NewRectangle()
 	ui.Eq(rect.Left, 0).Add()
 	ui.Eq(rect.Top, 0).Add()
 	rect.Color.Set("#303030")

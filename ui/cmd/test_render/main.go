@@ -13,7 +13,8 @@ func main() {
 	layout := ui.NewLayout()
 
 	// Create a root frame
-	root := layout.NewRectangle()
+	rootWidget := ui.NewWidget(layout)
+	root := rootWidget.NewRectangle()
 	ui.Eq(root.Left, 0).Add()
 	ui.Eq(root.Top, 0).Add()
 	ui.Eq(root.Right, 800).Add()
@@ -21,7 +22,8 @@ func main() {
 	fmt.Println("Created root frame (800x600 at 0,0)")
 
 	// Create a child frame
-	child := layout.NewRectangle()
+	childWidget := ui.NewWidget(layout)
+	child := childWidget.NewRectangle()
 	ui.Eq(child.Left, root.Left.Add(50)).Add()
 	ui.Eq(child.Top, root.Top.Add(50)).Add()
 	ui.Eq(child.Width(), 200).Add()
