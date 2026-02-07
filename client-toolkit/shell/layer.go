@@ -186,6 +186,16 @@ func (l *LayerSurface) Height() int {
 	return l.height
 }
 
+// SetMargin sets the margin from the anchor point.
+// Can be called after layer creation to update position dynamically.
+func (l *LayerSurface) SetMargin(top, right, bottom, left int32) error {
+	if err := l.layerSurface.SetMargin(top, right, bottom, left); err != nil {
+		return err
+	}
+	// Commit the change to apply it to the compositor
+	return l.surface.Commit()
+}
+
 // Close destroys the layer surface.
 func (l *LayerSurface) Close() error {
 	return l.layerSurface.Destroy()

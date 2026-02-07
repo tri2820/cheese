@@ -66,6 +66,21 @@ func (o *Output) DPI() float64 {
 	return (dpiX + dpiY) / 2
 }
 
+// DPIOrDefault returns the output's DPI, or 96.0 if not available.
+func (o *Output) DPIOrDefault() float64 {
+	dpi := o.DPI()
+	if dpi == 0 {
+		return 96.0
+	}
+	return dpi
+}
+
+// ScaleFrom96DPI converts a distance in 96 DPI pixels to physical pixels for this output.
+// For example, if the output is 192 DPI and distance96 is 100, this returns 200.
+func (o *Output) ScaleFrom96DPI(distance96 float64) int {
+	return int(distance96 * o.DPIOrDefault() / 96.0)
+}
+
 // String returns a human-readable description of the output.
 func (o *Output) String() string {
 	return fmt.Sprintf("%s (%s) - %dx%d @ %.1fHz, scale=%d, DPI=%.1f",

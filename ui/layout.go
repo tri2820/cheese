@@ -20,18 +20,6 @@ const (
 // RenderFunc is a function that renders to a layoutitemport's pixel buffer.
 type RenderFunc func(width, height int, time uint32, pixels []byte)
 
-// Rect represents a rectangle for clipping.
-type Rect struct {
-	X, Y, W, H int
-}
-
-// Content is an interface for renderable UI elements.
-// Contents are coordinate-free - they draw based on the framebuffer provided.
-// Layout handles coordinate translation, clipping, and DPI via masks.
-type Content interface {
-	Draw(fb Framebuffer, dpi float64)
-}
-
 // Layout wraps a casso.Solver with convenient methods for our types
 type Layout struct {
 	inner      *casso.Solver
@@ -43,11 +31,11 @@ type Layout struct {
 
 	display *display.Display // Display connection for mask frame creation
 
-	frames      []*buffer.Frame        // Frames to notify when render is needed
+	frames       []*buffer.Frame         // Frames to notify when render is needed
 	maskForFrame map[*buffer.Frame]*Mask // Maps frame to its mask
-	framesMut   sync.Mutex             // Protects frames slice and maskForFrame map
-	dirty       bool                   // True when rendering is needed
-	dirtyMut    sync.Mutex             // Protects dirty flag
+	framesMut    sync.Mutex              // Protects frames slice and maskForFrame map
+	dirty        bool                    // True when rendering is needed
+	dirtyMut     sync.Mutex              // Protects dirty flag
 
 	widgets    []*Widget  // Widgets to manage
 	widgetsMut sync.Mutex // Protects widgets slice
@@ -124,50 +112,20 @@ func (l *Layout) renderFrame(frame *buffer.Frame, pixels []byte, width, height i
 		pixels[i] = 0
 	}
 
-	// Get mask bounds (positions mask within frame)
-	maskLeft := int(mask.LayoutItem.Left.Get())
-	maskTop := int(mask.LayoutItem.Top.Get())
-	maskRight := int(mask.LayoutItem.Right.Get())
-	maskBottom := int(mask.LayoutItem.Bottom.Get())
-
-	maskW := maskRight - maskLeft
-	maskH := maskBottom - maskTop
-
-	if maskW <= 0 || maskH <= 0 {
-		return
-	}
-
-	// Visibility check (culling)
-	if maskRight <= 0 || maskBottom <= 0 || maskLeft >= width || maskTop >= height {
-		return
-	}
-
-	// Calculate visible region within frame
-	visX := max(-maskLeft, 0)
-	visY := max(-maskTop, 0)
-	visW := min(maskW, width-maskLeft) - visX
-	visH := min(maskH, height-maskTop) - visY
-
-	if visW <= 0 || visH <= 0 {
-		return
-	}
-
 	// Get contents
 	widget.mu.RLock()
 	contents := widget.contents
-	contentWidth := widget.ContentWidth_at96DPI
-	contentHeight := widget.ContentHeight_at96DPI
+	contentWidth := widget.Width
+	contentHeight := widget.Height
 	widget.mu.RUnlock()
 
-	// Create framebuffer for visible region
-	offsetY := max(maskTop, 0)
-	offsetX := max(maskLeft, 0)
-	offset := offsetY*stride + offsetX*4
+	// Create framebuffer at (0,0) filling entire surface
+	// Mask position is controlled by layer margin (via reactive Effect)
 	fb := Framebuffer{
-		pixels: pixels[offset:],
+		pixels: pixels,
 		stride: stride,
-		width:  visW,
-		height: visH,
+		width:  width,
+		height: height,
 	}
 
 	// If ContentWidth_at96DPI is set, use DPI-normalized rendering
@@ -213,8 +171,8 @@ func (l *Layout) renderFrame(frame *buffer.Frame, pixels []byte, width, height i
 
 		// Copy visible region from temp buffer to frame
 		// Copy from clipped region in content buffer
-		copyW := min(visW, srcW, contentW-srcStartX)
-		copyH := min(visH, srcH, contentH-srcStartY)
+		copyW := min(width, srcW, contentW-srcStartX)
+		copyH := min(height, srcH, contentH-srcStartY)
 		for y := 0; y < copyH; y++ {
 			for x := 0; x < copyW; x++ {
 				srcOffset := (srcStartY+y)*tempStride + (srcStartX+x)*4

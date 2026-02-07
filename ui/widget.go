@@ -11,22 +11,22 @@ import (
 type Widget struct {
 	mu       sync.RWMutex
 	layout   *Layout
-	contents []Content // Coordinate-free visual elements (Rectangle, Label, etc.)
-	masks    []*Mask   // Masks for rendering on different outputs
+	contents []*Content // Coordinate-free visual elements (Rectangle, Label, etc.)
+	masks    []*Mask    // Masks for rendering on different outputs
 
-	// ContentWidth_at96DPI/ContentHeight_at96DPI define the logical content size
+	// Width/ContentHeight_at96DPI define the logical content size
 	// in pixels at 96 DPI baseline. The renderer computes the physical buffer as
-	// ContentWidth_at96DPI * dpi/96, ensuring DPI-normalized rendering.
+	// Width * dpi/96, ensuring DPI-normalized rendering.
 	// Zero means content renders at mask size (no DPI normalization).
-	ContentWidth_at96DPI  float64
-	ContentHeight_at96DPI float64
+	Width  float64
+	Height float64
 }
 
 // NewWidget creates a new widget attached to the given layout.
 func NewWidget(layout *Layout) *Widget {
 	w := &Widget{
 		layout:   layout,
-		contents: make([]Content, 0),
+		contents: make([]*Content, 0),
 		masks:    make([]*Mask, 0),
 	}
 	layout.addWidget(w)
@@ -62,6 +62,47 @@ func (w *Widget) NewMask(output *client.WlOutput, config LayerConfig) *Mask {
 		}
 	})
 
+	// Reactive margin updates
+	// Watch mask.Left/Top and update layer margin when they change
+	Effect(func() {
+		if mask.layer == nil {
+			return
+		}
+
+		left := int32(mask.LayoutItem.Left.Get())
+		top := int32(mask.LayoutItem.Top.Get())
+
+		// Update layer margin (anchor is always top-left)
+		if err := mask.layer.SetMargin(top, 0, 0, left); err != nil {
+			log.Printf("Failed to update mask margin: %v", err)
+		}
+	}, mask.LayoutItem.Left, mask.LayoutItem.Top)
+
+	// Reactive size updates
+	// Watch mask.Width()/Height() and update layer size when they change
+	Effect(func() {
+		if mask.layer == nil {
+			return
+		}
+
+		width := uint32(mask.LayoutItem.Width().Get())
+		height := uint32(mask.LayoutItem.Height().Get())
+
+		// Don't update if size is zero (constraints not resolved yet)
+		if width == 0 || height == 0 {
+			return
+		}
+
+		// Update layer size
+		if err := mask.layer.SetSize(width, height); err != nil {
+			log.Printf("Failed to update mask size: %v", err)
+		}
+		// Commit the change
+		if err := mask.layer.Surface().Commit(); err != nil {
+			log.Printf("Failed to commit size change: %v", err)
+		}
+	}, mask.LayoutItem.Width(), mask.LayoutItem.Height())
+
 	return mask
 }
 
@@ -69,6 +110,11 @@ func (w *Widget) NewMask(output *client.WlOutput, config LayerConfig) *Mask {
 func (w *Widget) Remove() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
+
+	// Clean up content LayoutItems (remove symbols from solver)
+	for _, content := range w.contents {
+		content.Cleanup(w.layout)
+	}
 
 	// Clean up masks (remove LayoutItem symbols, destroy frames)
 	for _, mask := range w.masks {

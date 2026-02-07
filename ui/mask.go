@@ -25,10 +25,11 @@ import (
 // When not set, falls back to visW/ClipRelW (only correct for single-DPI setups).
 // By default (zero values), no clipping - content renders at mask's visible size.
 type Mask struct {
-	*LayoutItem              // Positions mask within the frame
-	frame   *buffer.Frame    // Frame for this output
-	widget  *Widget          // Parent widget (for accessing contents during render)
-	display *display.Display // For frame creation
+	*LayoutItem                // Controls layer margin for global positioning (via reactive Effect)
+	layer   *shell.LayerSurface // Layer surface reference for reactive margin updates
+	frame   *buffer.Frame       // Frame for this output
+	widget  *Widget             // Parent widget (for accessing contents during render)
+	display *display.Display    // For frame creation
 	output  *client.WlOutput
 	config  LayerConfig
 
@@ -70,11 +71,11 @@ func (m *Mask) getOrCreateFrame() (*buffer.Frame, error) {
 		return nil, err
 	}
 
-	// Create layer
+	// Create layer - always use AnchorTop|AnchorLeft for reactive margin positioning
 	layer, err := shell.NewLayer(surf, m.display.LayerShell(), shell.LayerConfig{
 		Layer:         m.config.Layer,
 		Name:          m.config.Name,
-		Anchor:        m.config.Anchor,
+		Anchor:        shell.AnchorTop | shell.AnchorLeft,
 		Width:         m.config.Width,
 		Height:        m.config.Height,
 		ExclusiveZone: m.config.ExclusiveZone,
@@ -83,6 +84,9 @@ func (m *Mask) getOrCreateFrame() (*buffer.Frame, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Store layer reference for reactive margin updates
+	m.layer = layer
 
 	// Create frame
 	frame, err := buffer.NewFrame(m.display.Shm(), layer, m.display, buffer.FrameConfig{

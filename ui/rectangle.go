@@ -5,22 +5,28 @@ import (
 	"github.com/tri2820/cheese/ui/common"
 )
 
-// Rectangle is a coordinate-free content with background color.
+// Rectangle is a content with background color.
+// Embeds BaseContent for positioning within content space.
 type Rectangle struct {
-	widget *Widget                    // Parent widget
-	Color  signals.Signal[string]     // Background color (e.g., "#FF0000")
-	layout *Layout                    // Reference to layout for render requests
-	color  signals.Signal[struct{ r, g, b, a uint8 }] // Parsed color
+	Content                                            // Positioning and common fields
+	Color   signals.Signal[string]                     // Background color (e.g., "#FF0000")
+	color   signals.Signal[struct{ r, g, b, a uint8 }] // Parsed color
 }
 
-// NewRectangle creates a new Rectangle content (coordinate-free).
+// NewRectangle creates a new Rectangle content with constraint-based positioning.
 func (w *Widget) NewRectangle() *Rectangle {
 	// Create rectangle content
 	rect := &Rectangle{
-		widget: w,
-		Color:  signals.New("#FFFFFF"), // Default white
-		layout: w.layout,
+		Content: Content{
+			LayoutItem: w.layout.NewLayoutItem(), // Create LayoutItem for positioning
+			widget:     w,
+			layout:     w.layout,
+		},
+		Color: signals.New("#FFFFFF"), // Default white
 	}
+
+	// Set draw function
+	rect.Content.DrawFunc = rect.draw
 
 	// Derive parsed color from color string
 	rect.color = signals.Derive(func() struct{ r, g, b, a uint8 } {
@@ -35,88 +41,35 @@ func (w *Widget) NewRectangle() *Rectangle {
 
 	// Add content to widget
 	w.mu.Lock()
-	w.contents = append(w.contents, rect)
+	w.contents = append(w.contents, &rect.Content)
 	w.mu.Unlock()
 
 	return rect
 }
 
-// Draw renders the rectangle to the pixel buffer.
-// Coordinate-free: draws to the entire framebuffer (already clipped by layout).
-func (r *Rectangle) Draw(fb Framebuffer, dpi float64) {
+// draw renders the rectangle to the pixel buffer.
+// Uses LayoutItem position to determine where to draw within the framebuffer.
+func (r *Rectangle) draw(fb Framebuffer, dpi float64) {
 	c := r.color.Get()
 
-	// Fill the entire framebuffer with the color
-	for y := 0; y < fb.Height(); y++ {
-		for x := 0; x < fb.Width(); x++ {
-			fb.SetPixel(x, y, c.r, c.g, c.b, c.a)
-		}
+	// Get position from LayoutItem (solved by cassowary)
+	left := int(r.LayoutItem.Left.Get())
+	top := int(r.LayoutItem.Top.Get())
+	right := int(r.LayoutItem.Right.Get())
+	bottom := int(r.LayoutItem.Bottom.Get())
+
+	width := right - left
+	height := bottom - top
+
+	if width <= 0 || height <= 0 {
+		return
 	}
-}
-
-// PositionedRectangle is a rectangle with relative position (0.0-1.0) within content.
-type PositionedRectangle struct {
-	widget *Widget
-	Color  signals.Signal[string]
-	layout *Layout
-	color  signals.Signal[struct{ r, g, b, a uint8 }]
-
-	// Position as fraction of content size (0.0 to 1.0)
-	relX, relY float64
-	relW, relH float64
-}
-
-// NewPositionedRectangle creates a positioned rectangle within content space.
-// x, y, w, h are relative to content size (0.0 to 1.0).
-func (w *Widget) NewPositionedRectangle(x, y, width, height float64) *PositionedRectangle {
-	rect := &PositionedRectangle{
-		widget: w,
-		Color:  signals.New("#FFFFFF"),
-		layout: w.layout,
-		relX:   x,
-		relY:   y,
-		relW:   width,
-		relH:   height,
-	}
-
-	// Derive parsed color from color string
-	rect.color = signals.Derive(func() struct{ r, g, b, a uint8 } {
-		c := common.ParseColor(rect.Color.Get())
-		return struct{ r, g, b, a uint8 }{r: c.R, g: c.G, b: c.B, a: c.A}
-	}, rect.Color)
-
-	// Request render when color changes
-	signals.Effect(func() {
-		w.layout.RequestRender()
-	}, rect.color)
-
-	// Add content to widget
-	w.mu.Lock()
-	w.contents = append(w.contents, rect)
-	w.mu.Unlock()
-
-	return rect
-}
-
-// Draw renders the positioned rectangle.
-// Converts relative position to absolute pixels based on framebuffer size.
-func (r *PositionedRectangle) Draw(fb Framebuffer, dpi float64) {
-	c := r.color.Get()
-
-	// Convert relative position to absolute pixels
-	fbW := fb.Width()
-	fbH := fb.Height()
-
-	x0 := int(r.relX * float64(fbW))
-	y0 := int(r.relY * float64(fbH))
-	x1 := int((r.relX + r.relW) * float64(fbW))
-	y1 := int((r.relY + r.relH) * float64(fbH))
 
 	// Clamp to framebuffer bounds
-	x0 = max(0, min(x0, fbW))
-	y0 = max(0, min(y0, fbH))
-	x1 = max(0, min(x1, fbW))
-	y1 = max(0, min(y1, fbH))
+	x0 := max(0, min(left, fb.Width()))
+	y0 := max(0, min(top, fb.Height()))
+	x1 := max(0, min(right, fb.Width()))
+	y1 := max(0, min(bottom, fb.Height()))
 
 	// Fill the rectangle region
 	for y := y0; y < y1; y++ {
