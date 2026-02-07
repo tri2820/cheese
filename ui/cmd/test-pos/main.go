@@ -56,10 +56,8 @@ func main() {
 		log.Printf("  Square size: %d (half of monitor height %d)", squareSize, output.ModeHeight)
 
 		mask := widget.NewMask(output.WlOutput(), ui.LayerConfig{
-			Layer:  shell.LayerPositionTop,
-			Name:   "test-pos-square",
-			Width:  uint32(squareSize), // Initial size - will be updated by constraints
-			Height: uint32(squareSize), // Initial size - will be updated by constraints
+			Layer: shell.LayerPositionTop,
+			Name:  "test-pos-square",
 		})
 
 		// Position at top-left corner of the output

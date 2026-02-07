@@ -133,23 +133,14 @@ func (l *Layout) renderFrame(frame *buffer.Frame, pixels []byte, width, height i
 		// Calculate DPI scale
 		scale := dpi / 96.0
 
-		// Get clipping config from mask (which portion of content to show)
-		clipX := 0.0
-		clipY := 0.0
-		if mask.ClipRelW > 0 {
-			clipX = mask.ClipRelX
-		}
-		if mask.ClipRelH > 0 {
-			clipY = mask.ClipRelY
-		}
+		// Get clip origin from mask (in widget coordinates)
+		// The visible region size is determined by mask Width()/Height() constraints
+		clipX := mask.ClipX
+		clipY := mask.ClipY
 
-		// Calculate visible region in physical pixels
-		contentW := int(contentWidth * scale)
-		contentH := int(contentHeight * scale)
-		srcX := int(clipX * float64(contentW))
-		srcY := int(clipY * float64(contentH))
-		_ = contentW // Future: use for culling invisible contents
-		_ = contentH
+		// Convert clip origin to physical pixels
+		srcX := int(clipX * scale)
+		srcY := int(clipY * scale)
 
 		// Create draw context with coordinate transformation
 		ctx := DrawContext{

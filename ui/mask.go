@@ -16,31 +16,23 @@ import (
 //   - LayoutItem: positions the mask within the frame (global/frame-local space)
 //   - Clip config: clips the content output (which portion of rendered content to show)
 //
-// ClipRelX/ClipRelY (0.0 to 1.0) select the start position as a fraction of content.
-// ClipRelW/ClipRelH (0.0 to 1.0) select the visible portion size as a fraction of content.
-//
-// When Widget.ContentWidth/ContentHeight are set, content buffer size is computed as
-// ContentWidth * dpi/96 (DPI-normalized), ensuring ClipRel fractions refer to the
-// same logical position across outputs with different DPIs.
-// When not set, falls back to visW/ClipRelW (only correct for single-DPI setups).
-// By default (zero values), no clipping - content renders at mask's visible size.
+// ClipX/ClipY define the visible region origin in widget coordinates (96 DPI units).
+// The visible region size is determined by the mask's Width()/Height() constraints.
+// For example: ClipX=100, ClipY=50 with mask size 200x300 shows widget[100:300, 50:350].
+// By default (zero values), shows widget starting from (0,0).
 type Mask struct {
-	*LayoutItem                // Controls layer margin for global positioning (via reactive Effect)
-	layer   *shell.LayerSurface // Layer surface reference for reactive margin updates
-	frame   *buffer.Frame       // Frame for this output
-	widget  *Widget             // Parent widget (for accessing contents during render)
-	display *display.Display    // For frame creation
-	output  *client.WlOutput
-	config  LayerConfig
+	*LayoutItem                     // Controls layer margin for global positioning (via reactive Effect)
+	layer       *shell.LayerSurface // Layer surface reference for reactive margin updates
+	frame       *buffer.Frame       // Frame for this output
+	widget      *Widget             // Parent widget (for accessing contents during render)
+	display     *display.Display    // For frame creation
+	output      *client.WlOutput
+	config      LayerConfig
 
-	// Clip config - separate from LayoutItem positioning.
-	// When Widget.ContentWidth is set, content buffer = ContentWidth * dpi/96.
-	// ClipRelX selects the start position, ClipRelW selects the visible fraction.
-	// Zero/default values = no clipping, content renders at visible size directly.
-	ClipRelX float64 // X offset as fraction of content (0.0 to 1.0)
-	ClipRelY float64 // Y offset as fraction of content (0.0 to 1.0)
-	ClipRelW float64 // Visible width as fraction of content (0.0 to 1.0, 0 = full width)
-	ClipRelH float64 // Visible height as fraction of content (0.0 to 1.0, 0 = full height)
+	// Clip origin in widget coordinates (96 DPI units).
+	// The visible region extends from (ClipX, ClipY) to (ClipX + maskWidth, ClipY + maskHeight).
+	ClipX float64 // X offset in widget coordinates
+	ClipY float64 // Y offset in widget coordinates
 
 	mu sync.RWMutex
 }
@@ -50,8 +42,6 @@ type LayerConfig struct {
 	Layer         shell.LayerPosition
 	Name          string
 	Anchor        shell.LayerAnchor
-	Width         uint32
-	Height        uint32
 	ExclusiveZone *int32 // nil = 0 (no exclusive zone), use ptr to distinguish 0 from unset
 }
 
@@ -79,8 +69,8 @@ func (m *Mask) getOrCreateFrame() (*buffer.Frame, error) {
 		Layer:         m.config.Layer,
 		Name:          m.config.Name,
 		Anchor:        shell.AnchorTop | shell.AnchorLeft,
-		Width:         m.config.Width,
-		Height:        m.config.Height,
+		Width:         1, // Initial size - will be updated by constraints
+		Height:        1, // Initial size - will be updated by constraints
 		ExclusiveZone: exclZone,
 		Output:        m.output,
 	})

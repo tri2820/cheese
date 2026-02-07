@@ -83,60 +83,51 @@ func main() {
 
 	// Helper function to create a mask for an output
 	// Anchor is always AnchorTop|AnchorLeft - position controlled by margin via reactive Effect
-	createMask := func(output *display.Output, name string, relLeft, relRight, relTop, relBottom float64) (*ui.Mask, int, int) {
-		// Calculate physical content size at this output's DPI
-		contentWidthAtDPI := output.ScaleFrom96DPI(widget.Width)
-		contentHeightAtDPI := output.ScaleFrom96DPI(widget.Height)
-
+	createMask := func(output *display.Output, name string, clipX, clipY float64, surfaceWidth, surfaceHeight int) *ui.Mask {
 		log.Printf("%s: %s at (%d, %d) size %dx%d DPI=%.1f",
 			name, output.Name, output.X, output.Y, output.ModeWidth, output.ModeHeight, output.DPIOrDefault())
-		log.Printf("  Content size at 96 DPI: %dx%d", int(widget.Width), int(widget.Height))
-		log.Printf("  Content size at %.1f DPI: %dx%d (physical pixels)", output.DPIOrDefault(), contentWidthAtDPI, contentHeightAtDPI)
-
-		// Surface size (mask size) = visible portion of content
-		surfaceWidth := int((relRight - relLeft) * float64(contentWidthAtDPI))
-		surfaceHeight := int((relBottom - relTop) * float64(contentHeightAtDPI))
+		log.Printf("  Clip origin: (%.1f, %.1f) in widget coordinates", clipX, clipY)
+		log.Printf("  Surface (mask) size: %dx%d (visible region)", surfaceWidth, surfaceHeight)
 
 		mask := widget.NewMask(output.WlOutput(), ui.LayerConfig{
-			Layer:  shell.LayerPositionTop,
-			Name:   name,
-			Width:  uint32(1),             // Initial size - will be updated by constraints
-			Height: uint32(surfaceHeight), // Initial size - will be updated by constraints
+			Layer: shell.LayerPositionTop,
+			Name:  name,
 		})
 
-		// Set clipping config on mask (which portion of content to show)
-		mask.ClipRelX = relLeft
-		mask.ClipRelY = relTop
-		mask.ClipRelW = relRight - relLeft
-		mask.ClipRelH = relBottom - relTop
+		// Set clip origin in widget coordinates (96 DPI units)
+		mask.ClipX = clipX
+		mask.ClipY = clipY
 
-		log.Printf("  Surface (mask) size: %dx%d (visible region)", surfaceWidth, surfaceHeight)
-		return mask, surfaceWidth, surfaceHeight
+		return mask
 	}
 
-	// Create mask on output 0 - shows left 30% of content at right edge
-	mask0, surfaceW0, surfaceH0 := createMask(outputs[0], "portal-output-0",
-		0.0, 0.3, 0.0, 1.0)
-	// Position at right edge using constraints (reactive via Effect)
-	expectedTop0 := float64(outputs[0].ModeHeight)/2 - float64(surfaceH0)/2
-	log.Printf("DEBUG mask0: ModeWidth=%d ModeHeight=%d surfaceW=%d surfaceH=%d expectedTop=%.1f",
-		outputs[0].ModeWidth, outputs[0].ModeHeight, surfaceW0, surfaceH0, expectedTop0)
-	ui.Eq(mask0.Right, float64(outputs[0].ModeWidth)).Add() // Right edge of output
-	ui.Eq(mask0.Width(), float64(surfaceW0)).Add()          // Fixed width
-	ui.Eq(mask0.Top, expectedTop0).Add()
-	ui.Eq(mask0.Height(), float64(surfaceH0)).Add() // Fixed height
+	// Output 0: shows left 30% of content (0 to 180) at right edge
+	// Widget is 600 wide, so left 30% = 180 widget units
+	clipLeft0 := 0.0
+	clipTop0 := 0.0
+	// Surface size in physical pixels: 30% of widget width scaled by DPI
+	surfaceW0 := int(0.3 * float64(outputs[0].ScaleFrom96DPI(widget.Width)))
+	surfaceH0 := int(1.0 * float64(outputs[0].ScaleFrom96DPI(widget.Height)))
+	mask0 := createMask(outputs[0], "portal-output-0", clipLeft0, clipTop0, surfaceW0, surfaceH0)
 
-	// Create mask on output 1 - shows right 70% of content at left edge
-	mask1, surfaceW1, surfaceH1 := createMask(outputs[1], "portal-output-1",
-		0.3, 1.0, 0.0, 1.0)
-	// Position at left edge using constraints (reactive via Effect)
-	expectedTop1 := float64(outputs[1].ModeHeight)/2 - float64(surfaceH1)/2
-	log.Printf("DEBUG mask1: ModeWidth=%d ModeHeight=%d surfaceW=%d surfaceH=%d expectedTop=%.1f",
-		outputs[1].ModeWidth, outputs[1].ModeHeight, surfaceW1, surfaceH1, expectedTop1)
+	// Position at right edge, vertically centered
+	ui.Eq(mask0.Right, float64(outputs[0].ModeWidth)).Add()
+	ui.Eq(mask0.Width(), float64(surfaceW0)).Add()
+	ui.Eq(mask0.CenterY(), float64(outputs[0].ModeHeight)/2).Add()
+	ui.Eq(mask0.Height(), float64(surfaceH0)).Add()
+
+	// Output 1: shows right 70% of content (180 to 600) at left edge
+	clipLeft1 := 0.3 * widget.Width  // Start at 30% from left
+	clipTop1 := 0.0
+	surfaceW1 := int(0.7 * float64(outputs[1].ScaleFrom96DPI(widget.Width)))
+	surfaceH1 := int(1.0 * float64(outputs[1].ScaleFrom96DPI(widget.Height)))
+	mask1 := createMask(outputs[1], "portal-output-1", clipLeft1, clipTop1, surfaceW1, surfaceH1)
+
+	// Position at left edge, vertically centered
 	ui.Eq(mask1.Left, 0).Add()
-	ui.Eq(mask1.Top, expectedTop1).Add()
-	ui.Eq(mask1.Width(), float64(surfaceW1)).Add()  // Fixed width
-	ui.Eq(mask1.Height(), float64(surfaceH1)).Add() // Fixed height
+	ui.Eq(mask1.Width(), float64(surfaceW1)).Add()
+	ui.Eq(mask1.CenterY(), float64(outputs[1].ModeHeight)/2).Add()
+	ui.Eq(mask1.Height(), float64(surfaceH1)).Add()
 	log.Println()
 	log.Println("Portal running... Press Ctrl+C to exit")
 
