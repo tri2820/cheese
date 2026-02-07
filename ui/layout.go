@@ -290,20 +290,7 @@ func (h ConstraintHandle) Remove() {
 // Uses the constraint's stored priority (defaults to Strong if not set)
 // Returns a handle that can be used to remove the constraints
 func (l *Layout) Add(constraints ...Constraints) ConstraintHandle {
-	var markers []casso.Symbol
-	for _, group := range constraints {
-		for _, c := range group {
-			priority := c.priority
-			if priority == 0 {
-				priority = Strong
-			}
-			marker, _ := l.inner.AddConstraintWithPriority(priority, c.ToCasso())
-			markers = append(markers, marker)
-		}
-	}
-	// Sync values from solver after adding constraints
-	l.syncFromSolver()
-	return ConstraintHandle{layout: l, markers: markers}
+	return l.AddWithPriority(Strong, constraints...)
 }
 
 // AddWithPriority adds constraints with a specific priority (overrides stored priority)
@@ -339,7 +326,7 @@ func (l *Layout) NewVar() Expr {
 	return Expr{kind: exprVar, state: state, layout: l}
 }
 
-// syncFromSolver reads all values from cassowary and updates expr states.
+// syncFromSolver reads all values from casso and update expr states.
 // Called after adding constraints to immediately sync values.
 func (l *Layout) syncFromSolver() {
 	l.resolveMut.Lock()
@@ -347,11 +334,11 @@ func (l *Layout) syncFromSolver() {
 	l.resolveMut.Unlock()
 
 	// Get resolved values from casso and update expressions
+	// Only trigger quiet observers for variables whose values actually changed
 	for sym, state := range l.vars {
-		newVal := l.inner.Val(sym)
-		if newVal != state.value {
-			state.value = newVal
-			// Trigger quiet observers only
+		newValue := l.inner.Val(sym)
+		if newValue != state.value {
+			state.value = newValue
 			for _, fn := range state.onChangeQuiet {
 				fn()
 			}

@@ -5,6 +5,7 @@ import (
 	"sync"
 
 	"github.com/tri2820/cheese/protocols/client"
+	"github.com/tri2820/cheese/signals"
 )
 
 // Widget manages a cohesive collection of contents that share N masks (one per output).
@@ -64,7 +65,7 @@ func (w *Widget) NewMask(output *client.WlOutput, config LayerConfig) *Mask {
 
 	// Reactive margin updates
 	// Watch mask.Left/Top and update layer margin when they change
-	Effect(func() {
+	signals.Effect(func() {
 		if mask.layer == nil {
 			return
 		}
@@ -80,7 +81,7 @@ func (w *Widget) NewMask(output *client.WlOutput, config LayerConfig) *Mask {
 
 	// Reactive size updates
 	// Watch mask.Width()/Height() and update layer size when they change
-	Effect(func() {
+	signals.Effect(func() {
 		if mask.layer == nil {
 			return
 		}
