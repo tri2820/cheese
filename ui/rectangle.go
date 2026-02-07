@@ -49,14 +49,16 @@ func (w *Widget) NewRectangle() *Rectangle {
 
 // draw renders the rectangle to the pixel buffer.
 // Uses LayoutItem position to determine where to draw within the framebuffer.
-func (r *Rectangle) draw(fb Framebuffer, dpi float64) {
+func (r *Rectangle) draw(ctx DrawContext) {
 	c := r.color.Get()
+	fb := ctx.Framebuffer
 
-	// Get position from LayoutItem (solved by cassowary)
-	left := int(r.LayoutItem.Left.Get())
-	top := int(r.LayoutItem.Top.Get())
-	right := int(r.LayoutItem.Right.Get())
-	bottom := int(r.LayoutItem.Bottom.Get())
+	// Get position from LayoutItem (solved by cassowary) in widget coordinates
+	// Apply DPI scale to convert to physical pixels
+	left := int(r.LayoutItem.Left.Get() * ctx.Scale)
+	top := int(r.LayoutItem.Top.Get() * ctx.Scale)
+	right := int(r.LayoutItem.Right.Get() * ctx.Scale)
+	bottom := int(r.LayoutItem.Bottom.Get() * ctx.Scale)
 
 	width := right - left
 	height := bottom - top
@@ -65,11 +67,23 @@ func (r *Rectangle) draw(fb Framebuffer, dpi float64) {
 		return
 	}
 
-	// Clamp to framebuffer bounds
-	x0 := max(0, min(left, fb.Width()))
-	y0 := max(0, min(top, fb.Height()))
-	x1 := max(0, min(right, fb.Width()))
-	y1 := max(0, min(bottom, fb.Height()))
+	// Transform to framebuffer coordinates by subtracting offset
+	// Offset is the visible region origin in physical pixels
+	fbLeft := left - ctx.OffsetX
+	fbTop := top - ctx.OffsetY
+	fbRight := right - ctx.OffsetX
+	fbBottom := bottom - ctx.OffsetY
+
+	// Clamp to visible region (intersection with framebuffer)
+	x0 := max(0, fbLeft)
+	y0 := max(0, fbTop)
+	x1 := min(fb.Width(), fbRight)
+	y1 := min(fb.Height(), fbBottom)
+
+	// Not visible
+	if x1 <= x0 || y1 <= y0 {
+		return
+	}
 
 	// Fill the rectangle region
 	for y := y0; y < y1; y++ {

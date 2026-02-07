@@ -130,64 +130,49 @@ func (l *Layout) renderFrame(frame *buffer.Frame, pixels []byte, width, height i
 
 	// If ContentWidth_at96DPI is set, use DPI-normalized rendering
 	if contentWidth > 0 && contentHeight > 0 {
-		// Compute physical content size at this DPI
-		contentW := int(contentWidth * dpi / 96.0)
-		contentH := int(contentHeight * dpi / 96.0)
-
-		// Create temp buffer for full content
-		tempPixels := make([]byte, contentW*contentH*4)
-		tempStride := contentW * 4
-		tempFb := Framebuffer{
-			pixels: tempPixels,
-			stride: tempStride,
-			width:  contentW,
-			height: contentH,
-		}
-
-		// Render all contents to temp buffer
-		for _, content := range contents {
-			content.Draw(tempFb, dpi)
-		}
+		// Calculate DPI scale
+		scale := dpi / 96.0
 
 		// Get clipping config from mask (which portion of content to show)
 		clipX := 0.0
 		clipY := 0.0
-		clipW := 1.0
-		clipH := 1.0
 		if mask.ClipRelW > 0 {
 			clipX = mask.ClipRelX
-			clipW = mask.ClipRelW
 		}
 		if mask.ClipRelH > 0 {
 			clipY = mask.ClipRelY
-			clipH = mask.ClipRelH
 		}
 
-		// Calculate source start position in content buffer
-		srcStartX := int(clipX * float64(contentW))
-		srcStartY := int(clipY * float64(contentH))
-		srcW := int(clipW * float64(contentW))
-		srcH := int(clipH * float64(contentH))
+		// Calculate visible region in physical pixels
+		contentW := int(contentWidth * scale)
+		contentH := int(contentHeight * scale)
+		srcX := int(clipX * float64(contentW))
+		srcY := int(clipY * float64(contentH))
+		_ = contentW // Future: use for culling invisible contents
+		_ = contentH
 
-		// Copy visible region from temp buffer to frame
-		// Copy from clipped region in content buffer
-		copyW := min(width, srcW, contentW-srcStartX)
-		copyH := min(height, srcH, contentH-srcStartY)
-		for y := 0; y < copyH; y++ {
-			for x := 0; x < copyW; x++ {
-				srcOffset := (srcStartY+y)*tempStride + (srcStartX+x)*4
-				dstOffset := y*stride + x*4
-				// Copy BGRA pixel
-				fb.pixels[dstOffset] = tempPixels[srcOffset]
-				fb.pixels[dstOffset+1] = tempPixels[srcOffset+1]
-				fb.pixels[dstOffset+2] = tempPixels[srcOffset+2]
-				fb.pixels[dstOffset+3] = tempPixels[srcOffset+3]
-			}
+		// Create draw context with coordinate transformation
+		ctx := DrawContext{
+			Framebuffer: fb,
+			OffsetX:     srcX,
+			OffsetY:     srcY,
+			Scale:       scale,
+		}
+
+		// Render all contents directly to framebuffer
+		for _, content := range contents {
+			content.Draw(ctx)
 		}
 	} else {
-		// No DPI normalization - render directly to framebuffer
+		// No DPI normalization - render directly to framebuffer with no transform
+		ctx := DrawContext{
+			Framebuffer: fb,
+			OffsetX:     0,
+			OffsetY:     0,
+			Scale:       1.0,
+		}
 		for _, content := range contents {
-			content.Draw(fb, dpi)
+			content.Draw(ctx)
 		}
 	}
 

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"log"
+	"math"
 	"sync"
 
 	"github.com/tri2820/cheese/protocols/client"
@@ -70,14 +71,40 @@ func (w *Widget) NewMask(output *client.WlOutput, config LayerConfig) *Mask {
 			return
 		}
 
-		left := int32(mask.LayoutItem.Left.Get())
-		top := int32(mask.LayoutItem.Top.Get())
+		// Get raw constraint solver values
+		rawLeft := mask.LayoutItem.Left.Get()
+		rawTop := mask.LayoutItem.Top.Get()
+		rawRight := mask.LayoutItem.Right.Get()
+		rawBottom := mask.LayoutItem.Bottom.Get()
+		rawWidth := mask.LayoutItem.Width().Get()
+		rawHeight := mask.LayoutItem.Height().Get()
+
+		left := int32(math.Round(rawLeft))
+		top := int32(math.Round(rawTop))
+		width := uint32(math.Round(rawWidth))
+		height := uint32(math.Round(rawHeight))
+
+		// Get output info for logging
+		output := mask.display.OutputByWlOutput(mask.output)
+		var outputHeight int32 = 0
+		if output != nil {
+			outputHeight = int32(output.ModeHeight)
+		}
+		bottomMargin := outputHeight - top - int32(height)
+
+		// Only log when we have valid dimensions (constraints resolved)
+		if width > 0 && height > 0 && height < 100000 { // Filter out invalid intermediate states
+			log.Printf("  %s: Left=%.1f Top=%.1f Right=%.1f Bottom=%.1f | Width=%.1f Height=%.1f",
+				mask.config.Name, rawLeft, rawTop, rawRight, rawBottom, rawWidth, rawHeight)
+			log.Printf("    surface at (%d, %d) size=%dx%d | top margin: %dpx, bottom margin: %dpx",
+				left, top, width, height, top, bottomMargin)
+		}
 
 		// Update layer margin (anchor is always top-left)
 		if err := mask.layer.SetMargin(top, 0, 0, left); err != nil {
 			log.Printf("Failed to update mask margin: %v", err)
 		}
-	}, mask.LayoutItem.Left, mask.LayoutItem.Top)
+	}, mask.LayoutItem.Left, mask.LayoutItem.Top, mask.LayoutItem.Right, mask.LayoutItem.Bottom)
 
 	// Reactive size updates
 	// Watch mask.Width()/Height() and update layer size when they change

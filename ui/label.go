@@ -9,6 +9,15 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
+// Justify defines text alignment options.
+type Justify string
+
+const (
+	JustifyLeft   Justify = "left"
+	JustifyCenter Justify = "center"
+	JustifyRight  Justify = "right"
+)
+
 // labelDrawCommand contains all pre-computed data needed to draw the label.
 type labelDrawCommand struct {
 	text       string
@@ -25,6 +34,7 @@ type Label struct {
 	Color      signals.Signal[string]  // Text color
 	FontSize   signals.Signal[float64] // Font size in points
 	FontFamily signals.Signal[string]  // Font family name
+	Justify    signals.Signal[Justify] // Text justification
 	cmd        signals.Signal[labelDrawCommand]
 }
 
@@ -41,6 +51,7 @@ func (w *Widget) NewLabel(text string) *Label {
 		Color:      signals.New("#FFFFFF"), // Default white
 		FontSize:   signals.New(12.0),      // Default 12pt
 		FontFamily: signals.New("Liberation Sans"),
+		Justify:    signals.New(JustifyLeft),
 	}
 
 	// Set draw function
@@ -73,14 +84,16 @@ func (w *Widget) NewLabel(text string) *Label {
 
 // draw renders the label to the pixel buffer.
 // Uses LayoutItem position to determine where to draw within the framebuffer.
-func (l *Label) draw(fb Framebuffer, dpi float64) {
+func (l *Label) draw(ctx DrawContext) {
 	cmd := l.cmd.Get()
+	fb := ctx.Framebuffer
 
-	// Get position from LayoutItem (solved by cassowary)
-	left := int(l.LayoutItem.Left.Get())
-	top := int(l.LayoutItem.Top.Get())
-	right := int(l.LayoutItem.Right.Get())
-	bottom := int(l.LayoutItem.Bottom.Get())
+	// Get position from LayoutItem (solved by cassowary) in widget coordinates
+	// Apply DPI scale to convert to physical pixels
+	left := int(l.LayoutItem.Left.Get() * ctx.Scale)
+	top := int(l.LayoutItem.Top.Get() * ctx.Scale)
+	right := int(l.LayoutItem.Right.Get() * ctx.Scale)
+	bottom := int(l.LayoutItem.Bottom.Get() * ctx.Scale)
 
 	width := right - left
 	height := bottom - top
@@ -89,15 +102,24 @@ func (l *Label) draw(fb Framebuffer, dpi float64) {
 		return
 	}
 
-	// Clamp to framebuffer bounds
-	x0 := max(0, min(left, fb.Width()))
-	y0 := max(0, min(top, fb.Height()))
-	x1 := max(0, min(right, fb.Width()))
-	y1 := max(0, min(bottom, fb.Height()))
+	// Transform to framebuffer coordinates by subtracting offset
+	fbLeft := left - ctx.OffsetX
+	fbTop := top - ctx.OffsetY
+	fbRight := right - ctx.OffsetX
+	fbBottom := bottom - ctx.OffsetY
+
+	// Clamp to visible region (intersection with framebuffer)
+	x0 := max(0, fbLeft)
+	y0 := max(0, fbTop)
+	x1 := min(fb.Width(), fbRight)
+	y1 := min(fb.Height(), fbBottom)
 
 	if x0 >= x1 || y0 >= y1 {
 		return
 	}
+
+	// Calculate DPI for font loading from scale
+	dpi := 96.0 * ctx.Scale
 
 	// Load font face
 	face, err := common.GetFont(cmd.fontFamily, cmd.fontSize, dpi)
@@ -111,14 +133,30 @@ func (l *Label) draw(fb Framebuffer, dpi float64) {
 
 	// Calculate text position (vertically centered within bounds)
 	m := face.Metrics()
-	y := top + (height+m.Ascent.Ceil()-m.Descent.Ceil())/2
+	y := fbTop + (height+m.Ascent.Ceil()-m.Descent.Ceil())/2
+
+	// Calculate x position based on justification
+	x := fbLeft
+	justify := l.Justify.Get()
+	switch justify {
+	case JustifyCenter:
+		// Measure text width to center it
+		textWidth := font.MeasureString(face, cmd.text).Ceil()
+		x = fbLeft + (width-textWidth)/2
+	case JustifyRight:
+		// Measure text width to align to right
+		textWidth := font.MeasureString(face, cmd.text).Ceil()
+		x = fbRight - textWidth
+	case JustifyLeft:
+		// Default left alignment
+	}
 
 	// Draw text at positioned location
 	drawer := &font.Drawer{
 		Dst:  img,
 		Src:  image.NewUniform(common.ParseColor(l.Color.Get())),
 		Face: face,
-		Dot:  fixed.Point26_6{X: fixed.I(left), Y: fixed.I(y)},
+		Dot:  fixed.Point26_6{X: fixed.I(x), Y: fixed.I(y)},
 	}
 	drawer.DrawString(cmd.text)
 }

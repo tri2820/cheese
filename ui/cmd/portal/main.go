@@ -49,8 +49,8 @@ func main() {
 	}
 
 	// Each cell is 1/3 of content size in pixels
-	cellPixelW := widget.Width / 3.0  // 200px per cell
-	cellPixelH := widget.Height / 3.0 // 66.67px per cell
+	cellPixelW := widget.Width / 3.0
+	cellPixelH := widget.Height / 3.0
 
 	for i, color := range colors {
 		row := i / 3
@@ -71,12 +71,13 @@ func main() {
 	label := widget.NewLabel("Portal Demo Testing Clipping Masks")
 	label.Color.Set("#FFFFFF")
 	label.FontSize.Set(24.0)
+	label.Justify.Set(ui.JustifyCenter)
 
-	// Center label vertically with equal spacing (10px padding top and bottom)
+	// Center label vertically with equal spacing
 	ui.Eq(label.Left, 0).Add()
 	ui.Eq(label.Right, widget.Width).Add()
-	ui.Eq(label.Top, 10).Add()                  // 10px from top
-	ui.Eq(label.Bottom, widget.Height-10).Add() // 10px from bottom
+	ui.Eq(label.Top, 0).Add()
+	ui.Eq(label.Bottom, widget.Height).Add()
 
 	log.Printf("Created widget with 9 colorful rectangles in 3x3 grid and label")
 
@@ -97,12 +98,10 @@ func main() {
 		surfaceHeight := int((relBottom - relTop) * float64(contentHeightAtDPI))
 
 		mask := widget.NewMask(output.WlOutput(), ui.LayerConfig{
-			Layer:         shell.LayerPositionTop,
-			Name:          name,
-			// Anchor removed - always AnchorTop|AnchorLeft (set in mask.go)
-			Width:         uint32(surfaceWidth),  // Initial size - will be updated by constraints
-			Height:        uint32(surfaceHeight), // Initial size - will be updated by constraints
-			ExclusiveZone: 0,
+			Layer:  shell.LayerPositionTop,
+			Name:   name,
+			Width:  uint32(1),             // Initial size - will be updated by constraints
+			Height: uint32(surfaceHeight), // Initial size - will be updated by constraints
 		})
 
 		// Set clipping config on mask (which portion of content to show)
@@ -119,18 +118,24 @@ func main() {
 	mask0, surfaceW0, surfaceH0 := createMask(outputs[0], "portal-output-0",
 		0.0, 0.3, 0.0, 1.0)
 	// Position at right edge using constraints (reactive via Effect)
+	expectedTop0 := float64(outputs[0].ModeHeight)/2 - float64(surfaceH0)/2
+	log.Printf("DEBUG mask0: ModeWidth=%d ModeHeight=%d surfaceW=%d surfaceH=%d expectedTop=%.1f",
+		outputs[0].ModeWidth, outputs[0].ModeHeight, surfaceW0, surfaceH0, expectedTop0)
 	ui.Eq(mask0.Right, float64(outputs[0].ModeWidth)).Add() // Right edge of output
 	ui.Eq(mask0.Width(), float64(surfaceW0)).Add()          // Fixed width
-	ui.Eq(mask0.Top, 0).Add()
+	ui.Eq(mask0.Top, expectedTop0).Add()
 	ui.Eq(mask0.Height(), float64(surfaceH0)).Add() // Fixed height
 
 	// Create mask on output 1 - shows right 70% of content at left edge
 	mask1, surfaceW1, surfaceH1 := createMask(outputs[1], "portal-output-1",
 		0.3, 1.0, 0.0, 1.0)
 	// Position at left edge using constraints (reactive via Effect)
+	expectedTop1 := float64(outputs[1].ModeHeight)/2 - float64(surfaceH1)/2
+	log.Printf("DEBUG mask1: ModeWidth=%d ModeHeight=%d surfaceW=%d surfaceH=%d expectedTop=%.1f",
+		outputs[1].ModeWidth, outputs[1].ModeHeight, surfaceW1, surfaceH1, expectedTop1)
 	ui.Eq(mask1.Left, 0).Add()
-	ui.Eq(mask1.Top, 0).Add()
-	ui.Eq(mask1.Width(), float64(surfaceW1)).Add()   // Fixed width
+	ui.Eq(mask1.Top, expectedTop1).Add()
+	ui.Eq(mask1.Width(), float64(surfaceW1)).Add()  // Fixed width
 	ui.Eq(mask1.Height(), float64(surfaceH1)).Add() // Fixed height
 	log.Println()
 	log.Println("Portal running... Press Ctrl+C to exit")

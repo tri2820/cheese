@@ -52,8 +52,7 @@ type LayerConfig struct {
 	Anchor        shell.LayerAnchor
 	Width         uint32
 	Height        uint32
-	ExclusiveZone int32
-	Margin        struct{ Top, Right, Bottom, Left int32 }
+	ExclusiveZone *int32 // nil = 0 (no exclusive zone), use ptr to distinguish 0 from unset
 }
 
 // getOrCreateFrame creates frame lazily when mask is first used
@@ -72,13 +71,17 @@ func (m *Mask) getOrCreateFrame() (*buffer.Frame, error) {
 	}
 
 	// Create layer - always use AnchorTop|AnchorLeft for reactive margin positioning
+	exclZone := int32(0)
+	if m.config.ExclusiveZone != nil {
+		exclZone = *m.config.ExclusiveZone
+	}
 	layer, err := shell.NewLayer(surf, m.display.LayerShell(), shell.LayerConfig{
 		Layer:         m.config.Layer,
 		Name:          m.config.Name,
 		Anchor:        shell.AnchorTop | shell.AnchorLeft,
 		Width:         m.config.Width,
 		Height:        m.config.Height,
-		ExclusiveZone: m.config.ExclusiveZone,
+		ExclusiveZone: exclZone,
 		Output:        m.output,
 	})
 	if err != nil {

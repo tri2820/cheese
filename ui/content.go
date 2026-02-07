@@ -1,5 +1,16 @@
 package ui
 
+// DrawContext provides affine coordinate transformation from widget space to framebuffer.
+// Transformation: fb = (widget * Scale) - Offset
+// Widget coordinates are in "96 DPI units" - Scale transforms to physical pixels.
+// Offset defines the visible region origin in physical pixels.
+type DrawContext struct {
+	Framebuffer Framebuffer
+	OffsetX     int     // Visible region start in physical pixels
+	OffsetY     int
+	Scale       float64 // DPI multiplier: dpi/96.0
+}
+
 // Content provides common fields and methods for all content types.
 // Embed this in your content structs to get positioning, cleanup, and default rendering.
 type Content struct {
@@ -8,13 +19,13 @@ type Content struct {
 	layout      *Layout // Reference to layout for render requests
 
 	// DrawFunc is the actual drawing implementation
-	DrawFunc func(fb Framebuffer, dpi float64)
+	DrawFunc func(ctx DrawContext)
 }
 
 // Draw calls the custom draw function if set.
-func (b *Content) Draw(fb Framebuffer, dpi float64) {
+func (b *Content) Draw(ctx DrawContext) {
 	if b.DrawFunc != nil {
-		b.DrawFunc(fb, dpi)
+		b.DrawFunc(ctx)
 	}
 }
 
