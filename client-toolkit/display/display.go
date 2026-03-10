@@ -7,6 +7,7 @@ import (
 	"github.com/tri2820/cheese/client-toolkit/dmabuf"
 	"github.com/tri2820/cheese/client-toolkit/seat"
 	"github.com/tri2820/cheese/protocols/client"
+	"github.com/tri2820/cheese/protocols/cursor_shape_v1"
 	"github.com/tri2820/cheese/protocols/linux_dmabuf_unstable_v1"
 	"github.com/tri2820/cheese/protocols/wlr_layer_shell_unstable_v1"
 	"github.com/tri2820/cheese/protocols/xdg_shell"
@@ -20,6 +21,7 @@ type RequiredGlobals struct {
 	LayerShell bool
 	Dmabuf     bool
 	Seat       bool
+	CursorShape bool
 }
 
 // Config configures a new Display connection.
@@ -40,6 +42,7 @@ type Display struct {
 	shell       *xdg_shell.XdgWmBase
 	layerShell  *wlr_layer_shell_unstable_v1.ZwlrLayerShellV1
 	dmabufState *dmabuf.State
+	cursorShape *cursor_shape_v1.WpCursorShapeManagerV1
 
 	// SHM format tracking
 	formats map[client.WlShmFormat]bool
@@ -127,6 +130,10 @@ func Connect(config Config) (*Display, error) {
 		d.wlDisplay.Context().Close()
 		return nil, fmt.Errorf("required global wl_seat not available")
 	}
+	if d.required.CursorShape && d.cursorShape == nil {
+		d.wlDisplay.Context().Close()
+		return nil, fmt.Errorf("required global wp_cursor_shape_manager_v1 not available")
+	}
 
 	return d, nil
 }
@@ -210,6 +217,15 @@ func (d *Display) handleGlobal(ev client.WlRegistryGlobalEvent) {
 				return
 			}
 			d.dmabufState = dmabuf.NewState(wlDmabuf, version)
+		}
+	case "wp_cursor_shape_manager_v1":
+		if ev.Version >= 1 && d.cursorShape == nil {
+			manager := cursor_shape_v1.NewWpCursorShapeManagerV1(d.wlDisplay.Context())
+			if err := d.registry.Bind(ev.Name, "wp_cursor_shape_manager_v1", 1, manager); err != nil {
+				log.Printf("failed to bind wp_cursor_shape_manager_v1: %v", err)
+				return
+			}
+			d.cursorShape = manager
 		}
 	case "wl_output":
 		// Bind to all outputs (version 2+ gives us scale events)
@@ -352,6 +368,11 @@ func (d *Display) XdgWmBase() *xdg_shell.XdgWmBase {
 // LayerShell returns the zwlr_layer_shell_v1 global.
 func (d *Display) LayerShell() *wlr_layer_shell_unstable_v1.ZwlrLayerShellV1 {
 	return d.layerShell
+}
+
+// CursorShape returns the cursor shape manager, if available.
+func (d *Display) CursorShape() *cursor_shape_v1.WpCursorShapeManagerV1 {
+	return d.cursorShape
 }
 
 // Registry returns the wl_registry global for advanced use cases.

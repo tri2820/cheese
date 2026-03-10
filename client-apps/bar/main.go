@@ -10,10 +10,12 @@ import (
 
 	"github.com/tri2820/cheese/apps/common"
 	"github.com/tri2820/cheese/client-toolkit/display"
+	"github.com/tri2820/cheese/client-toolkit/seat"
 	"github.com/tri2820/cheese/client-toolkit/shell"
 	"github.com/tri2820/cheese/client-toolkit/shm"
 	"github.com/tri2820/cheese/client-toolkit/surface"
 	"github.com/tri2820/cheese/protocols/client"
+	"github.com/tri2820/cheese/protocols/cursor_shape_v1"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
 )
@@ -24,6 +26,8 @@ const (
 	moduleGap  = 12
 	barSidePad = 12
 	centerGap  = 12
+	hoverPadX  = 6
+	hoverPadY  = 4
 )
 
 func main() {
@@ -34,6 +38,7 @@ func main() {
 			Compositor: true,
 			Shm:        true,
 			LayerShell: true,
+			Seat:       true,
 		},
 	})
 
@@ -42,6 +47,7 @@ func main() {
 	}
 
 	app := NewApp()
+	app.BindPointer(disp.FirstSeat(), disp.CursorShape())
 
 	disp.OnOutput(func(output *display.Output, added bool) {
 		if added {
@@ -71,6 +77,51 @@ func NewApp() *App {
 	return &App{
 		bars: make(map[*client.WlOutput]*Bar),
 	}
+}
+
+func (a *App) BindPointer(s *seat.Seat, manager *cursor_shape_v1.WpCursorShapeManagerV1) {
+	if s == nil || s.Pointer() == nil {
+		return
+	}
+
+	pointer := s.Pointer()
+	var cursorDevice *cursor_shape_v1.WpCursorShapeDeviceV1
+	if manager != nil {
+		device, err := manager.GetPointer(pointer.WlPointer())
+		if err != nil {
+			log.Printf("Failed to get cursor shape device: %v", err)
+		} else {
+			cursorDevice = device
+		}
+	}
+	pointer.OnEnter(func(ev client.WlPointerEnterEvent) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		for _, bar := range a.bars {
+			bar.HandlePointerEnter(ev, cursorDevice)
+		}
+	})
+	pointer.OnLeave(func(ev client.WlPointerLeaveEvent) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		for _, bar := range a.bars {
+			bar.HandlePointerLeave(ev, cursorDevice)
+		}
+	})
+	pointer.OnMotion(func(ev client.WlPointerMotionEvent) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		for _, bar := range a.bars {
+			bar.HandlePointerMotion(ev, cursorDevice)
+		}
+	})
+	pointer.OnButton(func(ev client.WlPointerButtonEvent) {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		for _, bar := range a.bars {
+			bar.HandlePointerButton(ev)
+		}
+	})
 }
 
 func (a *App) AddBar(disp *display.Display, output *display.Output) {
@@ -118,6 +169,23 @@ type Bar struct {
 	closed  bool
 	stop    chan struct{}
 	dirtyCh chan struct{}
+	drawMu  sync.RWMutex
+	hits    []moduleHit
+	hover   pointerState
+}
+
+type moduleHit struct {
+	rect image.Rectangle
+	mod  Module
+}
+
+type pointerState struct {
+	inside bool
+	x      int
+	y      int
+	serial uint32
+	shape  cursor_shape_v1.WpCursorShapeDeviceV1Shape
+	mod    Module
 }
 
 func NewBar(disp *display.Display, output *display.Output) (*Bar, error) {
@@ -249,34 +317,181 @@ func (b *Bar) draw(width, height int, pixels []byte) {
 
 	draw.Draw(dst, dst.Rect, image.NewUniform(argb(0x00, 0x00, 0x00, 0xff)), image.Point{}, draw.Src)
 
-	b.drawCentered(dst, image.Rect(0, 0, width, height), b.centerModules)
-	b.drawRight(dst, image.Rect(0, 0, width, height), b.rightModules)
+	hits := make([]moduleHit, 0, len(b.centerModules)+len(b.rightModules))
+	hits = b.drawCentered(dst, image.Rect(0, 0, width, height), b.centerModules, hits)
+	hits = b.drawRight(dst, image.Rect(0, 0, width, height), b.rightModules, hits)
+
+	b.drawMu.Lock()
+	b.hits = hits
+	b.drawMu.Unlock()
 }
 
-func (b *Bar) drawCentered(dst draw.Image, rect image.Rectangle, mods []Module) {
+func (b *Bar) drawCentered(dst draw.Image, rect image.Rectangle, mods []Module, hits []moduleHit) []moduleHit {
 	totalWidth := modulesWidth(mods, b.face, centerGap)
 	x := rect.Min.X + (rect.Dx()-totalWidth)/2
 	for i, mod := range mods {
 		w := mod.Width(b.face)
-		mod.Draw(dst, image.Rect(x, rect.Min.Y, x+w, rect.Max.Y), b.face)
+		moduleRect := image.Rect(x, rect.Min.Y, x+w, rect.Max.Y)
+		hitRect := hoverRect(moduleRect)
+		if b.isHovered(mod) {
+			drawHoverBackground(dst, hitRect)
+		}
+		mod.Draw(dst, moduleRect, b.face)
+		hits = append(hits, moduleHit{rect: hitRect, mod: mod})
 		x += w
 		if i < len(mods)-1 {
 			x += centerGap
 		}
 	}
+	return hits
 }
 
-func (b *Bar) drawRight(dst draw.Image, rect image.Rectangle, mods []Module) {
+func (b *Bar) drawRight(dst draw.Image, rect image.Rectangle, mods []Module, hits []moduleHit) []moduleHit {
 	totalWidth := modulesWidth(mods, b.face, moduleGap)
 	x := rect.Max.X - barSidePad - totalWidth
 	for i, mod := range mods {
 		w := mod.Width(b.face)
-		mod.Draw(dst, image.Rect(x, rect.Min.Y, x+w, rect.Max.Y), b.face)
+		moduleRect := image.Rect(x, rect.Min.Y, x+w, rect.Max.Y)
+		hitRect := hoverRect(moduleRect)
+		if b.isHovered(mod) {
+			drawHoverBackground(dst, hitRect)
+		}
+		mod.Draw(dst, moduleRect, b.face)
+		hits = append(hits, moduleHit{rect: hitRect, mod: mod})
 		x += w
 		if i < len(mods)-1 {
 			x += moduleGap
 		}
 	}
+	return hits
+}
+
+func (b *Bar) HandlePointerEnter(ev client.WlPointerEnterEvent, cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
+	if ev.Surface != b.surface.WlSurface() {
+		return
+	}
+
+	b.drawMu.Lock()
+	b.hover.inside = true
+	b.hover.x = int(ev.SurfaceX)
+	b.hover.y = int(ev.SurfaceY)
+	b.hover.serial = ev.Serial
+	changed := b.updateHoveredModuleLocked()
+	b.drawMu.Unlock()
+	b.updateCursorShape(cursor)
+	if changed {
+		b.markDirty()
+	}
+}
+
+func (b *Bar) HandlePointerLeave(ev client.WlPointerLeaveEvent, cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
+	if ev.Surface != b.surface.WlSurface() {
+		return
+	}
+
+	b.drawMu.Lock()
+	changed := b.hover.mod != nil
+	b.hover = pointerState{}
+	b.drawMu.Unlock()
+	if cursor != nil {
+		_ = cursor.SetShape(ev.Serial, cursor_shape_v1.WpCursorShapeDeviceV1ShapeDefault)
+	}
+	if changed {
+		b.markDirty()
+	}
+}
+
+func (b *Bar) HandlePointerMotion(ev client.WlPointerMotionEvent, cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
+	b.drawMu.Lock()
+	if !b.hover.inside {
+		b.drawMu.Unlock()
+		return
+	}
+	b.hover.x = int(ev.SurfaceX)
+	b.hover.y = int(ev.SurfaceY)
+	changed := b.updateHoveredModuleLocked()
+	b.drawMu.Unlock()
+	b.updateCursorShape(cursor)
+	if changed {
+		b.markDirty()
+	}
+}
+
+func (b *Bar) HandlePointerButton(ev client.WlPointerButtonEvent) {
+	if ev.State != client.WlPointerButtonStatePressed {
+		return
+	}
+
+	b.drawMu.RLock()
+	defer b.drawMu.RUnlock()
+	if !b.hover.inside {
+		return
+	}
+
+	point := image.Pt(b.hover.x, b.hover.y)
+	for _, hit := range b.hits {
+		if !point.In(hit.rect) {
+			continue
+		}
+		clickable, ok := hit.mod.(ClickableModule)
+		if !ok {
+			return
+		}
+		clickable.OnClick(ev.Button)
+		return
+	}
+}
+
+func (b *Bar) updateCursorShape(cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
+	if cursor == nil {
+		return
+	}
+
+	b.drawMu.Lock()
+	defer b.drawMu.Unlock()
+	if !b.hover.inside || b.hover.serial == 0 {
+		return
+	}
+
+	shape := cursor_shape_v1.WpCursorShapeDeviceV1ShapeDefault
+	if _, ok := b.hover.mod.(ClickableModule); ok {
+		shape = cursor_shape_v1.WpCursorShapeDeviceV1ShapePointer
+	}
+
+	if shape == b.hover.shape {
+		return
+	}
+	if err := cursor.SetShape(b.hover.serial, shape); err != nil {
+		log.Printf("Failed to set cursor shape on %s: %v", b.output.Name, err)
+		return
+	}
+	b.hover.shape = shape
+}
+
+func (b *Bar) isHovered(mod Module) bool {
+	b.drawMu.RLock()
+	defer b.drawMu.RUnlock()
+	return b.hover.mod == mod
+}
+
+func (b *Bar) updateHoveredModuleLocked() bool {
+	var hovered Module
+	point := image.Pt(b.hover.x, b.hover.y)
+	for _, hit := range b.hits {
+		if !point.In(hit.rect) {
+			continue
+		}
+		if _, ok := hit.mod.(ClickableModule); ok {
+			hovered = hit.mod
+		}
+		break
+	}
+
+	if b.hover.mod == hovered {
+		return false
+	}
+	b.hover.mod = hovered
+	return true
 }
 
 func modulesWidth(mods []Module, face font.Face, gap int) int {
@@ -293,6 +508,17 @@ func modulesWidth(mods []Module, face font.Face, gap int) int {
 func textBaseline(face font.Face, rect image.Rectangle) int {
 	metrics := face.Metrics()
 	return rect.Min.Y + (rect.Dy()+metrics.Ascent.Ceil()-metrics.Descent.Ceil())/2
+}
+
+func drawHoverBackground(dst draw.Image, rect image.Rectangle) {
+	draw.Draw(dst, rect, image.NewUniform(argb(0x20, 0x20, 0x20, 0xff)), image.Point{}, draw.Src)
+}
+
+func hoverRect(rect image.Rectangle) image.Rectangle {
+	bg := rect.Inset(-hoverPadX)
+	bg.Min.Y += hoverPadY
+	bg.Max.Y -= hoverPadY
+	return bg
 }
 
 func argb(r, g, b, a uint8) color.RGBA {

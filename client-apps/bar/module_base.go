@@ -16,6 +16,11 @@ type Module interface {
 	Draw(dst draw.Image, rect image.Rectangle, face font.Face)
 }
 
+type ClickableModule interface {
+	Module
+	OnClick(button uint32)
+}
+
 type TextModule struct {
 	mu   sync.RWMutex
 	text string

@@ -13,10 +13,11 @@ import (
 
 type MicModule struct {
 	TextModule
-	output *display.Output
-	stop   chan struct{}
-	cmdMu  sync.Mutex
-	cmd    *exec.Cmd
+	output    *display.Output
+	stop      chan struct{}
+	cmdMu     sync.Mutex
+	cmd       *exec.Cmd
+	markDirty func()
 }
 
 func NewMicModule(output *display.Output) *MicModule {
@@ -27,6 +28,7 @@ func NewMicModule(output *display.Output) *MicModule {
 }
 
 func (m *MicModule) Start(markDirty func()) {
+	m.markDirty = markDirty
 	m.refresh()
 	go m.watch(markDirty)
 }
@@ -58,6 +60,24 @@ func (m *MicModule) refresh() {
 		return
 	}
 	m.SetText("󰍬")
+}
+
+func (m *MicModule) OnClick(button uint32) {
+	if button != 0x110 {
+		return
+	}
+
+	cmd := exec.Command("wpctl", "set-mute", "@DEFAULT_AUDIO_SOURCE@", "toggle")
+	if err := cmd.Run(); err != nil {
+		log.Printf("Mic toggle error on %s: %v", m.output.Name, err)
+		return
+	}
+
+	before := m.Text()
+	m.refresh()
+	if m.markDirty != nil && m.Text() != before {
+		m.markDirty()
+	}
 }
 
 func (m *MicModule) watch(markDirty func()) {
