@@ -89,7 +89,7 @@ func main() {
 
 	// Helper function to create a mask for an output
 	// Anchor is always AnchorTop|AnchorLeft - position controlled by margin via reactive Effect
-	setupMask := func(output *display.Output, isLeft bool) *ui.Mask {
+	setupMask := func(output *display.Output, isLeft bool) (*ui.Mask, error) {
 		if isLeft {
 			// Left side: shows right 70% of content (180 to 600)
 			clipLeft := 0.3 * widget.Width
@@ -100,10 +100,13 @@ func main() {
 			log.Printf("Creating LEFT mask for %s: clip=(%.1f, %.1f) size=%dx%d",
 				output.Name, clipLeft, clipTop, surfaceW, surfaceH)
 
-			mask := widget.NewMask(disp.Display(), output.WlOutput(), ui.LayerConfig{
+			mask, err := widget.NewMask(disp.Display(), output.WlOutput(), ui.LayerConfig{
 				Layer: shell.LayerPositionTop,
 				Name:  "portal-left-" + output.Name,
 			})
+			if err != nil {
+				return nil, err
+			}
 			mask.ClipX = clipLeft
 			mask.ClipY = clipTop
 
@@ -113,7 +116,7 @@ func main() {
 			ui.Eq(mask.CenterY(), float64(output.ModeHeight)/2).Add()
 			ui.Eq(mask.Height(), float64(surfaceH)).Add()
 
-			return mask
+			return mask, nil
 		} else {
 			// Right side: shows left 30% of content (0 to 180)
 			clipLeft := 0.031
@@ -124,10 +127,13 @@ func main() {
 			log.Printf("Creating RIGHT mask for %s: clip=(%.1f, %.1f) size=%dx%d",
 				output.Name, clipLeft, clipTop, surfaceW, surfaceH)
 
-			mask := widget.NewMask(disp.Display(), output.WlOutput(), ui.LayerConfig{
+			mask, err := widget.NewMask(disp.Display(), output.WlOutput(), ui.LayerConfig{
 				Layer: shell.LayerPositionTop,
 				Name:  "portal-right-" + output.Name,
 			})
+			if err != nil {
+				return nil, err
+			}
 			mask.ClipX = clipLeft
 			mask.ClipY = clipTop
 
@@ -137,7 +143,7 @@ func main() {
 			ui.Eq(mask.CenterY(), float64(output.ModeHeight)/2).Add()
 			ui.Eq(mask.Height(), float64(surfaceH)).Add()
 
-			return mask
+			return mask, nil
 		}
 	}
 
@@ -164,7 +170,12 @@ func main() {
 				// New output added
 				masksMu.Lock()
 				isLeft := len(masks) == 1
-				mask := setupMask(output, isLeft)
+				mask, err := setupMask(output, isLeft)
+				if err != nil {
+					masksMu.Unlock()
+					log.Printf("Failed to create mask for output %s: %v", output.Name, err)
+					continue
+				}
 				masks[output.WlOutput()] = &maskState{mask: mask, left: isLeft}
 				masksMu.Unlock()
 				log.Printf("Output added: %s (assigned to %s side)", output.Name, map[bool]string{true: "LEFT", false: "RIGHT"}[isLeft])
@@ -177,11 +188,8 @@ func main() {
 				// Output removed
 				masksMu.Lock()
 				if state, ok := masks[p.WlOutput()]; ok {
-					// Close the frame to release resources
-					if frame := state.mask.Frame(); frame != nil {
-						frame.Close()
-						// Remove from layout tracking to prevent rendering to closed frame
-						layout.RemoveFrame(frame)
+					if err := state.mask.Close(); err != nil {
+						log.Printf("Failed to close mask for removed output %s: %v", p.Name, err)
 					}
 					delete(masks, p.WlOutput())
 					log.Printf("Output removed: %s", p.Name)

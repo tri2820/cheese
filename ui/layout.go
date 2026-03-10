@@ -309,7 +309,7 @@ func (l *Layout) NewVar() Expr {
 	// Capture symbol for closure
 	symCopy := state.symbol
 	// Watch for changes - immediate resolve on every Set()
-	state.onChange = append(state.onChange, func() {
+	state.addOnChange(func() {
 		l.resolve(symCopy)
 	})
 
@@ -329,8 +329,10 @@ func (l *Layout) syncFromSolver() {
 		newValue := l.inner.Val(sym)
 		if newValue != state.value {
 			state.value = newValue
-			for _, fn := range state.onChangeQuiet {
-				fn()
+			for _, obs := range append([]exprObserver(nil), state.onChangeQuiet...) {
+				if obs.fn != nil {
+					obs.fn()
+				}
 			}
 		}
 	}

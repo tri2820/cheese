@@ -68,11 +68,14 @@ func (w *Widget) NewLabel(text string) *Label {
 			fontSize:   label.FontSize.Get(),
 		}
 	}, label.Text, label.Color, label.FontSize, label.FontFamily)
+	label.Content.disposers = append(label.Content.disposers, func() {
+		label.cmd.Dispose()
+	})
 
 	// Request render when draw command changes
-	signals.Effect(func() {
+	label.Content.disposers = append(label.Content.disposers, signals.Effect(func() {
 		w.layout.RequestRender()
-	}, label.cmd)
+	}, label.cmd))
 
 	// Add content to widget
 	w.mu.Lock()

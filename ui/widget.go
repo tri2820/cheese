@@ -38,7 +38,7 @@ func NewWidget(layout *Layout) *Widget {
 
 // NewMask creates a mask for a specific output/layer.
 // The mask embeds a LayoutItem that positions the entire widget on that output.
-func (w *Widget) NewMask(disp *display.Display, output *client.WlOutput, config LayerConfig) *Mask {
+func (w *Widget) NewMask(disp *display.Display, output *client.WlOutput, config LayerConfig) (*Mask, error) {
 	mask := &Mask{
 		LayoutItem: w.layout.NewLayoutItem(),
 		widget:     w,
@@ -47,15 +47,10 @@ func (w *Widget) NewMask(disp *display.Display, output *client.WlOutput, config 
 		config:     config,
 	}
 
-	w.mu.Lock()
-	w.masks = append(w.masks, mask)
-	w.mu.Unlock()
-
 	// Create frame and register with layout
 	frame, err := mask.getOrCreateFrame()
 	if err != nil {
-		log.Printf("Failed to create frame for mask: %v", err)
-		return mask
+		return nil, err
 	}
 
 	w.layout.AddFrame(frame, mask, func(width, height int) {
@@ -67,7 +62,7 @@ func (w *Widget) NewMask(disp *display.Display, output *client.WlOutput, config 
 
 	// Reactive margin updates
 	// Watch mask.Left/Top and update layer margin when they change
-	signals.Effect(func() {
+	mask.disposers = append(mask.disposers, signals.Effect(func() {
 		if mask.layer == nil {
 			return
 		}
@@ -105,11 +100,11 @@ func (w *Widget) NewMask(disp *display.Display, output *client.WlOutput, config 
 		if err := mask.layer.SetMargin(top, 0, 0, left); err != nil {
 			log.Printf("Failed to update mask margin: %v", err)
 		}
-	}, mask.LayoutItem.Left, mask.LayoutItem.Top, mask.LayoutItem.Right, mask.LayoutItem.Bottom)
+	}, mask.LayoutItem.Left, mask.LayoutItem.Top, mask.LayoutItem.Right, mask.LayoutItem.Bottom))
 
 	// Reactive size updates
 	// Watch mask.Width()/Height() and update layer size when they change
-	signals.Effect(func() {
+	mask.disposers = append(mask.disposers, signals.Effect(func() {
 		if mask.layer == nil {
 			return
 		}
@@ -130,9 +125,13 @@ func (w *Widget) NewMask(disp *display.Display, output *client.WlOutput, config 
 		if err := mask.layer.Surface().Commit(); err != nil {
 			log.Printf("Failed to commit size change: %v", err)
 		}
-	}, mask.LayoutItem.Width(), mask.LayoutItem.Height())
+	}, mask.LayoutItem.Width(), mask.LayoutItem.Height()))
 
-	return mask
+	w.mu.Lock()
+	w.masks = append(w.masks, mask)
+	w.mu.Unlock()
+
+	return mask, nil
 }
 
 // Remove removes this widget and all its resources.
@@ -151,11 +150,9 @@ func (w *Widget) Remove() error {
 		w.layout.removeVar(mask.LayoutItem.Top.state.symbol)
 		w.layout.removeVar(mask.LayoutItem.Right.state.symbol)
 		w.layout.removeVar(mask.LayoutItem.Bottom.state.symbol)
-
-		// TODO: Destroy frame - need RemoveFrame method
-		// if mask.frame != nil {
-		//     w.layout.RemoveFrame(mask.frame)
-		// }
+		if err := mask.Close(); err != nil {
+			return err
+		}
 	}
 
 	// Remove this widget from layout's widget list

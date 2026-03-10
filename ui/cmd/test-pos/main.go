@@ -55,10 +55,13 @@ func main() {
 			i, output.Name, output.X, output.Y, output.ModeWidth, output.ModeHeight)
 		log.Printf("  Square size: %d (half of monitor height %d)", squareSize, output.ModeHeight)
 
-		mask := widget.NewMask(disp, output.WlOutput(), ui.LayerConfig{
+		mask, err := widget.NewMask(disp, output.WlOutput(), ui.LayerConfig{
 			Layer: shell.LayerPositionTop,
 			Name:  "test-pos-square",
 		})
+		if err != nil {
+			log.Fatalf("Failed to create mask for output %s: %v", output.Name, err)
+		}
 
 		// Position at top-left corner of the output
 		ui.Eq(mask.Left, 0).Add()

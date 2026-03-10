@@ -33,11 +33,14 @@ func (w *Widget) NewRectangle() *Rectangle {
 		c := common.ParseColor(rect.Color.Get())
 		return struct{ r, g, b, a uint8 }{r: c.R, g: c.G, b: c.B, a: c.A}
 	}, rect.Color)
+	rect.Content.disposers = append(rect.Content.disposers, func() {
+		rect.color.Dispose()
+	})
 
 	// Request render when color changes
-	signals.Effect(func() {
+	rect.Content.disposers = append(rect.Content.disposers, signals.Effect(func() {
 		w.layout.RequestRender()
-	}, rect.color)
+	}, rect.color))
 
 	// Add content to widget
 	w.mu.Lock()

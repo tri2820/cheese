@@ -9,6 +9,7 @@ import (
 	"github.com/tri2820/cheese/client-toolkit/shm"
 	"github.com/tri2820/cheese/client-toolkit/surface"
 	"github.com/tri2820/cheese/protocols/client"
+	"github.com/tri2820/cheese/signals"
 )
 
 // Mask represents one frame on one output.
@@ -34,7 +35,8 @@ type Mask struct {
 	ClipX float64 // X offset in widget coordinates
 	ClipY float64 // Y offset in widget coordinates
 
-	mu sync.RWMutex
+	disposers []signals.CancelFunc
+	mu        sync.RWMutex
 }
 
 // LayerConfig specifies how to create the layer surface
@@ -102,20 +104,46 @@ func (m *Mask) getOrCreateFrame() (*shm.Frame, error) {
 	return frame, nil
 }
 
-// Frame returns the frame for this mask (creates if needed)
+// Frame returns the frame for this mask, if one has been created.
 func (m *Mask) Frame() *shm.Frame {
 	m.mu.RLock()
-	if m.frame != nil {
-		m.mu.RUnlock()
-		return m.frame
-	}
-	m.mu.RUnlock()
+	defer m.mu.RUnlock()
+	return m.frame
+}
 
-	// Create frame if needed
-	frame, err := m.getOrCreateFrame()
-	if err != nil {
-		log.Printf("Failed to create frame: %v", err)
-		return nil
+// Close releases the mask's reactive hooks and Wayland resources.
+func (m *Mask) Close() error {
+	m.mu.Lock()
+	disposers := m.disposers
+	m.disposers = nil
+	frame := m.frame
+	layer := m.layer
+	m.frame = nil
+	m.layer = nil
+	m.mu.Unlock()
+
+	for _, dispose := range disposers {
+		if dispose != nil {
+			dispose()
+		}
 	}
-	return frame
+
+	if frame != nil && m.widget != nil && m.widget.layout != nil {
+		m.widget.layout.RemoveFrame(frame)
+		if err := frame.Close(); err != nil {
+			return err
+		}
+	}
+	if layer != nil {
+		if err := layer.Close(); err != nil {
+			return err
+		}
+		if surf := layer.Surface(); surf != nil {
+			if err := surf.Close(); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }

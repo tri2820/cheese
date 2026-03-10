@@ -4,15 +4,22 @@ import (
 	"fmt"
 
 	"github.com/lithdew/casso"
+	"github.com/tri2820/cheese/signals"
 )
+
+type exprObserver struct {
+	id int
+	fn func()
+}
 
 // exprState holds the mutable state for a variable expression
 // This is shared among all Expr references to the same variable.
 type exprState struct {
-	value         float64
-	onChange      []func()
-	onChangeQuiet []func()
-	symbol        casso.Symbol
+	value          float64
+	nextObserverID int
+	onChange       []exprObserver
+	onChangeQuiet  []exprObserver
+	symbol         casso.Symbol
 }
 
 // Expr represents a constraint expression
@@ -73,33 +80,47 @@ func (e *Expr) Set(value float64, priority ...Priority) {
 	}
 	e.state.value = value
 	// Trigger all observers
-	for _, fn := range e.state.onChange {
-		fn()
+	for _, obs := range append([]exprObserver(nil), e.state.onChange...) {
+		if obs.fn != nil {
+			obs.fn()
+		}
 	}
-	for _, fn := range e.state.onChangeQuiet {
-		fn()
+	for _, obs := range append([]exprObserver(nil), e.state.onChangeQuiet...) {
+		if obs.fn != nil {
+			obs.fn()
+		}
 	}
 }
 
 // OnChange implements Dep interface for Effect()
 // For exprVar: registers callback
 // For exprOp: recursively watches variable dependencies
-func (e Expr) OnChange(fn func()) {
-	e.traverseVars(func(v *Expr) {
-		if v.kind == exprVar && v.state != nil {
-			v.state.onChange = append(v.state.onChange, fn)
-		}
-	})
+func (e Expr) OnChange(fn func()) signals.CancelFunc {
+	if fn == nil {
+		return nil
+	}
+
+	states := e.collectStates()
+	cancelFns := make([]signals.CancelFunc, 0, len(states))
+	for _, state := range states {
+		cancelFns = append(cancelFns, state.addOnChange(fn))
+	}
+	return signals.Join(cancelFns...)
 }
 
 // OnChangeQuiet registers a callback that runs even when SetQuiet is used
 // For effects that should run during constraint resolution
-func (e Expr) OnChangeQuiet(fn func()) {
-	e.traverseVars(func(v *Expr) {
-		if v.kind == exprVar && v.state != nil {
-			v.state.onChangeQuiet = append(v.state.onChangeQuiet, fn)
-		}
-	})
+func (e Expr) OnChangeQuiet(fn func()) signals.CancelFunc {
+	if fn == nil {
+		return nil
+	}
+
+	states := e.collectStates()
+	cancelFns := make([]signals.CancelFunc, 0, len(states))
+	for _, state := range states {
+		cancelFns = append(cancelFns, state.addOnChangeQuiet(fn))
+	}
+	return signals.Join(cancelFns...)
 }
 
 // SetQuiet updates the value without triggering OnChange callbacks.
@@ -111,8 +132,54 @@ func (e *Expr) SetQuiet(value float64) {
 	}
 	e.state.value = value
 	// Only trigger quiet observers
-	for _, fn := range e.state.onChangeQuiet {
-		fn()
+	for _, obs := range append([]exprObserver(nil), e.state.onChangeQuiet...) {
+		if obs.fn != nil {
+			obs.fn()
+		}
+	}
+}
+
+func (e Expr) collectStates() []*exprState {
+	seen := make(map[*exprState]struct{})
+	states := make([]*exprState, 0)
+	e.traverseVars(func(v *Expr) {
+		if v.kind != exprVar || v.state == nil {
+			return
+		}
+		if _, ok := seen[v.state]; ok {
+			return
+		}
+		seen[v.state] = struct{}{}
+		states = append(states, v.state)
+	})
+	return states
+}
+
+func (s *exprState) addOnChange(fn func()) signals.CancelFunc {
+	s.nextObserverID++
+	id := s.nextObserverID
+	s.onChange = append(s.onChange, exprObserver{id: id, fn: fn})
+	return func() {
+		for i, obs := range s.onChange {
+			if obs.id == id {
+				s.onChange = append(s.onChange[:i], s.onChange[i+1:]...)
+				return
+			}
+		}
+	}
+}
+
+func (s *exprState) addOnChangeQuiet(fn func()) signals.CancelFunc {
+	s.nextObserverID++
+	id := s.nextObserverID
+	s.onChangeQuiet = append(s.onChangeQuiet, exprObserver{id: id, fn: fn})
+	return func() {
+		for i, obs := range s.onChangeQuiet {
+			if obs.id == id {
+				s.onChangeQuiet = append(s.onChangeQuiet[:i], s.onChangeQuiet[i+1:]...)
+				return
+			}
+		}
 	}
 }
 
