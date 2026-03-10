@@ -26,6 +26,7 @@
             vulkan-tools
             vulkan-validation-layers
             shaderc
+            resvg
           ];
           # Set PKG_CONFIG_PATH for Vulkan and Wayland
           PKG_CONFIG_PATH = "${pkgs.vulkan-loader}/lib/pkgconfig:${pkgs.wayland}/lib/pkgconfig";

@@ -80,6 +80,8 @@ type App struct {
 	audio     *AudioService
 	network   *NetworkService
 	bluetooth *BluetoothService
+	niri      *NiriService
+	icons     *IconResolver
 }
 
 func NewApp() *App {
@@ -88,6 +90,8 @@ func NewApp() *App {
 		audio:     NewAudioService(),
 		network:   NewNetworkService(),
 		bluetooth: NewBluetoothService(),
+		niri:      NewNiriService(),
+		icons:     NewIconResolver(),
 	}
 }
 
@@ -110,6 +114,10 @@ func (a *App) Close() {
 	if a.bluetooth != nil {
 		a.bluetooth.Close()
 		a.bluetooth = nil
+	}
+	if a.niri != nil {
+		a.niri.Close()
+		a.niri = nil
 	}
 }
 
@@ -206,7 +214,7 @@ func (a *App) AddBar(disp *display.Display, output *display.Output) {
 		return
 	}
 
-	bar, err := NewBar(disp, output, a.audio, a.network, a.bluetooth)
+	bar, err := NewBar(disp, output, a.audio, a.network, a.bluetooth, a.niri, a.icons)
 	if err != nil {
 		log.Printf("Failed to create bar for %s: %v", output.Name, err)
 		return
@@ -236,6 +244,7 @@ type Bar struct {
 	layer         *shell.LayerSurface
 	frame         *shm.Frame
 	face          font.Face
+	leftModules   []Module
 	centerModules []Module
 	rightModules  []Module
 
@@ -260,9 +269,10 @@ type pointerState struct {
 	serial uint32
 	shape  cursor_shape_v1.WpCursorShapeDeviceV1Shape
 	mod    Module
+	rect   image.Rectangle
 }
 
-func NewBar(disp *display.Display, output *display.Output, audio *AudioService, network *NetworkService, bluetooth *BluetoothService) (*Bar, error) {
+func NewBar(disp *display.Display, output *display.Output, audio *AudioService, network *NetworkService, bluetooth *BluetoothService, niri *NiriService, icons *IconResolver) (*Bar, error) {
 	surf, err := surface.New(disp.Compositor())
 	if err != nil {
 		return nil, err
@@ -302,6 +312,9 @@ func NewBar(disp *display.Display, output *display.Output, audio *AudioService, 
 		dirtyCh: make(chan struct{}, 1),
 	}
 
+	b.leftModules = []Module{
+		NewTaskbarModule(output.Name, niri, icons),
+	}
 	b.centerModules = []Module{
 		NewClockModule(),
 	}
@@ -326,6 +339,9 @@ func NewBar(disp *display.Display, output *display.Output, audio *AudioService, 
 		b.Close()
 	})
 
+	for _, mod := range append([]Module{}, b.leftModules...) {
+		mod.Start(b.markDirty)
+	}
 	for _, mod := range append([]Module{}, b.centerModules...) {
 		mod.Start(b.markDirty)
 	}
@@ -368,6 +384,9 @@ func (b *Bar) Close() {
 	b.closed = true
 	close(b.stop)
 
+	for _, mod := range append([]Module{}, b.leftModules...) {
+		mod.Close()
+	}
 	for _, mod := range append([]Module{}, b.centerModules...) {
 		mod.Close()
 	}
@@ -387,6 +406,13 @@ func (b *Bar) Close() {
 }
 
 func (b *Bar) HandleCommand(cmd string) {
+	for _, mod := range b.leftModules {
+		commandModule, ok := mod.(CommandModule)
+		if !ok {
+			continue
+		}
+		commandModule.HandleCommand(cmd)
+	}
 	for _, mod := range b.centerModules {
 		commandModule, ok := mod.(CommandModule)
 		if !ok {
@@ -404,20 +430,22 @@ func (b *Bar) HandleCommand(cmd string) {
 }
 
 func (b *Bar) draw(width, height int, pixels []byte) {
-	dst := &image.RGBA{
-		Pix:    pixels,
-		Stride: width * 4,
-		Rect:   image.Rect(0, 0, width, height),
-	}
+	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
 
-	draw.Draw(dst, dst.Rect, image.NewUniform(argb(0x00, 0x00, 0x00, 0xff)), image.Point{}, draw.Src)
+	draw.Draw(canvas, canvas.Rect, image.NewUniform(color.RGBA{R: 0x00, G: 0x00, B: 0x00, A: 0xff}), image.Point{}, draw.Src)
 
-	hits := make([]moduleHit, 0, len(b.centerModules)+len(b.rightModules))
-	hits = b.drawCentered(dst, image.Rect(0, 0, width, height), b.centerModules, hits)
-	hits = b.drawRight(dst, image.Rect(0, 0, width, height), b.rightModules, hits)
+	hits := make([]moduleHit, 0, len(b.leftModules)+len(b.centerModules)+len(b.rightModules))
+	hits = b.drawLeft(canvas, image.Rect(0, 0, width, height), b.leftModules, hits)
+	hits = b.drawCentered(canvas, image.Rect(0, 0, width, height), b.centerModules, hits)
+	hits = b.drawRight(canvas, image.Rect(0, 0, width, height), b.rightModules, hits)
+
+	writeARGB8888(pixels, canvas)
 
 	b.drawMu.Lock()
 	b.hits = hits
+	if b.hover.inside {
+		b.updateHoveredModuleLocked()
+	}
 	b.drawMu.Unlock()
 }
 
@@ -427,8 +455,8 @@ func (b *Bar) drawCentered(dst draw.Image, rect image.Rectangle, mods []Module, 
 	for i, mod := range mods {
 		w := mod.Width(b.face)
 		moduleRect := image.Rect(x, rect.Min.Y, x+w, rect.Max.Y)
-		if b.isHovered(mod) {
-			drawHoverBackground(dst, moduleRect)
+		if hoverRect, ok := b.currentHoverRect(mod, moduleRect); ok {
+			drawHoverBackground(dst, hoverRect)
 		}
 		mod.Draw(dst, moduleRect, b.face)
 		hits = append(hits, moduleHit{rect: moduleRect, mod: mod})
@@ -446,8 +474,8 @@ func (b *Bar) drawRight(dst draw.Image, rect image.Rectangle, mods []Module, hit
 	for i, mod := range mods {
 		w := mod.Width(b.face)
 		moduleRect := image.Rect(x, rect.Min.Y, x+w, rect.Max.Y)
-		if b.isHovered(mod) {
-			drawHoverBackground(dst, moduleRect)
+		if hoverRect, ok := b.currentHoverRect(mod, moduleRect); ok {
+			drawHoverBackground(dst, hoverRect)
 		}
 		mod.Draw(dst, moduleRect, b.face)
 		hits = append(hits, moduleHit{rect: moduleRect, mod: mod})
@@ -526,6 +554,11 @@ func (b *Bar) HandlePointerButton(ev client.WlPointerButtonEvent) {
 		if !point.In(hit.rect) {
 			continue
 		}
+		if pointing, ok := hit.mod.(PointingModule); ok {
+			if pointing.OnClickAt(ev.Button, hit.rect, point) {
+				return
+			}
+		}
 		clickable, ok := hit.mod.(ClickableModule)
 		if !ok {
 			return
@@ -547,7 +580,7 @@ func (b *Bar) updateCursorShape(cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
 	}
 
 	shape := cursor_shape_v1.WpCursorShapeDeviceV1ShapeDefault
-	if _, ok := b.hover.mod.(ClickableModule); ok {
+	if b.hover.mod != nil {
 		shape = cursor_shape_v1.WpCursorShapeDeviceV1ShapePointer
 	}
 
@@ -567,23 +600,57 @@ func (b *Bar) isHovered(mod Module) bool {
 	return b.hover.mod == mod
 }
 
+func (b *Bar) hoverRect(mod Module) (image.Rectangle, bool) {
+	b.drawMu.RLock()
+	defer b.drawMu.RUnlock()
+	if b.hover.mod != mod {
+		return image.Rectangle{}, false
+	}
+	return b.hover.rect, true
+}
+
+func (b *Bar) currentHoverRect(mod Module, moduleRect image.Rectangle) (image.Rectangle, bool) {
+	b.drawMu.RLock()
+	defer b.drawMu.RUnlock()
+	if !b.hover.inside || b.hover.mod != mod {
+		return image.Rectangle{}, false
+	}
+	if pointing, ok := mod.(PointingModule); ok {
+		if rect, ok := pointing.HoverRect(moduleRect, image.Pt(b.hover.x, b.hover.y)); ok {
+			return rect, true
+		}
+		return image.Rectangle{}, false
+	}
+	return moduleRect, true
+}
+
 func (b *Bar) updateHoveredModuleLocked() bool {
 	var hovered Module
+	var hoveredRect image.Rectangle
 	point := image.Pt(b.hover.x, b.hover.y)
 	for _, hit := range b.hits {
 		if !point.In(hit.rect) {
 			continue
 		}
+		if pointing, ok := hit.mod.(PointingModule); ok {
+			if rect, ok := pointing.HoverRect(hit.rect, point); ok {
+				hovered = hit.mod
+				hoveredRect = rect
+			}
+			break
+		}
 		if _, ok := hit.mod.(ClickableModule); ok {
 			hovered = hit.mod
+			hoveredRect = hit.rect
 		}
 		break
 	}
 
-	if b.hover.mod == hovered {
+	if b.hover.mod == hovered && b.hover.rect == hoveredRect {
 		return false
 	}
 	b.hover.mod = hovered
+	b.hover.rect = hoveredRect
 	return true
 }
 
@@ -604,11 +671,24 @@ func textBaseline(face font.Face, rect image.Rectangle) int {
 }
 
 func drawHoverBackground(dst draw.Image, rect image.Rectangle) {
-	draw.Draw(dst, rect, image.NewUniform(argb(0x20, 0x20, 0x20, 0xff)), image.Point{}, draw.Src)
+	draw.Draw(dst, rect, image.NewUniform(color.RGBA{R: 0x20, G: 0x20, B: 0x20, A: 0xff}), image.Point{}, draw.Src)
 }
 
-func argb(r, g, b, a uint8) color.RGBA {
-	return color.RGBA{R: b, G: g, B: r, A: a}
+func writeARGB8888(dst []byte, src *image.RGBA) {
+	copyLen := len(src.Pix)
+	if len(dst) < copyLen {
+		copyLen = len(dst)
+	}
+	for i := 0; i < copyLen; i += 4 {
+		r := src.Pix[i+0]
+		g := src.Pix[i+1]
+		b := src.Pix[i+2]
+		a := src.Pix[i+3]
+		dst[i+0] = b
+		dst[i+1] = g
+		dst[i+2] = r
+		dst[i+3] = a
+	}
 }
 
 func loadBarFont(output *display.Output) font.Face {
@@ -619,4 +699,21 @@ func loadBarFont(output *display.Output) font.Face {
 		return basicfont.Face7x13
 	}
 	return face
+}
+func (b *Bar) drawLeft(dst draw.Image, rect image.Rectangle, mods []Module, hits []moduleHit) []moduleHit {
+	x := rect.Min.X + barSidePad
+	for i, mod := range mods {
+		w := mod.Width(b.face)
+		moduleRect := image.Rect(x, rect.Min.Y, x+w, rect.Max.Y)
+		if hoverRect, ok := b.currentHoverRect(mod, moduleRect); ok {
+			drawHoverBackground(dst, hoverRect)
+		}
+		mod.Draw(dst, moduleRect, b.face)
+		hits = append(hits, moduleHit{rect: moduleRect, mod: mod})
+		x += w
+		if i < len(mods)-1 {
+			x += moduleGap
+		}
+	}
+	return hits
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"image"
+	"image/color"
 	"image/draw"
 	"sync"
 
@@ -21,6 +22,12 @@ type Module interface {
 type ClickableModule interface {
 	Module
 	OnClick(button uint32)
+}
+
+type PointingModule interface {
+	Module
+	HoverRect(rect image.Rectangle, point image.Point) (image.Rectangle, bool)
+	OnClickAt(button uint32, rect image.Rectangle, point image.Point) bool
 }
 
 type CommandModule interface {
@@ -54,7 +61,7 @@ func (m *TextModule) Draw(dst draw.Image, rect image.Rectangle, face font.Face) 
 	bounds, _ := font.BoundString(face, m.Text())
 	drawer := font.Drawer{
 		Dst:  dst,
-		Src:  image.NewUniform(argb(0xff, 0xff, 0xff, 0xff)),
+		Src:  image.NewUniform(color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}),
 		Face: face,
 		// Use ink bounds, not advance width, so icon overhang does not eat padding.
 		Dot: fixed.P(rect.Min.X+textModulePadX-bounds.Min.X.Floor(), textBaseline(face, rect)),
