@@ -51,23 +51,25 @@ import "C"
 
 // DmaBufBuffer holds a dmabuf-exportable Vulkan image and its resources
 type DmaBufBuffer struct {
-	image   vulkan.Image
-	memory  vulkan.DeviceMemory
-	fd      int
-	stride  int
-	busy    bool
-	width   int
-	height  int
+	image  vulkan.Image
+	memory vulkan.DeviceMemory
+	fd     int
+	stride int
+	busy   bool
+	width  int
+	height int
 }
 
 var dmabufBuffers []DmaBufBuffer
 
 // Persistent render image for rendering before copying to dmabuf
 type RenderImage struct {
-	image  vulkan.Image
-	memory vulkan.DeviceMemory
-	width  int
-	height int
+	image       vulkan.Image
+	memory      vulkan.DeviceMemory
+	imageView   vulkan.ImageView
+	framebuffer vulkan.Framebuffer
+	width       int
+	height      int
 }
 
 var renderImage RenderImage
@@ -114,18 +116,18 @@ func createDmaBufImage(width, height int) (vulkan.Image, vulkan.DeviceMemory, in
 	}
 
 	imageCreateInfo := vulkan.ImageCreateInfo{
-		SType:          vulkan.StructureTypeImageCreateInfo,
-		PNext:          unsafe.Pointer(&explicitInfo),
-		ImageType:      vulkan.ImageType2d,
-		Extent:         vulkan.Extent3D{Width: uint32(width), Height: uint32(height), Depth: 1},
-		MipLevels:      1,
-		ArrayLayers:    1,
-		Format:         vulkan.FormatR8g8b8a8Unorm,
-		Tiling:         vulkan.ImageTilingLinear,
-		InitialLayout:  vulkan.ImageLayoutUndefined,
-		Usage:          vulkan.ImageUsageFlags(vulkan.ImageUsageTransferDstBit),
-		Samples:        vulkan.SampleCount1Bit,
-		SharingMode:    vulkan.SharingModeExclusive,
+		SType:         vulkan.StructureTypeImageCreateInfo,
+		PNext:         unsafe.Pointer(&explicitInfo),
+		ImageType:     vulkan.ImageType2d,
+		Extent:        vulkan.Extent3D{Width: uint32(width), Height: uint32(height), Depth: 1},
+		MipLevels:     1,
+		ArrayLayers:   1,
+		Format:        vulkan.FormatR8g8b8a8Unorm,
+		Tiling:        vulkan.ImageTilingLinear,
+		InitialLayout: vulkan.ImageLayoutUndefined,
+		Usage:         vulkan.ImageUsageFlags(vulkan.ImageUsageTransferDstBit),
+		Samples:       vulkan.SampleCount1Bit,
+		SharingMode:   vulkan.SharingModeExclusive,
 	}
 
 	var image vulkan.Image
@@ -218,7 +220,7 @@ func renderToDmaBuf(bufferIndex int, time float32) error {
 	}
 
 	// Render triangle to the persistent render image
-	renderTriangleToImage(device, renderImage.image, buf.width, buf.height, time)
+	renderTriangleToImage(renderImage.image, buf.width, buf.height, time)
 
 	// Copy from render image to dmabuf image
 	copyImageToImage(device, renderImage.image, buf.image, buf.width, buf.height)
@@ -230,18 +232,22 @@ func renderToDmaBuf(bufferIndex int, time float32) error {
 func createRenderImage(width, height int) error {
 	device := globalVulkan.device
 
+	if err := InitTriangleRenderer(); err != nil {
+		return err
+	}
+
 	renderImageCreateInfo := vulkan.ImageCreateInfo{
-		SType:          vulkan.StructureTypeImageCreateInfo,
-		ImageType:      vulkan.ImageType2d,
-		Extent:         vulkan.Extent3D{Width: uint32(width), Height: uint32(height), Depth: 1},
-		MipLevels:      1,
-		ArrayLayers:    1,
-		Format:         vulkan.FormatR8g8b8a8Unorm,
-		Tiling:         vulkan.ImageTilingOptimal,
-		InitialLayout:  vulkan.ImageLayoutUndefined,
-		Usage:          vulkan.ImageUsageFlags(vulkan.ImageUsageColorAttachmentBit | vulkan.ImageUsageTransferSrcBit),
-		Samples:        vulkan.SampleCount1Bit,
-		SharingMode:    vulkan.SharingModeExclusive,
+		SType:         vulkan.StructureTypeImageCreateInfo,
+		ImageType:     vulkan.ImageType2d,
+		Extent:        vulkan.Extent3D{Width: uint32(width), Height: uint32(height), Depth: 1},
+		MipLevels:     1,
+		ArrayLayers:   1,
+		Format:        vulkan.FormatR8g8b8a8Unorm,
+		Tiling:        vulkan.ImageTilingOptimal,
+		InitialLayout: vulkan.ImageLayoutUndefined,
+		Usage:         vulkan.ImageUsageFlags(vulkan.ImageUsageColorAttachmentBit | vulkan.ImageUsageTransferSrcBit),
+		Samples:       vulkan.SampleCount1Bit,
+		SharingMode:   vulkan.SharingModeExclusive,
 	}
 
 	result := vulkan.CreateImage(device, &renderImageCreateInfo, nil, &renderImage.image)
@@ -293,6 +299,9 @@ func createRenderImage(width, height int) error {
 		return os.ErrNotExist
 	}
 
+	renderImage.imageView = createImageView(device, renderImage.image)
+	renderImage.framebuffer = createFramebuffer(device, triangleRenderer.renderPass, renderImage.imageView, width, height)
+
 	renderImage.width = width
 	renderImage.height = height
 	log.Printf("Created render image: %dx%d", width, height)
@@ -301,6 +310,14 @@ func createRenderImage(width, height int) error {
 
 // cleanupRenderImage cleans up the persistent render image
 func cleanupRenderImage() {
+	if renderImage.framebuffer != nil {
+		vulkan.DestroyFramebuffer(globalVulkan.device, renderImage.framebuffer, nil)
+		renderImage.framebuffer = nil
+	}
+	if renderImage.imageView != nil {
+		vulkan.DestroyImageView(globalVulkan.device, renderImage.imageView, nil)
+		renderImage.imageView = nil
+	}
 	if renderImage.memory != nil {
 		vulkan.FreeMemory(globalVulkan.device, renderImage.memory, nil)
 		renderImage.memory = nil
@@ -309,20 +326,22 @@ func cleanupRenderImage() {
 		vulkan.DestroyImage(globalVulkan.device, renderImage.image, nil)
 		renderImage.image = nil
 	}
+	renderImage.width = 0
+	renderImage.height = 0
 }
 
-// cleanupDmaBufBuffers cleans up the dmabuf buffers
-func cleanupDmaBufBuffers() {
-	cleanupRenderImage()
-	for i := range dmabufBuffers {
-		if dmabufBuffers[i].memory != nil {
-			vulkan.FreeMemory(globalVulkan.device, dmabufBuffers[i].memory, nil)
+// cleanupDmaBufBuffers cleans up one dmabuf buffer generation.
+func cleanupDmaBufBuffers(buffers []DmaBufBuffer) {
+	for i := range buffers {
+		if buffers[i].memory != nil {
+			vulkan.FreeMemory(globalVulkan.device, buffers[i].memory, nil)
+			buffers[i].memory = nil
 		}
-		if dmabufBuffers[i].image != nil {
-			vulkan.DestroyImage(globalVulkan.device, dmabufBuffers[i].image, nil)
+		if buffers[i].image != nil {
+			vulkan.DestroyImage(globalVulkan.device, buffers[i].image, nil)
+			buffers[i].image = nil
 		}
 	}
-	dmabufBuffers = nil
 }
 
 // getMemoryFdKHR exports Vulkan memory as a dmabuf file descriptor

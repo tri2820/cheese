@@ -56,14 +56,14 @@ int hasExtensionKHR(VkPhysicalDevice device, const char* extName) {
 import "C"
 
 var globalVulkan struct {
-	instance            vulkan.Instance
-	physicalDevice      vulkan.PhysicalDevice
-	device              vulkan.Device
-	graphicsQueue       vulkan.Queue
-	graphicsQueueIndex  uint32
-	commandPool         vulkan.CommandPool
-	renderFence         vulkan.Fence
-	initialized         bool
+	instance           vulkan.Instance
+	physicalDevice     vulkan.PhysicalDevice
+	device             vulkan.Device
+	graphicsQueue      vulkan.Queue
+	graphicsQueueIndex uint32
+	commandPool        vulkan.CommandPool
+	renderFence        vulkan.Fence
+	initialized        bool
 }
 
 func initVulkan() bool {
@@ -75,8 +75,8 @@ func initVulkan() bool {
 
 	// Create instance with external memory support and validation layers
 	appInfo := vulkan.ApplicationInfo{
-		SType:           vulkan.StructureTypeApplicationInfo,
-		ApiVersion:      vulkan.MakeVersion(1, 1, 0),
+		SType:            vulkan.StructureTypeApplicationInfo,
+		ApiVersion:       vulkan.MakeVersion(1, 1, 0),
 		PApplicationName: "Cheese DmaBuf\x00",
 	}
 
@@ -85,10 +85,10 @@ func initVulkan() bool {
 	}
 
 	createInfo := vulkan.InstanceCreateInfo{
-		SType:                   vulkan.StructureTypeInstanceCreateInfo,
-		PApplicationInfo:        &appInfo,
-		EnabledLayerCount:       uint32(len(validationLayers)),
-		PpEnabledLayerNames:     validationLayers,
+		SType:               vulkan.StructureTypeInstanceCreateInfo,
+		PApplicationInfo:    &appInfo,
+		EnabledLayerCount:   uint32(len(validationLayers)),
+		PpEnabledLayerNames: validationLayers,
 	}
 
 	var instance vulkan.Instance
@@ -237,16 +237,29 @@ foundDevice:
 }
 
 func cleanupVulkan() {
+	if !globalVulkan.initialized {
+		return
+	}
+	if globalVulkan.device != nil {
+		vulkan.DeviceWaitIdle(globalVulkan.device)
+	}
 	if globalVulkan.renderFence != nil {
 		vulkan.DestroyFence(globalVulkan.device, globalVulkan.renderFence, nil)
+		globalVulkan.renderFence = nil
 	}
 	if globalVulkan.commandPool != nil {
 		vulkan.DestroyCommandPool(globalVulkan.device, globalVulkan.commandPool, nil)
+		globalVulkan.commandPool = nil
 	}
 	if globalVulkan.device != nil {
 		vulkan.DestroyDevice(globalVulkan.device, nil)
+		globalVulkan.device = nil
 	}
 	if globalVulkan.instance != nil {
 		vulkan.DestroyInstance(globalVulkan.instance, nil)
+		globalVulkan.instance = nil
 	}
+	globalVulkan.graphicsQueue = nil
+	globalVulkan.physicalDevice = nil
+	globalVulkan.initialized = false
 }

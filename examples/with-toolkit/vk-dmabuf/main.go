@@ -51,7 +51,7 @@ func main() {
 		State:   dmabufState,
 		Target:  win,
 		Buffers: 2,
-		CreateBuffers: func(width, height, count int) ([]dmabuf.BufferInfo, error) {
+		CreateBuffers: func(width, height, count int) (*gpu.BufferSet, error) {
 			buffers, err := initDmaBufBuffers(width, height, count)
 			if err != nil {
 				return nil, err
@@ -65,23 +65,30 @@ func main() {
 					Modifier: dmabuf.ModLinear,
 				}
 			}
-			return infos, nil
+			return &gpu.BufferSet{
+				Infos: infos,
+				Destroy: func() {
+					cleanupDmaBufBuffers(buffers)
+				},
+			}, nil
 		},
 		Render: func(bufferIndex, width, height int, frameTime uint32) error {
 			// Render to Vulkan image at bufferIndex
 			animTime := float32(frameTime) / 1000.0
 			return renderToDmaBuf(bufferIndex, animTime)
 		},
-		DestroyBuffers: func() {
-			// Cleanup Vulkan resources
-			CleanupTriangleRenderer()
-			cleanupDmaBufBuffers()
-		},
 	})
 	if err != nil {
 		log.Fatal("Failed to create renderer:", err)
 	}
-	defer renderer.Close()
+	defer func() {
+		if err := renderer.Close(); err != nil {
+			log.Printf("Renderer close error: %v", err)
+		}
+		CleanupTriangleRenderer()
+		cleanupRenderImage()
+		cleanupVulkan()
+	}()
 
 	renderer.OnError(func(err error) {
 		log.Printf("Renderer error: %v", err)
@@ -94,6 +101,5 @@ func main() {
 		log.Printf("Dispatch error: %v", err)
 	}
 
-	cleanupVulkan()
 	log.Println("Cheese Vulkan DmaBuf Example exiting")
 }

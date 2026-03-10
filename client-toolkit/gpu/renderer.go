@@ -8,6 +8,15 @@ import (
 	"github.com/tri2820/cheese/client-toolkit/surface"
 )
 
+// BufferSet owns one renderable DMA-BUF generation.
+type BufferSet struct {
+	// Infos describes the exported DMA-BUFs for this generation.
+	Infos []dmabuf.BufferInfo
+
+	// Destroy releases the backing GPU resources for this generation.
+	Destroy func()
+}
+
 // RendererConfig configures a new GPU Renderer.
 type RendererConfig struct {
 	// State is the DMA-BUF protocol state.
@@ -19,15 +28,27 @@ type RendererConfig struct {
 	// Buffers is the number of buffers for double/triple buffering (default 2).
 	Buffers int
 
-	// CreateBuffers is called to create GPU resources and return DMA-BUF metadata.
-	// Called on first configure and on resize.
-	CreateBuffers func(width, height, count int) ([]dmabuf.BufferInfo, error)
+	// CreateBuffers creates one DMA-BUF generation for the configured size.
+	CreateBuffers func(width, height, count int) (*BufferSet, error)
 
-	// Render is called each frame with a free buffer index.
+	// Render is called each frame with a free buffer index from the active generation.
 	Render func(bufferIndex, width, height int, time uint32) error
+}
 
-	// DestroyBuffers is called before resize and on Close().
-	DestroyBuffers func()
+type generation struct {
+	width   int
+	height  int
+	set     *BufferSet
+	buffers []*dmabuf.Buffer
+}
+
+func (g *generation) hasBusyBuffers() bool {
+	for _, buf := range g.buffers {
+		if buf != nil && buf.Busy() {
+			return true
+		}
+	}
+	return false
 }
 
 // Renderer handles high-level GPU rendering through DMA-BUF-backed wl_buffers.
@@ -35,18 +56,19 @@ type Renderer struct {
 	state            *dmabuf.State
 	surface          *surface.Surface
 	target           render.RenderTarget
-	buffers          []*dmabuf.Buffer
 	bufferCount      int
 	resizeHandlers   []func(width, height int)
 	errorHandlers    []func(error)
 	lastWidth        int
 	lastHeight       int
+	lastFrameTime    uint32
+	waitingForBuffer bool
 	manualMode       bool
 	ready            bool
-	resourcesActive  bool
-	onCreateBuffers  func(width, height, count int) ([]dmabuf.BufferInfo, error)
+	active           *generation
+	retired          []*generation
+	onCreateBuffers  func(width, height, count int) (*BufferSet, error)
 	onRender         func(bufferIndex, width, height int, time uint32) error
-	onDestroyBuffers func()
 	createBufferFn   func(width, height int, info dmabuf.BufferInfo) (*dmabuf.Buffer, error)
 	destroyBufferFn  func(*dmabuf.Buffer) error
 }
@@ -65,23 +87,17 @@ func NewRenderer(config RendererConfig) (*Renderer, error) {
 	if config.Render == nil {
 		return nil, fmt.Errorf("Render is required")
 	}
-	if config.DestroyBuffers == nil {
-		return nil, fmt.Errorf("DestroyBuffers is required")
-	}
 	if config.Buffers < 1 {
 		config.Buffers = 2
 	}
 
 	r := &Renderer{
-		state:            config.State,
-		surface:          config.Target.Surface(),
-		target:           config.Target,
-		bufferCount:      config.Buffers,
-		lastWidth:        0,
-		lastHeight:       0,
-		onCreateBuffers:  config.CreateBuffers,
-		onRender:         config.Render,
-		onDestroyBuffers: config.DestroyBuffers,
+		state:           config.State,
+		surface:         config.Target.Surface(),
+		target:          config.Target,
+		bufferCount:     config.Buffers,
+		onCreateBuffers: config.CreateBuffers,
+		onRender:        config.Render,
 	}
 	r.createBufferFn = r.createBuffer
 	r.destroyBufferFn = r.destroyBuffer
@@ -143,41 +159,26 @@ func (r *Renderer) emitError(err error) {
 func (r *Renderer) handleConfigure() {
 	width := r.target.Width()
 	height := r.target.Height()
+	if width <= 0 || height <= 0 {
+		return
+	}
 
-	if width == r.lastWidth && height == r.lastHeight {
+	if r.active != nil && width == r.active.width && height == r.active.height {
 		r.render(0)
 		return
 	}
 
-	r.ready = false
-	r.destroyBuffers()
-
-	infos, err := r.onCreateBuffers(width, height, r.bufferCount)
+	next, err := r.createGeneration(width, height)
 	if err != nil {
-		r.emitError(fmt.Errorf("create gpu buffers: %w", err))
-		return
-	}
-	r.resourcesActive = true
-	if len(infos) != r.bufferCount {
-		r.emitError(fmt.Errorf("create gpu buffers returned %d buffers, expected %d", len(infos), r.bufferCount))
-		r.destroyBuffers()
+		r.emitError(err)
 		return
 	}
 
-	r.buffers = make([]*dmabuf.Buffer, r.bufferCount)
-	for i := 0; i < r.bufferCount; i++ {
-		info := infos[i]
-
-		buf, err := r.createBufferFn(width, height, info)
-		if err != nil {
-			r.emitError(err)
-			r.destroyBuffers()
-			return
-		}
-		r.buffers[i] = buf
-		r.buffers[i].UserData = i
+	if r.active != nil {
+		r.retired = append(r.retired, r.active)
 	}
 
+	r.active = next
 	r.lastWidth = width
 	r.lastHeight = height
 	r.ready = true
@@ -189,28 +190,108 @@ func (r *Renderer) handleConfigure() {
 	}
 
 	r.render(0)
+	r.collectRetired()
 }
 
-func (r *Renderer) render(time uint32) {
-	if len(r.buffers) == 0 {
+func (r *Renderer) createGeneration(width, height int) (*generation, error) {
+	set, err := r.onCreateBuffers(width, height, r.bufferCount)
+	if err != nil {
+		return nil, fmt.Errorf("create gpu buffers: %w", err)
+	}
+	if set == nil {
+		return nil, fmt.Errorf("create gpu buffers returned nil BufferSet")
+	}
+	if len(set.Infos) != r.bufferCount {
+		r.destroySet(set)
+		return nil, fmt.Errorf("create gpu buffers returned %d buffers, expected %d", len(set.Infos), r.bufferCount)
+	}
+
+	gen := &generation{
+		width:   width,
+		height:  height,
+		set:     set,
+		buffers: make([]*dmabuf.Buffer, r.bufferCount),
+	}
+
+	for i := 0; i < r.bufferCount; i++ {
+		buf, err := r.createBufferFn(width, height, set.Infos[i])
+		if err != nil {
+			r.destroyGeneration(gen)
+			return nil, err
+		}
+		index := i
+		buf.OnRelease(func() {
+			r.handleBufferRelease(gen, index)
+		})
+		buf.UserData = i
+		gen.buffers[i] = buf
+	}
+
+	return gen, nil
+}
+
+func (r *Renderer) handleBufferRelease(gen *generation, _ int) {
+	if gen == nil {
 		return
 	}
 
-	width := r.lastWidth
-	height := r.lastHeight
+	if gen != r.active {
+		r.collectRetired()
+		return
+	}
+
+	if r.waitingForBuffer && !r.manualMode {
+		r.waitingForBuffer = false
+		r.render(r.lastFrameTime)
+	}
+
+	r.collectRetired()
+}
+
+func (r *Renderer) collectRetired() {
+	if len(r.retired) == 0 {
+		return
+	}
+
+	next := r.retired[:0]
+	for _, gen := range r.retired {
+		if gen == nil {
+			continue
+		}
+		if gen.hasBusyBuffers() {
+			next = append(next, gen)
+			continue
+		}
+		r.destroyGeneration(gen)
+	}
+	r.retired = next
+}
+
+func (r *Renderer) render(time uint32) {
+	if r.surface == nil || r.active == nil || len(r.active.buffers) == 0 {
+		return
+	}
+	if time != 0 {
+		r.lastFrameTime = time
+	}
+
+	width := r.active.width
+	height := r.active.height
 
 	bufferIndex := -1
-	for i, buf := range r.buffers {
+	for i, buf := range r.active.buffers {
 		if buf != nil && !buf.Busy() {
 			bufferIndex = i
 			break
 		}
 	}
 	if bufferIndex == -1 {
+		r.waitingForBuffer = true
 		return
 	}
+	r.waitingForBuffer = false
 
-	buf := r.buffers[bufferIndex]
+	buf := r.active.buffers[bufferIndex]
 
 	if err := r.onRender(bufferIndex, width, height, time); err != nil {
 		r.emitError(fmt.Errorf("render gpu buffer %d: %w", bufferIndex, err))
@@ -238,21 +319,25 @@ func (r *Renderer) render(time uint32) {
 	buf.MarkBusy()
 }
 
-func (r *Renderer) destroyBuffers() {
-	for _, buf := range r.buffers {
+func (r *Renderer) destroySet(set *BufferSet) {
+	if set == nil || set.Destroy == nil {
+		return
+	}
+	set.Destroy()
+}
+
+func (r *Renderer) destroyGeneration(gen *generation) {
+	if gen == nil {
+		return
+	}
+	for _, buf := range gen.buffers {
 		if buf != nil {
 			if err := r.destroyBufferFn(buf); err != nil {
 				r.emitError(fmt.Errorf("destroy dmabuf buffer: %w", err))
 			}
 		}
 	}
-	r.buffers = nil
-	r.ready = false
-
-	if r.resourcesActive {
-		r.onDestroyBuffers()
-		r.resourcesActive = false
-	}
+	r.destroySet(gen.set)
 }
 
 // Width returns the current width of the render buffers.
@@ -267,7 +352,13 @@ func (r *Renderer) Height() int {
 
 // Close destroys the renderer and frees resources.
 func (r *Renderer) Close() error {
-	r.destroyBuffers()
+	r.destroyGeneration(r.active)
+	r.active = nil
+	for _, gen := range r.retired {
+		r.destroyGeneration(gen)
+	}
+	r.retired = nil
+	r.ready = false
 	return nil
 }
 

@@ -7,11 +7,12 @@ import (
 // Buffer wraps a wl_buffer created from a DMA-BUF.
 // It tracks whether the buffer is currently in use by the compositor.
 type Buffer struct {
-	wlBuffer *client.WlBuffer
-	width    int
-	height   int
-	format   Format
-	busy     bool
+	wlBuffer        *client.WlBuffer
+	width           int
+	height          int
+	format          Format
+	busy            bool
+	releaseHandlers []func()
 
 	// User data - can store the backing resource (e.g., Vulkan image index)
 	UserData interface{}
@@ -31,6 +32,11 @@ func NewBuffer(wlBuffer *client.WlBuffer, width, height int, format Format) *Buf
 	// Set up release handler
 	wlBuffer.SetReleaseHandler(func(ev client.WlBufferReleaseEvent) {
 		b.busy = false
+		for _, fn := range append([]func(){}, b.releaseHandlers...) {
+			if fn != nil {
+				fn()
+			}
+		}
 	})
 
 	return b
@@ -64,6 +70,14 @@ func (b *Buffer) Busy() bool {
 // MarkBusy marks the buffer as in use (call after attaching to surface).
 func (b *Buffer) MarkBusy() {
 	b.busy = true
+}
+
+// OnRelease registers a handler that fires when the compositor releases the buffer.
+func (b *Buffer) OnRelease(fn func()) {
+	if fn == nil {
+		return
+	}
+	b.releaseHandlers = append(b.releaseHandlers, fn)
 }
 
 // Destroy destroys the wl_buffer.

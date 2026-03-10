@@ -27,7 +27,7 @@ For shared-memory rendering, the intended helper is `shm.Frame`.
 ## Current Rendering APIs
 
 - SHM: `shm.NewFrame(...)` plus `frame.SetRender(...)`
-- DMA-BUF: `gpu.NewRenderer(...)` with `CreateBuffers`, `Render`, and `DestroyBuffers`
+- DMA-BUF: `gpu.NewRenderer(...)` with `CreateBuffers` returning a `gpu.BufferSet` plus `Render`
 
 Both lifecycle helpers expose:
 

@@ -40,23 +40,17 @@ type TriangleRenderer struct {
 
 	// Command buffer (reused and rerecorded each frame)
 	commandBuffer vulkan.CommandBuffer
-
-	// Dimensions
-	width  int
-	height int
 }
 
 var triangleRenderer TriangleRenderer
 
-// InitTriangleRenderer initializes all persistent Vulkan resources for triangle rendering
-func InitTriangleRenderer(width, height int) error {
+// InitTriangleRenderer initializes the persistent Vulkan resources for triangle rendering.
+func InitTriangleRenderer() error {
 	if triangleRenderer.initialized {
 		return nil
 	}
 
 	device := globalVulkan.device
-	triangleRenderer.width = width
-	triangleRenderer.height = height
 
 	// Create shaders (once)
 	triangleRenderer.vertShader = createShaderModule(device, loadVertShader())
@@ -69,7 +63,6 @@ func InitTriangleRenderer(width, height int) error {
 	triangleRenderer.pipeline, triangleRenderer.pipelineLayout = createGraphicsPipeline(
 		device, triangleRenderer.renderPass,
 		triangleRenderer.vertShader, triangleRenderer.fragShader,
-		width, height,
 	)
 
 	// Allocate command buffer (once, reused each frame)
@@ -102,21 +95,27 @@ func CleanupTriangleRenderer() {
 
 	if triangleRenderer.commandBuffer != nil {
 		vulkan.FreeCommandBuffers(device, globalVulkan.commandPool, 1, []vulkan.CommandBuffer{triangleRenderer.commandBuffer})
+		triangleRenderer.commandBuffer = nil
 	}
 	if triangleRenderer.pipeline != nil {
 		vulkan.DestroyPipeline(device, triangleRenderer.pipeline, nil)
+		triangleRenderer.pipeline = nil
 	}
 	if triangleRenderer.pipelineLayout != nil {
 		vulkan.DestroyPipelineLayout(device, triangleRenderer.pipelineLayout, nil)
+		triangleRenderer.pipelineLayout = nil
 	}
 	if triangleRenderer.renderPass != nil {
 		vulkan.DestroyRenderPass(device, triangleRenderer.renderPass, nil)
+		triangleRenderer.renderPass = nil
 	}
 	if triangleRenderer.vertShader != nil {
 		vulkan.DestroyShaderModule(device, triangleRenderer.vertShader, nil)
+		triangleRenderer.vertShader = nil
 	}
 	if triangleRenderer.fragShader != nil {
 		vulkan.DestroyShaderModule(device, triangleRenderer.fragShader, nil)
+		triangleRenderer.fragShader = nil
 	}
 
 	triangleRenderer.initialized = false
@@ -125,14 +124,10 @@ func CleanupTriangleRenderer() {
 
 // renderTriangleToImage renders a colored triangle to an image using the pre-initialized pipeline
 // This is the fast path - only records command buffer and submits
-func renderTriangleToImage(device vulkan.Device, image vulkan.Image, width, height int, time float32) {
-	// Reinitialize if dimensions changed
-	if !triangleRenderer.initialized || width != triangleRenderer.width || height != triangleRenderer.height {
-		if triangleRenderer.initialized {
-			CleanupTriangleRenderer()
-		}
-		if err := InitTriangleRenderer(width, height); err != nil {
-			log.Printf("Failed to reinitialize triangle renderer: %v", err)
+func renderTriangleToImage(image vulkan.Image, width, height int, time float32) {
+	if !triangleRenderer.initialized {
+		if err := InitTriangleRenderer(); err != nil {
+			log.Printf("Failed to initialize triangle renderer: %v", err)
 			return
 		}
 	}
@@ -173,21 +168,13 @@ func renderTriangleToImage(device vulkan.Device, image vulkan.Image, width, heig
 		0, 0, nil, 0, nil, 1, []vulkan.ImageMemoryBarrier{imageBarrier},
 	)
 
-	// Create temporary image view for this frame's image
-	imageView := createImageView(device, image)
-	defer vulkan.DestroyImageView(device, imageView, nil)
-
-	// Create temporary framebuffer for this frame's image
-	framebuffer := createFramebuffer(device, triangleRenderer.renderPass, imageView, width, height)
-	defer vulkan.DestroyFramebuffer(device, framebuffer, nil)
-
 	// Begin render pass
 	clearValue := vulkan.ClearValue{}
 	clearValue.SetColor([]float32{0.0, 0.0, 0.0, 1.0})
 	renderPassBegin := vulkan.RenderPassBeginInfo{
 		SType:       vulkan.StructureTypeRenderPassBeginInfo,
 		RenderPass:  triangleRenderer.renderPass,
-		Framebuffer: framebuffer,
+		Framebuffer: renderImage.framebuffer,
 		RenderArea: vulkan.Rect2D{
 			Offset: vulkan.Offset2D{X: 0, Y: 0},
 			Extent: vulkan.Extent2D{Width: uint32(width), Height: uint32(height)},
@@ -355,7 +342,7 @@ func createFramebuffer(device vulkan.Device, renderPass vulkan.RenderPass, image
 	return framebuffer
 }
 
-func createGraphicsPipeline(device vulkan.Device, renderPass vulkan.RenderPass, vertShader, fragShader vulkan.ShaderModule, width, height int) (vulkan.Pipeline, vulkan.PipelineLayout) {
+func createGraphicsPipeline(device vulkan.Device, renderPass vulkan.RenderPass, vertShader, fragShader vulkan.ShaderModule) (vulkan.Pipeline, vulkan.PipelineLayout) {
 	vertShaderStageInfo := vulkan.PipelineShaderStageCreateInfo{
 		SType:  vulkan.StructureTypePipelineShaderStageCreateInfo,
 		Stage:  vulkan.ShaderStageVertexBit,
@@ -435,9 +422,9 @@ func createGraphicsPipeline(device vulkan.Device, renderPass vulkan.RenderPass, 
 	}
 
 	pipelineLayoutInfo := vulkan.PipelineLayoutCreateInfo{
-		SType:                vulkan.StructureTypePipelineLayoutCreateInfo,
+		SType:                  vulkan.StructureTypePipelineLayoutCreateInfo,
 		PushConstantRangeCount: 1,
-		PPushConstantRanges: []vulkan.PushConstantRange{pushConstantRange},
+		PPushConstantRanges:    []vulkan.PushConstantRange{pushConstantRange},
 	}
 
 	var pipelineLayout vulkan.PipelineLayout
