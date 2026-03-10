@@ -30,8 +30,6 @@ const (
 	moduleGap  = 12
 	barSidePad = 12
 	centerGap  = 12
-	hoverPadX  = 6
-	hoverPadY  = 4
 )
 
 func main() {
@@ -416,12 +414,12 @@ func (b *Bar) drawCentered(dst draw.Image, rect image.Rectangle, mods []Module, 
 	for i, mod := range mods {
 		w := mod.Width(b.face)
 		moduleRect := image.Rect(x, rect.Min.Y, x+w, rect.Max.Y)
-		hitRect := hoverRect(moduleRect)
 		if b.isHovered(mod) {
-			drawHoverBackground(dst, hitRect)
+			drawHoverBackground(dst, moduleRect)
 		}
 		mod.Draw(dst, moduleRect, b.face)
-		hits = append(hits, moduleHit{rect: hitRect, mod: mod})
+		drawDebugOverlay(dst, mod, moduleRect)
+		hits = append(hits, moduleHit{rect: moduleRect, mod: mod})
 		x += w
 		if i < len(mods)-1 {
 			x += centerGap
@@ -436,12 +434,12 @@ func (b *Bar) drawRight(dst draw.Image, rect image.Rectangle, mods []Module, hit
 	for i, mod := range mods {
 		w := mod.Width(b.face)
 		moduleRect := image.Rect(x, rect.Min.Y, x+w, rect.Max.Y)
-		hitRect := hoverRect(moduleRect)
 		if b.isHovered(mod) {
-			drawHoverBackground(dst, hitRect)
+			drawHoverBackground(dst, moduleRect)
 		}
 		mod.Draw(dst, moduleRect, b.face)
-		hits = append(hits, moduleHit{rect: hitRect, mod: mod})
+		drawDebugOverlay(dst, mod, moduleRect)
+		hits = append(hits, moduleHit{rect: moduleRect, mod: mod})
 		x += w
 		if i < len(mods)-1 {
 			x += moduleGap
@@ -598,11 +596,20 @@ func drawHoverBackground(dst draw.Image, rect image.Rectangle) {
 	draw.Draw(dst, rect, image.NewUniform(argb(0x20, 0x20, 0x20, 0xff)), image.Point{}, draw.Src)
 }
 
-func hoverRect(rect image.Rectangle) image.Rectangle {
-	bg := rect.Inset(-hoverPadX)
-	bg.Min.Y += hoverPadY
-	bg.Max.Y -= hoverPadY
-	return bg
+func drawDebugOverlay(dst draw.Image, mod Module, rect image.Rectangle) {
+	// if _, ok := mod.(*InputMethodModule); !ok {
+	return
+	// }
+
+	leftPadRect := image.Rect(rect.Min.X, rect.Min.Y, rect.Min.X+textModulePadX, rect.Max.Y)
+	rightPadRect := image.Rect(rect.Max.X-textModulePadX, rect.Min.Y, rect.Max.X, rect.Max.Y)
+	topBorderRect := image.Rect(rect.Min.X, rect.Min.Y, rect.Max.X, rect.Min.Y+1)
+	bottomBorderRect := image.Rect(rect.Min.X, rect.Max.Y-1, rect.Max.X, rect.Max.Y)
+
+	draw.Draw(dst, leftPadRect, image.NewUniform(argb(0x00, 0x00, 0xff, 0x80)), image.Point{}, draw.Src)
+	draw.Draw(dst, rightPadRect, image.NewUniform(argb(0x00, 0x00, 0xff, 0x80)), image.Point{}, draw.Src)
+	draw.Draw(dst, topBorderRect, image.NewUniform(argb(0xff, 0x00, 0x00, 0xff)), image.Point{}, draw.Src)
+	draw.Draw(dst, bottomBorderRect, image.NewUniform(argb(0xff, 0x00, 0x00, 0xff)), image.Point{}, draw.Src)
 }
 
 func argb(r, g, b, a uint8) color.RGBA {
