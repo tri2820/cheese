@@ -21,6 +21,11 @@ type ClickableModule interface {
 	OnClick(button uint32)
 }
 
+type CommandModule interface {
+	Module
+	HandleCommand(cmd string) bool
+}
+
 type TextModule struct {
 	mu   sync.RWMutex
 	text string

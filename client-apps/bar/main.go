@@ -8,7 +8,6 @@ import (
 	"log"
 	"net"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -132,19 +131,16 @@ func (a *App) handleCommandConn(conn net.Conn) {
 
 	scanner := bufio.NewScanner(conn)
 	for scanner.Scan() {
-		switch strings.TrimSpace(scanner.Text()) {
-		case "im-refresh":
-			a.RefreshInputMethods()
-		}
+		a.HandleCommand(scanner.Text())
 	}
 }
 
-func (a *App) RefreshInputMethods() {
+func (a *App) HandleCommand(cmd string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	for _, bar := range a.bars {
-		bar.RefreshInputMethod()
+		bar.HandleCommand(cmd)
 	}
 }
 
@@ -233,7 +229,6 @@ type Bar struct {
 	face          font.Face
 	centerModules []Module
 	rightModules  []Module
-	inputMethod   *InputMethodModule
 
 	closeMu sync.Mutex
 	closed  bool
@@ -302,7 +297,10 @@ func NewBar(disp *display.Display, output *display.Output, audio *AudioService) 
 		NewClockModule(),
 	}
 	b.rightModules = []Module{
+		NewInputMethodModule(),
+		NewMicModule(audio),
 		NewVolumeModule(audio),
+		NewBatteryModule(),
 	}
 
 	frame.SetRender(func(width, height int, frameTime uint32, pixels []byte) {
@@ -377,11 +375,21 @@ func (b *Bar) Close() {
 	}
 }
 
-func (b *Bar) RefreshInputMethod() {
-	if b.inputMethod == nil {
-		return
+func (b *Bar) HandleCommand(cmd string) {
+	for _, mod := range b.centerModules {
+		commandModule, ok := mod.(CommandModule)
+		if !ok {
+			continue
+		}
+		commandModule.HandleCommand(cmd)
 	}
-	b.inputMethod.Refresh()
+	for _, mod := range b.rightModules {
+		commandModule, ok := mod.(CommandModule)
+		if !ok {
+			continue
+		}
+		commandModule.HandleCommand(cmd)
+	}
 }
 
 func (b *Bar) draw(width, height int, pixels []byte) {

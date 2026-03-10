@@ -49,12 +49,18 @@ func (m *InputMethodModule) OnClick(button uint32) {
 	}
 }
 
-func (m *InputMethodModule) Refresh() {
+func (m *InputMethodModule) HandleCommand(cmd string) bool {
+	if cmd != "im-refresh" {
+		return false
+	}
+
 	before := m.Text()
 	m.refresh()
 	if m.markDirty != nil && m.Text() != before {
 		m.markDirty()
 	}
+
+	return true
 }
 
 func (m *InputMethodModule) refresh() {
