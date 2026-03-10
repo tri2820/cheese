@@ -34,3 +34,4 @@ examples/vk-dmabuf/vk-dmabuf
 apps/cheesebar/cheesebar
 examples/with-toolkit/rainbow/main
 examples/with-toolkit/vk-dmabuf/main.go
+examples/with-toolkit/vk-dmabuf/vk-dmabuf-example
