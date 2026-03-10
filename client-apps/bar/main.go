@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"image"
 	"image/color"
 	"image/draw"
 	"log"
+	"net"
+	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -23,6 +27,7 @@ import (
 const (
 	barHeight  = 28
 	barName    = "cheese-client-bar"
+	barSocket  = "/tmp/cheese-client-bar.sock"
 	moduleGap  = 12
 	barSidePad = 12
 	centerGap  = 12
@@ -47,7 +52,11 @@ func main() {
 	}
 
 	app := NewApp()
+	defer app.Close()
 	app.BindPointer(disp.FirstSeat(), disp.CursorShape())
+	if err := app.ListenCommands(barSocket); err != nil {
+		log.Printf("Command socket error: %v", err)
+	}
 
 	disp.OnOutput(func(output *display.Output, added bool) {
 		if added {
@@ -69,13 +78,73 @@ func main() {
 }
 
 type App struct {
-	mu   sync.Mutex
-	bars map[*client.WlOutput]*Bar
+	mu       sync.Mutex
+	bars     map[*client.WlOutput]*Bar
+	listener net.Listener
+	audio    *AudioService
 }
 
 func NewApp() *App {
 	return &App{
-		bars: make(map[*client.WlOutput]*Bar),
+		bars:  make(map[*client.WlOutput]*Bar),
+		audio: NewAudioService(),
+	}
+}
+
+func (a *App) Close() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	if a.listener != nil {
+		_ = a.listener.Close()
+		a.listener = nil
+	}
+	if a.audio != nil {
+		a.audio.Close()
+		a.audio = nil
+	}
+}
+
+func (a *App) ListenCommands(path string) error {
+	_ = os.Remove(path)
+
+	ln, err := net.Listen("unix", path)
+	if err != nil {
+		return err
+	}
+	a.listener = ln
+
+	go func() {
+		for {
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			go a.handleCommandConn(conn)
+		}
+	}()
+
+	return nil
+}
+
+func (a *App) handleCommandConn(conn net.Conn) {
+	defer conn.Close()
+
+	scanner := bufio.NewScanner(conn)
+	for scanner.Scan() {
+		switch strings.TrimSpace(scanner.Text()) {
+		case "im-refresh":
+			a.RefreshInputMethods()
+		}
+	}
+}
+
+func (a *App) RefreshInputMethods() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	for _, bar := range a.bars {
+		bar.RefreshInputMethod()
 	}
 }
 
@@ -132,7 +201,7 @@ func (a *App) AddBar(disp *display.Display, output *display.Output) {
 		return
 	}
 
-	bar, err := NewBar(disp, output)
+	bar, err := NewBar(disp, output, a.audio)
 	if err != nil {
 		log.Printf("Failed to create bar for %s: %v", output.Name, err)
 		return
@@ -164,6 +233,7 @@ type Bar struct {
 	face          font.Face
 	centerModules []Module
 	rightModules  []Module
+	inputMethod   *InputMethodModule
 
 	closeMu sync.Mutex
 	closed  bool
@@ -188,7 +258,7 @@ type pointerState struct {
 	mod    Module
 }
 
-func NewBar(disp *display.Display, output *display.Output) (*Bar, error) {
+func NewBar(disp *display.Display, output *display.Output, audio *AudioService) (*Bar, error) {
 	surf, err := surface.New(disp.Compositor())
 	if err != nil {
 		return nil, err
@@ -232,8 +302,7 @@ func NewBar(disp *display.Display, output *display.Output) (*Bar, error) {
 		NewClockModule(),
 	}
 	b.rightModules = []Module{
-		NewMicModule(output),
-		NewVolumeModule(output),
+		NewVolumeModule(audio),
 	}
 
 	frame.SetRender(func(width, height int, frameTime uint32, pixels []byte) {
@@ -306,6 +375,13 @@ func (b *Bar) Close() {
 	if b.surface != nil {
 		_ = b.surface.Close()
 	}
+}
+
+func (b *Bar) RefreshInputMethod() {
+	if b.inputMethod == nil {
+		return
+	}
+	b.inputMethod.Refresh()
 }
 
 func (b *Bar) draw(width, height int, pixels []byte) {

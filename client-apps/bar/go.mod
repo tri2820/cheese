@@ -10,6 +10,7 @@ require (
 )
 
 require (
+	github.com/jfreymuth/pulse v0.1.1 // indirect
 	golang.org/x/sys v0.29.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
 )
