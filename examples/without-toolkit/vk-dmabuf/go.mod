@@ -1,4 +1,4 @@
-module vk-dmabuf-example
+module github.com/tri2820/cheese/examples/without-toolkit/vk-dmabuf
 
 go 1.23
 

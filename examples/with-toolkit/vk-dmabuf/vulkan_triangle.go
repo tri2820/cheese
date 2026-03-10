@@ -1,28 +1,79 @@
 package main
 
 import (
-	_ "embed"
+	"fmt"
 	"log"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"sync"
 	"unsafe"
 
 	vulkan "github.com/vulkan-go/vulkan"
 )
 
-//go:generate sh -c "glslc shader.vert -o vert.spv && glslc shader.frag -o frag.spv"
-
-//go:embed vert.spv
-var vertSpirv []byte
-
-//go:embed frag.spv
-var fragSpirv []byte
+var (
+	vertShaderCode []uint32
+	fragShaderCode []uint32
+	vertShaderOnce sync.Once
+	fragShaderOnce sync.Once
+	vertShaderErr  error
+	fragShaderErr  error
+)
 
 func loadVertShader() []uint32 {
-	return unsafe.Slice((*uint32)(unsafe.Pointer(&vertSpirv[0])), len(vertSpirv)/4)
+	vertShaderOnce.Do(func() {
+		vertShaderCode, vertShaderErr = compileShader("shader.vert", "vert")
+	})
+	if vertShaderErr != nil {
+		log.Panicf("Failed to compile vertex shader: %v", vertShaderErr)
+	}
+	return vertShaderCode
 }
 
 func loadFragShader() []uint32 {
-	return unsafe.Slice((*uint32)(unsafe.Pointer(&fragSpirv[0])), len(fragSpirv)/4)
+	fragShaderOnce.Do(func() {
+		fragShaderCode, fragShaderErr = compileShader("shader.frag", "frag")
+	})
+	if fragShaderErr != nil {
+		log.Panicf("Failed to compile fragment shader: %v", fragShaderErr)
+	}
+	return fragShaderCode
+}
+
+func compileShader(sourceName, stage string) ([]uint32, error) {
+	_, currentFile, _, ok := runtime.Caller(0)
+	if !ok {
+		return nil, fmt.Errorf("resolve shader path: runtime.Caller failed")
+	}
+
+	sourcePath := filepath.Join(filepath.Dir(currentFile), sourceName)
+	tmpFile, err := os.CreateTemp("", "cheese-shader-*.spv")
+	if err != nil {
+		return nil, fmt.Errorf("create temp shader output: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	if err := tmpFile.Close(); err != nil {
+		return nil, fmt.Errorf("close temp shader output: %w", err)
+	}
+	defer os.Remove(tmpPath)
+
+	cmd := exec.Command("glslc", "-fshader-stage="+stage, sourcePath, "-o", tmpPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("glslc %s failed: %w (%s)", sourceName, err, string(output))
+	}
+
+	spirv, err := os.ReadFile(tmpPath)
+	if err != nil {
+		return nil, fmt.Errorf("read compiled shader %s: %w", sourceName, err)
+	}
+	if len(spirv) == 0 {
+		return nil, fmt.Errorf("compiled shader %s is empty", sourceName)
+	}
+
+	return unsafe.Slice((*uint32)(unsafe.Pointer(&spirv[0])), len(spirv)/4), nil
 }
 
 // TriangleRenderer holds persistent Vulkan resources for triangle rendering

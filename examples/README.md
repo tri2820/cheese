@@ -10,6 +10,7 @@ These examples use `client-toolkit`.
   Output discovery and hotplug tracking.
 - `with-toolkit/vk-dmabuf`
   Toolkit-backed GPU rendering using DMA-BUF.
+  Requires `glslc` at runtime to compile `shader.vert` / `shader.frag`.
 
 ## Without Toolkit
 
@@ -21,6 +22,7 @@ These examples use raw generated protocol bindings directly.
   Layer-shell panel with SHM rendering.
 - `without-toolkit/vk-dmabuf`
   Raw DMA-BUF import path.
+  Requires `glslc` at runtime to compile `shader.vert` / `shader.frag`.
 
 ## Notes
 
@@ -28,3 +30,5 @@ These examples use raw generated protocol bindings directly.
   they referenced an API that no longer exists.
 - If a toolkit example is added back, it should be built on the current APIs:
   `shm.Frame` for SHM or `gpu.Renderer` for GPU.
+- The Vulkan examples no longer commit generated `.spv` shader blobs. They compile
+  shader source at startup instead, so `glslc` must be available in `PATH`.
