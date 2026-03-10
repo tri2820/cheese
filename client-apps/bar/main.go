@@ -74,18 +74,20 @@ func main() {
 }
 
 type App struct {
-	mu       sync.Mutex
-	bars     map[*client.WlOutput]*Bar
-	listener net.Listener
-	audio    *AudioService
-	network  *NetworkService
+	mu        sync.Mutex
+	bars      map[*client.WlOutput]*Bar
+	listener  net.Listener
+	audio     *AudioService
+	network   *NetworkService
+	bluetooth *BluetoothService
 }
 
 func NewApp() *App {
 	return &App{
-		bars:    make(map[*client.WlOutput]*Bar),
-		audio:   NewAudioService(),
-		network: NewNetworkService(),
+		bars:      make(map[*client.WlOutput]*Bar),
+		audio:     NewAudioService(),
+		network:   NewNetworkService(),
+		bluetooth: NewBluetoothService(),
 	}
 }
 
@@ -104,6 +106,10 @@ func (a *App) Close() {
 	if a.network != nil {
 		a.network.Close()
 		a.network = nil
+	}
+	if a.bluetooth != nil {
+		a.bluetooth.Close()
+		a.bluetooth = nil
 	}
 }
 
@@ -200,7 +206,7 @@ func (a *App) AddBar(disp *display.Display, output *display.Output) {
 		return
 	}
 
-	bar, err := NewBar(disp, output, a.audio, a.network)
+	bar, err := NewBar(disp, output, a.audio, a.network, a.bluetooth)
 	if err != nil {
 		log.Printf("Failed to create bar for %s: %v", output.Name, err)
 		return
@@ -256,7 +262,7 @@ type pointerState struct {
 	mod    Module
 }
 
-func NewBar(disp *display.Display, output *display.Output, audio *AudioService, network *NetworkService) (*Bar, error) {
+func NewBar(disp *display.Display, output *display.Output, audio *AudioService, network *NetworkService, bluetooth *BluetoothService) (*Bar, error) {
 	surf, err := surface.New(disp.Compositor())
 	if err != nil {
 		return nil, err
@@ -303,6 +309,7 @@ func NewBar(disp *display.Display, output *display.Output, audio *AudioService, 
 		NewInputMethodModule(),
 		NewMicModule(audio),
 		NewVolumeModule(audio),
+		NewBluetoothModule(bluetooth),
 		NewWifiModule(network),
 		NewBatteryModule(),
 	}
