@@ -3,6 +3,8 @@ module github.com/tri2820/cheese/client-apps/bar
 go 1.23
 
 require (
+	github.com/godbus/dbus/v5 v5.1.0
+	github.com/jfreymuth/pulse v0.1.1
 	github.com/tri2820/cheese/apps/common v1.0.0
 	github.com/tri2820/cheese/client-toolkit v1.0.0
 	github.com/tri2820/cheese/protocols v1.0.0
@@ -10,7 +12,6 @@ require (
 )
 
 require (
-	github.com/jfreymuth/pulse v0.1.1 // indirect
 	golang.org/x/sys v0.29.0 // indirect
 	golang.org/x/text v0.22.0 // indirect
 )

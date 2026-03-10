@@ -1,6 +1,9 @@
 package main
 
-import "strconv"
+import (
+	"log"
+	"strconv"
+)
 
 type VolumeModule struct {
 	TextModule
@@ -29,6 +32,16 @@ func (m *VolumeModule) Close() {
 	if m.unsubscribe != nil {
 		m.unsubscribe()
 		m.unsubscribe = nil
+	}
+}
+
+func (m *VolumeModule) OnClick(button uint32) {
+	if button != 0x110 {
+		return
+	}
+
+	if err := m.audio.ToggleSinkMute(); err != nil {
+		log.Printf("Volume toggle error: %v", err)
 	}
 }
 

@@ -9,10 +9,10 @@ import (
 )
 
 type AudioState struct {
-	SinkVolume   int
-	SinkMuted    bool
-	SourceMuted  bool
-	DefaultSink  string
+	SinkVolume    int
+	SinkMuted     bool
+	SourceMuted   bool
+	DefaultSink   string
 	DefaultSource string
 }
 
@@ -136,6 +136,28 @@ func (s *AudioService) ToggleSourceMute() error {
 	}
 
 	// Trigger a refresh immediately; subscription events will still keep us current.
+	s.refresh()
+	return nil
+}
+
+func (s *AudioService) ToggleSinkMute() error {
+	s.mu.RLock()
+	sink := s.state.DefaultSink
+	muted := s.state.SinkMuted
+	s.mu.RUnlock()
+
+	if s.client == nil || sink == "" {
+		return nil
+	}
+
+	if err := s.client.Request(&proto.SetSinkMute{
+		SinkIndex: proto.Undefined,
+		SinkName:  sink,
+		Mute:      !muted,
+	}, nil); err != nil {
+		return err
+	}
+
 	s.refresh()
 	return nil
 }
