@@ -66,11 +66,11 @@ func (m *TaskbarModule) Width(face font.Face) int {
 	if len(m.items) == 0 {
 		return 0
 	}
-	return len(m.items) * (taskbarIconSize + 2*taskbarItemPadX)
+	return 2*modulePadX + len(m.items)*(taskbarIconSize+2*taskbarItemPadX)
 }
 
 func (m *TaskbarModule) Draw(dst draw.Image, rect image.Rectangle, face font.Face) {
-	x := rect.Min.X
+	x := rect.Min.X + modulePadX
 	y := rect.Min.Y + (rect.Dy()-taskbarIconSize)/2
 	for _, item := range m.items {
 		slotRect := image.Rect(x, rect.Min.Y, x+taskbarIconSize+2*taskbarItemPadX, rect.Max.Y)
@@ -121,7 +121,7 @@ func taskbarItemsEqual(a, b []taskbarItem) bool {
 }
 
 func (m *TaskbarModule) itemAt(rect image.Rectangle, point image.Point) (taskbarItem, image.Rectangle, bool) {
-	x := rect.Min.X
+	x := rect.Min.X + modulePadX
 	for _, item := range m.items {
 		slotRect := image.Rect(x, rect.Min.Y, x+taskbarIconSize+2*taskbarItemPadX, rect.Max.Y)
 		if point.In(slotRect) {

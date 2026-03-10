@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"image/draw"
 	"log"
+	"math"
 	"net"
 	"os"
 	"sync"
@@ -24,11 +25,13 @@ import (
 )
 
 const (
-	barHeight  = 28
-	barName    = "cheese-client-bar"
-	barSocket  = "/tmp/cheese-client-bar.sock"
-	moduleGap  = 4
-	barSidePad = 12
+	barHeight          = 28
+	barTopMargin       = 6
+	barName            = "cheese-client-bar"
+	barSocket          = "/tmp/cheese-client-bar.sock"
+	moduleGap          = 4
+	barSidePad         = 12
+	moduleCornerRadius = 6
 )
 
 func main() {
@@ -284,7 +287,7 @@ func NewBar(disp *display.Display, output *display.Output, audio *AudioService, 
 		Anchor:        shell.AnchorTop | shell.AnchorLeft | shell.AnchorRight,
 		Width:         0,
 		Height:        barHeight,
-		ExclusiveZone: barHeight,
+		ExclusiveZone: barHeight + barTopMargin,
 		Output:        output.WlOutput(),
 	})
 	if err != nil {
@@ -297,6 +300,12 @@ func NewBar(disp *display.Display, output *display.Output, audio *AudioService, 
 		Buffers: 2,
 	})
 	if err != nil {
+		_ = layer.Close()
+		_ = surf.Close()
+		return nil, err
+	}
+	if err := layer.SetMargin(barTopMargin, 0, 0, 0); err != nil {
+		_ = frame.Close()
 		_ = layer.Close()
 		_ = surf.Close()
 		return nil, err
@@ -432,7 +441,7 @@ func (b *Bar) HandleCommand(cmd string) {
 func (b *Bar) draw(width, height int, pixels []byte) {
 	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
 
-	draw.Draw(canvas, canvas.Rect, image.NewUniform(color.RGBA{R: 0x00, G: 0x00, B: 0x00, A: 0xff}), image.Point{}, draw.Src)
+	draw.Draw(canvas, canvas.Rect, image.NewUniform(color.RGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x00}), image.Point{}, draw.Src)
 
 	hits := make([]moduleHit, 0, len(b.leftModules)+len(b.centerModules)+len(b.rightModules))
 	hits = b.drawLeft(canvas, image.Rect(0, 0, width, height), b.leftModules, hits)
@@ -455,6 +464,7 @@ func (b *Bar) drawCentered(dst draw.Image, rect image.Rectangle, mods []Module, 
 	for i, mod := range mods {
 		w := mod.Width(b.face)
 		moduleRect := image.Rect(x, rect.Min.Y, x+w, rect.Max.Y)
+		drawModuleBackground(dst, moduleRect)
 		if hoverRect, ok := b.currentHoverRect(mod, moduleRect); ok {
 			drawHoverBackground(dst, hoverRect)
 		}
@@ -474,6 +484,7 @@ func (b *Bar) drawRight(dst draw.Image, rect image.Rectangle, mods []Module, hit
 	for i, mod := range mods {
 		w := mod.Width(b.face)
 		moduleRect := image.Rect(x, rect.Min.Y, x+w, rect.Max.Y)
+		drawModuleBackground(dst, moduleRect)
 		if hoverRect, ok := b.currentHoverRect(mod, moduleRect); ok {
 			drawHoverBackground(dst, hoverRect)
 		}
@@ -671,7 +682,120 @@ func textBaseline(face font.Face, rect image.Rectangle) int {
 }
 
 func drawHoverBackground(dst draw.Image, rect image.Rectangle) {
-	draw.Draw(dst, rect, image.NewUniform(color.RGBA{R: 0x20, G: 0x20, B: 0x20, A: 0xff}), image.Point{}, draw.Src)
+	drawRoundedRect(dst, rect, moduleCornerRadius, color.RGBA{R: 0x20, G: 0x20, B: 0x20, A: 0xff}, draw.Over)
+}
+
+func drawModuleBackground(dst draw.Image, rect image.Rectangle) {
+	drawRoundedRect(dst, rect, moduleCornerRadius, color.RGBA{R: 0x00, G: 0x00, B: 0x00, A: 0xff}, draw.Src)
+}
+
+func drawRoundedRect(dst draw.Image, rect image.Rectangle, radius int, col color.Color, op draw.Op) {
+	if rect.Empty() {
+		return
+	}
+
+	r := radius
+	if maxR := rect.Dx() / 2; r > maxR {
+		r = maxR
+	}
+	if maxR := rect.Dy() / 2; r > maxR {
+		r = maxR
+	}
+	if r <= 0 {
+		draw.Draw(dst, rect, image.NewUniform(col), image.Point{}, op)
+		return
+	}
+
+	src := color.NRGBAModel.Convert(col).(color.NRGBA)
+	const samples = 4
+	invSamples := 1.0 / float64(samples*samples)
+	for y := rect.Min.Y; y < rect.Max.Y; y++ {
+		for x := rect.Min.X; x < rect.Max.X; x++ {
+			coverage := 0.0
+			for sy := 0; sy < samples; sy++ {
+				py := float64(y) + (float64(sy)+0.5)/float64(samples)
+				for sx := 0; sx < samples; sx++ {
+					px := float64(x) + (float64(sx)+0.5)/float64(samples)
+					if pointInRoundedRect(px, py, rect, float64(r)) {
+						coverage += invSamples
+					}
+				}
+			}
+			if coverage == 0 {
+				continue
+			}
+			drawRoundedRectPixel(dst, x, y, src, coverage, op)
+		}
+	}
+}
+
+func pointInRoundedRect(px, py float64, rect image.Rectangle, radius float64) bool {
+	minX := float64(rect.Min.X)
+	minY := float64(rect.Min.Y)
+	maxX := float64(rect.Max.X)
+	maxY := float64(rect.Max.Y)
+
+	if px < minX || px >= maxX || py < minY || py >= maxY {
+		return false
+	}
+	if px >= minX+radius && px < maxX-radius {
+		return true
+	}
+	if py >= minY+radius && py < maxY-radius {
+		return true
+	}
+
+	cx := minX + radius
+	if px >= maxX-radius {
+		cx = maxX - radius
+	}
+	cy := minY + radius
+	if py >= maxY-radius {
+		cy = maxY - radius
+	}
+	dx := px - cx
+	dy := py - cy
+	return dx*dx+dy*dy <= radius*radius
+}
+
+func drawRoundedRectPixel(dst draw.Image, x, y int, src color.NRGBA, coverage float64, op draw.Op) {
+	srcAlpha := (float64(src.A) / 255.0) * coverage
+	if srcAlpha <= 0 {
+		return
+	}
+
+	switch op {
+	case draw.Src:
+		dst.Set(x, y, color.NRGBA{
+			R: src.R,
+			G: src.G,
+			B: src.B,
+			A: uint8(math.Round(srcAlpha * 255)),
+		})
+	case draw.Over:
+		dstColor := color.NRGBAModel.Convert(dst.At(x, y)).(color.NRGBA)
+		dstAlpha := float64(dstColor.A) / 255.0
+		outAlpha := srcAlpha + dstAlpha*(1-srcAlpha)
+		if outAlpha <= 0 {
+			dst.Set(x, y, color.NRGBA{})
+			return
+		}
+		srcR := float64(src.R) / 255.0
+		srcG := float64(src.G) / 255.0
+		srcB := float64(src.B) / 255.0
+		dstR := float64(dstColor.R) / 255.0
+		dstG := float64(dstColor.G) / 255.0
+		dstB := float64(dstColor.B) / 255.0
+		outR := (srcR*srcAlpha + dstR*dstAlpha*(1-srcAlpha)) / outAlpha
+		outG := (srcG*srcAlpha + dstG*dstAlpha*(1-srcAlpha)) / outAlpha
+		outB := (srcB*srcAlpha + dstB*dstAlpha*(1-srcAlpha)) / outAlpha
+		dst.Set(x, y, color.NRGBA{
+			R: uint8(math.Round(outR * 255)),
+			G: uint8(math.Round(outG * 255)),
+			B: uint8(math.Round(outB * 255)),
+			A: uint8(math.Round(outAlpha * 255)),
+		})
+	}
 }
 
 func writeARGB8888(dst []byte, src *image.RGBA) {
@@ -705,6 +829,7 @@ func (b *Bar) drawLeft(dst draw.Image, rect image.Rectangle, mods []Module, hits
 	for i, mod := range mods {
 		w := mod.Width(b.face)
 		moduleRect := image.Rect(x, rect.Min.Y, x+w, rect.Max.Y)
+		drawModuleBackground(dst, moduleRect)
 		if hoverRect, ok := b.currentHoverRect(mod, moduleRect); ok {
 			drawHoverBackground(dst, hoverRect)
 		}

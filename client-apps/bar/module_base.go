@@ -10,7 +10,7 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
-const textModulePadX = 6
+const modulePadX = 6
 
 type Module interface {
 	Start(markDirty func())
@@ -54,7 +54,7 @@ func (m *TextModule) Text() string {
 
 func (m *TextModule) Width(face font.Face) int {
 	bounds, _ := font.BoundString(face, m.Text())
-	return (bounds.Max.X - bounds.Min.X).Ceil() + 2*textModulePadX
+	return (bounds.Max.X - bounds.Min.X).Ceil() + 2*modulePadX
 }
 
 func (m *TextModule) Draw(dst draw.Image, rect image.Rectangle, face font.Face) {
@@ -64,7 +64,7 @@ func (m *TextModule) Draw(dst draw.Image, rect image.Rectangle, face font.Face) 
 		Src:  image.NewUniform(color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}),
 		Face: face,
 		// Use ink bounds, not advance width, so icon overhang does not eat padding.
-		Dot: fixed.P(rect.Min.X+textModulePadX-bounds.Min.X.Floor(), textBaseline(face, rect)),
+		Dot: fixed.P(rect.Min.X+modulePadX-bounds.Min.X.Floor(), textBaseline(face, rect)),
 	}
 	drawer.DrawString(m.Text())
 }
