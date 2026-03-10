@@ -164,6 +164,7 @@ func NewBar(disp *display.Display, output *display.Output) (*Bar, error) {
 		NewClockModule(),
 	}
 	b.rightModules = []Module{
+		NewMicModule(output),
 		NewVolumeModule(output),
 	}
 
