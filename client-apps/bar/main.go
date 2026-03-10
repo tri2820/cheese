@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/tri2820/cheese/apps/common"
 	"github.com/tri2820/cheese/client-toolkit/display"
 	"github.com/tri2820/cheese/client-toolkit/shell"
 	"github.com/tri2820/cheese/client-toolkit/shm"
@@ -15,12 +16,14 @@ import (
 	"github.com/tri2820/cheese/protocols/client"
 	"golang.org/x/image/font"
 	"golang.org/x/image/font/basicfont"
-	"golang.org/x/image/math/fixed"
 )
 
 const (
-	barHeight = 28
-	barName   = "cheese-client-bar"
+	barHeight  = 28
+	barName    = "cheese-client-bar"
+	moduleGap  = 12
+	barSidePad = 12
+	centerGap  = 12
 )
 
 func main() {
@@ -103,15 +106,18 @@ func (a *App) RemoveBar(output *display.Output) {
 }
 
 type Bar struct {
-	output  *display.Output
-	surface *surface.Surface
-	layer   *shell.LayerSurface
-	frame   *shm.Frame
-	face    font.Face
+	output        *display.Output
+	surface       *surface.Surface
+	layer         *shell.LayerSurface
+	frame         *shm.Frame
+	face          font.Face
+	centerModules []Module
+	rightModules  []Module
 
 	closeMu sync.Mutex
 	closed  bool
 	stop    chan struct{}
+	dirtyCh chan struct{}
 }
 
 func NewBar(disp *display.Display, output *display.Output) (*Bar, error) {
@@ -149,17 +155,22 @@ func NewBar(disp *display.Display, output *display.Output) (*Bar, error) {
 		surface: surf,
 		layer:   layer,
 		frame:   frame,
-		face:    basicfont.Face7x13,
+		face:    loadBarFont(output),
 		stop:    make(chan struct{}),
+		dirtyCh: make(chan struct{}, 1),
+	}
+
+	b.centerModules = []Module{
+		NewClockModule(),
+	}
+	b.rightModules = []Module{
+		NewVolumeModule(output),
 	}
 
 	frame.SetRender(func(width, height int, frameTime uint32, pixels []byte) {
-		b.draw(width, height, pixels, time.UnixMilli(int64(frameTime)))
+		b.draw(width, height, pixels)
 	})
 	frame.SetManualMode(true)
-	frame.OnResize(func(width, height int) {
-		b.frame.ManualRender(uint32(time.Now().UnixMilli()))
-	})
 	frame.OnError(func(err error) {
 		log.Printf("Bar frame error on %s: %v", output.Name, err)
 	})
@@ -168,22 +179,31 @@ func NewBar(disp *display.Display, output *display.Output) (*Bar, error) {
 		b.Close()
 	})
 
-	go b.tick()
+	for _, mod := range append([]Module{}, b.centerModules...) {
+		mod.Start(b.markDirty)
+	}
+	for _, mod := range append([]Module{}, b.rightModules...) {
+		mod.Start(b.markDirty)
+	}
+
+	go b.renderLoop()
 
 	return b, nil
 }
 
-func (b *Bar) tick() {
-	ticker := time.NewTicker(time.Second)
-	defer ticker.Stop()
+func (b *Bar) markDirty() {
+	select {
+	case b.dirtyCh <- struct{}{}:
+	default:
+	}
+}
 
-	b.frame.ManualRender(uint32(time.Now().UnixMilli()))
-
+func (b *Bar) renderLoop() {
 	for {
 		select {
-		case t := <-ticker.C:
+		case <-b.dirtyCh:
 			if b.frame.Ready() {
-				b.frame.ManualRender(uint32(t.UnixMilli()))
+				b.frame.ManualRender(uint32(time.Now().UnixMilli()))
 			}
 		case <-b.stop:
 			return
@@ -201,6 +221,13 @@ func (b *Bar) Close() {
 	b.closed = true
 	close(b.stop)
 
+	for _, mod := range append([]Module{}, b.centerModules...) {
+		mod.Close()
+	}
+	for _, mod := range append([]Module{}, b.rightModules...) {
+		mod.Close()
+	}
+
 	if b.frame != nil {
 		_ = b.frame.Close()
 	}
@@ -212,7 +239,7 @@ func (b *Bar) Close() {
 	}
 }
 
-func (b *Bar) draw(width, height int, pixels []byte, now time.Time) {
+func (b *Bar) draw(width, height int, pixels []byte) {
 	dst := &image.RGBA{
 		Pix:    pixels,
 		Stride: width * 4,
@@ -221,21 +248,62 @@ func (b *Bar) draw(width, height int, pixels []byte, now time.Time) {
 
 	draw.Draw(dst, dst.Rect, image.NewUniform(argb(0x00, 0x00, 0x00, 0xff)), image.Point{}, draw.Src)
 
-	timeText := now.Format("15:04:05")
-	textWidth := font.MeasureString(b.face, timeText).Round()
-	metrics := b.face.Metrics()
-	textX := (width - textWidth) / 2
-	textY := (height + metrics.Ascent.Ceil() - metrics.Descent.Ceil()) / 2
+	b.drawCentered(dst, image.Rect(0, 0, width, height), b.centerModules)
+	b.drawRight(dst, image.Rect(0, 0, width, height), b.rightModules)
+}
 
-	drawer := font.Drawer{
-		Dst:  dst,
-		Src:  image.NewUniform(argb(0xff, 0xff, 0xff, 0xff)),
-		Face: b.face,
-		Dot:  fixed.P(textX, textY),
+func (b *Bar) drawCentered(dst draw.Image, rect image.Rectangle, mods []Module) {
+	totalWidth := modulesWidth(mods, b.face, centerGap)
+	x := rect.Min.X + (rect.Dx()-totalWidth)/2
+	for i, mod := range mods {
+		w := mod.Width(b.face)
+		mod.Draw(dst, image.Rect(x, rect.Min.Y, x+w, rect.Max.Y), b.face)
+		x += w
+		if i < len(mods)-1 {
+			x += centerGap
+		}
 	}
-	drawer.DrawString(timeText)
+}
+
+func (b *Bar) drawRight(dst draw.Image, rect image.Rectangle, mods []Module) {
+	totalWidth := modulesWidth(mods, b.face, moduleGap)
+	x := rect.Max.X - barSidePad - totalWidth
+	for i, mod := range mods {
+		w := mod.Width(b.face)
+		mod.Draw(dst, image.Rect(x, rect.Min.Y, x+w, rect.Max.Y), b.face)
+		x += w
+		if i < len(mods)-1 {
+			x += moduleGap
+		}
+	}
+}
+
+func modulesWidth(mods []Module, face font.Face, gap int) int {
+	total := 0
+	for i, mod := range mods {
+		total += mod.Width(face)
+		if i < len(mods)-1 {
+			total += gap
+		}
+	}
+	return total
+}
+
+func textBaseline(face font.Face, rect image.Rectangle) int {
+	metrics := face.Metrics()
+	return rect.Min.Y + (rect.Dy()+metrics.Ascent.Ceil()-metrics.Descent.Ceil())/2
 }
 
 func argb(r, g, b, a uint8) color.RGBA {
 	return color.RGBA{R: b, G: g, B: r, A: a}
+}
+
+func loadBarFont(output *display.Output) font.Face {
+	dpi := output.DPIOrDefault()
+	face, err := common.LoadFont("JetBrainsMono Nerd Font", 10, dpi)
+	if err != nil {
+		log.Printf("Falling back to basic font on %s: %v", output.Name, err)
+		return basicfont.Face7x13
+	}
+	return face
 }
