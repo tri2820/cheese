@@ -41,7 +41,6 @@ func (r *IconResolver) ResolveAppIcon(appID string, size int) image.Image {
 	r.mu.Lock()
 	if img, ok := r.cache[key]; ok {
 		r.mu.Unlock()
-		log.Printf("taskbar icon cache hit: app_id=%q size=%d", appID, size)
 		return img
 	}
 	if len(r.desktopMap) == 0 {
@@ -51,18 +50,14 @@ func (r *IconResolver) ResolveAppIcon(appID string, size int) image.Image {
 
 	iconName := r.resolveIconName(appID)
 	if iconName == "" {
-		log.Printf("taskbar icon resolve failed: app_id=%q candidates=%v", appID, appIDCandidates(appID))
 		return nil
 	}
 	path := r.resolveIconPath(iconName)
 	if path == "" {
-		log.Printf("taskbar icon path failed: app_id=%q icon=%q", appID, iconName)
 		return nil
 	}
-	log.Printf("taskbar icon resolved: app_id=%q icon=%q path=%q size=%d", appID, iconName, path, size)
 	img := loadIconImage(path, size)
 	if img == nil {
-		log.Printf("taskbar icon load failed: app_id=%q icon=%q path=%q", appID, iconName, path)
 		return nil
 	}
 
@@ -78,7 +73,6 @@ func (r *IconResolver) resolveIconName(appID string) string {
 	defer r.mu.Unlock()
 	for _, candidate := range candidates {
 		if icon, ok := r.desktopMap[candidate]; ok && icon != "" {
-			log.Printf("taskbar desktop match: app_id=%q candidate=%q icon=%q", appID, candidate, icon)
 			return icon
 		}
 	}

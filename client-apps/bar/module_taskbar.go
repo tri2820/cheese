@@ -42,7 +42,6 @@ func (m *TaskbarModule) Start(markDirty func()) {
 		windows := windowsForOutput(state, m.output)
 		next := make([]taskbarItem, 0, len(windows))
 		for _, win := range windows {
-			log.Printf("taskbar window: output=%q id=%d app_id=%q title=%q focused=%v", m.output, win.ID, win.AppID, win.Title, win.IsFocused)
 			next = append(next, taskbarItem{
 				window: win,
 				icon:   m.resolver.ResolveAppIcon(win.AppID, taskbarIconSize),
@@ -104,6 +103,7 @@ func (m *TaskbarModule) OnClickAt(button uint32, rect image.Rectangle, point ima
 	cmd := exec.Command("niri", "msg", "action", "focus-window", "--id", strconv.FormatInt(item.window.ID, 10))
 	if err := cmd.Run(); err != nil {
 		log.Printf("taskbar focus click error: id=%d err=%v", item.window.ID, err)
+		return true
 	}
 	return true
 }
