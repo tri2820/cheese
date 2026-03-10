@@ -22,6 +22,8 @@ type LayoutItem struct {
 	Right  Expr
 	Top    Expr
 	Bottom Expr
+
+	ownedConstraints []ConstraintHandle
 }
 
 // Width returns the computed width: Right - Left
@@ -57,6 +59,25 @@ func (e *LayoutItem) Position() Point {
 // Size returns both size dimensions (Width, Height)
 func (e *LayoutItem) Size() Point {
 	return Point{X: e.Width(), Y: e.Height()}
+}
+
+// Own adds constraints to the layout and ties their lifetime to this layout item.
+func (e *LayoutItem) Own(constraints ...Constraints) ConstraintHandle {
+	var groups []Constraints
+	for _, group := range constraints {
+		groups = append(groups, withSolver(e.layout, group))
+	}
+
+	handle := e.layout.Add(groups...)
+	e.ownedConstraints = append(e.ownedConstraints, handle)
+	return handle
+}
+
+func (e *LayoutItem) releaseOwnedConstraints() {
+	for _, handle := range e.ownedConstraints {
+		handle.Remove()
+	}
+	e.ownedConstraints = nil
 }
 
 // Inside returns constraints ensuring this layoutitem is fully inside another

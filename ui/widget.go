@@ -1,12 +1,10 @@
 package ui
 
 import (
-	"log"
+	"fmt"
 	"math"
 	"sync"
 
-	"github.com/tri2820/cheese/client-toolkit/display"
-	"github.com/tri2820/cheese/protocols/client"
 	"github.com/tri2820/cheese/signals"
 )
 
@@ -17,12 +15,12 @@ type Widget struct {
 	contents []*Content // Coordinate-free visual elements (Rectangle, Label, etc.)
 	masks    []*Mask    // Masks for rendering on different outputs
 
-	// Width/ContentHeight_at96DPI define the logical content size
+	// width/height define the logical content size
 	// in pixels at 96 DPI baseline. The renderer computes the physical buffer as
 	// Width * dpi/96, ensuring DPI-normalized rendering.
 	// Zero means content renders at mask size (no DPI normalization).
-	Width  float64
-	Height float64
+	width  Expr
+	height Expr
 }
 
 // NewWidget creates a new widget attached to the given layout.
@@ -31,18 +29,45 @@ func NewWidget(layout *Layout) *Widget {
 		layout:   layout,
 		contents: make([]*Content, 0),
 		masks:    make([]*Mask, 0),
+		width:    layout.NewVar(),
+		height:   layout.NewVar(),
 	}
 	layout.addWidget(w)
 	return w
 }
 
+// Width returns the widget's logical width expression.
+func (w *Widget) Width() Expr {
+	return w.width
+}
+
+// Height returns the widget's logical height expression.
+func (w *Widget) Height() Expr {
+	return w.height
+}
+
+// ContentWidth returns the current logical content width.
+func (w *Widget) ContentWidth() DesignUnit {
+	return DesignUnit(w.width.Get())
+}
+
+// ContentHeight returns the current logical content height.
+func (w *Widget) ContentHeight() DesignUnit {
+	return DesignUnit(w.height.Get())
+}
+
+// SetSize updates the widget's logical content size.
+func (w *Widget) SetSize(width, height DesignUnit) {
+	w.width.Set(float64(width))
+	w.height.Set(float64(height))
+}
+
 // NewMask creates a mask for a specific output/layer.
 // The mask embeds a LayoutItem that positions the entire widget on that output.
-func (w *Widget) NewMask(disp *display.Display, output *client.WlOutput, config LayerConfig) (*Mask, error) {
+func (w *Widget) NewMask(output *Output, config LayerConfig) (*Mask, error) {
 	mask := &Mask{
 		LayoutItem: w.layout.NewLayoutItem(),
 		widget:     w,
-		display:    disp,
 		output:     output,
 		config:     config,
 	}
@@ -70,35 +95,12 @@ func (w *Widget) NewMask(disp *display.Display, output *client.WlOutput, config 
 		// Get raw constraint solver values
 		rawLeft := mask.LayoutItem.Left.Get()
 		rawTop := mask.LayoutItem.Top.Get()
-		rawRight := mask.LayoutItem.Right.Get()
-		rawBottom := mask.LayoutItem.Bottom.Get()
-		rawWidth := mask.LayoutItem.Width().Get()
-		rawHeight := mask.LayoutItem.Height().Get()
-
 		left := int32(math.Round(rawLeft))
 		top := int32(math.Round(rawTop))
-		width := uint32(math.Round(rawWidth))
-		height := uint32(math.Round(rawHeight))
-
-		// Get output info for logging
-		output := mask.display.OutputByWlOutput(mask.output)
-		var outputHeight int32 = 0
-		if output != nil {
-			outputHeight = int32(output.ModeHeight)
-		}
-		bottomMargin := outputHeight - top - int32(height)
-
-		// Only log when we have valid dimensions (constraints resolved)
-		if width > 0 && height > 0 && height < 100000 { // Filter out invalid intermediate states
-			log.Printf("  %s: Left=%.1f Top=%.1f Right=%.1f Bottom=%.1f | Width=%.1f Height=%.1f",
-				mask.config.Name, rawLeft, rawTop, rawRight, rawBottom, rawWidth, rawHeight)
-			log.Printf("    surface at (%d, %d) size=%dx%d | top margin: %dpx, bottom margin: %dpx",
-				left, top, width, height, top, bottomMargin)
-		}
 
 		// Update layer margin (anchor is always top-left)
 		if err := mask.layer.SetMargin(top, 0, 0, left); err != nil {
-			log.Printf("Failed to update mask margin: %v", err)
+			w.layout.reportError(fmt.Errorf("update mask margin for %q: %w", mask.config.Name, err))
 		}
 	}, mask.LayoutItem.Left, mask.LayoutItem.Top, mask.LayoutItem.Right, mask.LayoutItem.Bottom))
 
@@ -119,11 +121,11 @@ func (w *Widget) NewMask(disp *display.Display, output *client.WlOutput, config 
 
 		// Update layer size
 		if err := mask.layer.SetSize(width, height); err != nil {
-			log.Printf("Failed to update mask size: %v", err)
+			w.layout.reportError(fmt.Errorf("update mask size for %q: %w", mask.config.Name, err))
 		}
 		// Commit the change
 		if err := mask.layer.Surface().Commit(); err != nil {
-			log.Printf("Failed to commit size change: %v", err)
+			w.layout.reportError(fmt.Errorf("commit mask size for %q: %w", mask.config.Name, err))
 		}
 	}, mask.LayoutItem.Width(), mask.LayoutItem.Height()))
 
@@ -134,23 +136,35 @@ func (w *Widget) NewMask(disp *display.Display, output *client.WlOutput, config 
 	return mask, nil
 }
 
-// Remove removes this widget and all its resources.
-func (w *Widget) Remove() error {
+func (w *Widget) removeMask(mask *Mask) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	for i, candidate := range w.masks {
+		if candidate == mask {
+			w.masks = append(w.masks[:i], w.masks[i+1:]...)
+			return
+		}
+	}
+}
+
+// Remove removes this widget and all its resources.
+func (w *Widget) Remove() error {
+	w.mu.Lock()
+	contents := append([]*Content(nil), w.contents...)
+	masks := append([]*Mask(nil), w.masks...)
+	w.contents = nil
+	w.masks = nil
+	w.mu.Unlock()
+
 	// Clean up content LayoutItems (remove symbols from solver)
-	for _, content := range w.contents {
+	for _, content := range contents {
 		content.Cleanup(w.layout)
 	}
 
-	// Clean up masks (remove LayoutItem symbols, destroy frames)
-	for _, mask := range w.masks {
-		w.layout.removeVar(mask.LayoutItem.Left.state.symbol)
-		w.layout.removeVar(mask.LayoutItem.Top.state.symbol)
-		w.layout.removeVar(mask.LayoutItem.Right.state.symbol)
-		w.layout.removeVar(mask.LayoutItem.Bottom.state.symbol)
-		if err := mask.Close(); err != nil {
+	// Clean up masks
+	for _, mask := range masks {
+		if err := mask.Remove(); err != nil {
 			return err
 		}
 	}
@@ -159,9 +173,6 @@ func (w *Widget) Remove() error {
 	w.layout.removeWidget(w)
 
 	// Clear slices to allow GC
-	w.contents = nil
-	w.masks = nil
-
 	// Request re-render
 	w.layout.RequestRender()
 

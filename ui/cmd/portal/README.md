@@ -29,17 +29,17 @@ rect := widget.NewRectangle()
 rect.Color.Set("#FF5500")
 
 // Create masks for different outputs
-mask0, err := widget.NewMask(disp, output0, config)
+mask0, err := widget.NewMask(output0, config)
 if err != nil {
 	panic(err)
 }
-ui.Eq(mask0.Right, output0Width).Add()  // Surface-local
+mask0.Own(ui.Eq(mask0.Right, output0Width))  // Surface-local, owned by the mask
 
-mask1, err := widget.NewMask(disp, output1, config)
+mask1, err := widget.NewMask(output1, config)
 if err != nil {
 	panic(err)
 }
-ui.Eq(mask1.Left, 0).Add()  // Surface-local
+mask1.Own(ui.Eq(mask1.Left, 0))  // Surface-local, owned by the mask
 ```
 Solution: Each mask uses surface-local coordinates (0,0 = top-left of that output). No coordinate gaps despite physical gaps.
 

@@ -57,3 +57,21 @@ func TestOutputOnGeometryComposes(t *testing.T) {
 		t.Fatalf("unexpected geometry callback sequence: %#v", calls)
 	}
 }
+
+func TestOutputToPixels(t *testing.T) {
+	output := &Output{
+		ModeWidth:      3840,
+		ModeHeight:     2160,
+		PhysicalWidth:  508,
+		PhysicalHeight: 286,
+	}
+
+	got := output.ToPixels(DesignUnit(96))
+	if got <= 0 {
+		t.Fatalf("ToPixels(96) = %v, want > 0", got)
+	}
+
+	if intGot := output.ToIntPixels(DesignUnit(100)); intGot != output.ToPixels(DesignUnit(100)).Int() {
+		t.Fatalf("ToIntPixels(100) = %d, want %d", intGot, output.ToPixels(DesignUnit(100)).Int())
+	}
+}

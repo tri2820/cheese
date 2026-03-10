@@ -27,6 +27,10 @@ type Layout struct {
 	resolving  bool                        // In constraint resolution pass
 	resolveMut sync.Mutex                  // Protects resolving flag
 	stopRender chan struct{}               // Stop render loop
+	startOnce  sync.Once
+	stopOnce   sync.Once
+	errorMut   sync.Mutex
+	onError    []func(error)
 
 	frames       []*shm.Frame         // Frames to notify when render is needed
 	maskForFrame map[*shm.Frame]*Mask // Maps frame to its mask
@@ -129,9 +133,9 @@ func (l *Layout) renderFrame(frame *shm.Frame, pixels []byte, width, height int)
 	// Get contents
 	widget.mu.RLock()
 	contents := widget.contents
-	contentWidth := widget.Width
-	contentHeight := widget.Height
 	widget.mu.RUnlock()
+	contentWidth := widget.ContentWidth()
+	contentHeight := widget.ContentHeight()
 
 	// Create framebuffer at (0,0) filling entire surface
 	// Mask position is controlled by layer margin (via reactive Effect)
@@ -153,8 +157,8 @@ func (l *Layout) renderFrame(frame *shm.Frame, pixels []byte, width, height int)
 		clipY := mask.ClipY
 
 		// Convert clip origin to physical pixels
-		srcX := int(clipX * scale)
-		srcY := int(clipY * scale)
+		srcX := int(float64(clipX) * scale)
+		srcY := int(float64(clipY) * scale)
 
 		// Create draw context with coordinate transformation
 		ctx := DrawContext{
@@ -257,9 +261,61 @@ func (l *Layout) removeVar(sym casso.Symbol) {
 	delete(l.vars, sym)
 }
 
+func (l *Layout) removeLayoutItem(item *LayoutItem) {
+	if item == nil {
+		return
+	}
+
+	l.removeVar(item.Left.state.symbol)
+	l.removeVar(item.Top.state.symbol)
+	l.removeVar(item.Right.state.symbol)
+	l.removeVar(item.Bottom.state.symbol)
+}
+
+func (l *Layout) reportError(err error) {
+	if err == nil {
+		return
+	}
+
+	l.errorMut.Lock()
+	handlers := append([]func(error){}, l.onError...)
+	l.errorMut.Unlock()
+
+	for _, handler := range handlers {
+		if handler != nil {
+			handler(err)
+		}
+	}
+}
+
 // StopRenderLoop stops the automatic render loop.
 func (l *Layout) StopRenderLoop() {
-	close(l.stopRender)
+	l.stopOnce.Do(func() {
+		close(l.stopRender)
+	})
+}
+
+// Start launches the automatic render loop in a goroutine once.
+func (l *Layout) Start() {
+	l.startOnce.Do(func() {
+		go l.RenderLoop()
+	})
+}
+
+// Close stops the layout's render loop.
+func (l *Layout) Close() {
+	l.StopRenderLoop()
+}
+
+// OnError registers an asynchronous ui error handler.
+func (l *Layout) OnError(fn func(error)) {
+	if fn == nil {
+		return
+	}
+
+	l.errorMut.Lock()
+	defer l.errorMut.Unlock()
+	l.onError = append(l.onError, fn)
 }
 
 // ConstraintHandle represents a handle to a constraint that can be removed

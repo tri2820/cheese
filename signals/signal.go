@@ -269,3 +269,54 @@ func Effect(fn func(), deps ...Dep) CancelFunc {
 
 	return Join(cancelFns...)
 }
+
+// Scope runs a cleanup-aware reactive scope.
+// It runs fn immediately, runs the previous cleanup before re-running on dependency changes,
+// and runs the final cleanup when the scope is canceled.
+func Scope(fn func() CancelFunc, deps ...Dep) CancelFunc {
+	if fn == nil {
+		return nil
+	}
+
+	var mu sync.Mutex
+	cleanup := fn()
+
+	rerun := func() {
+		mu.Lock()
+		prevCleanup := cleanup
+		cleanup = nil
+		mu.Unlock()
+
+		if prevCleanup != nil {
+			prevCleanup()
+		}
+
+		nextCleanup := fn()
+
+		mu.Lock()
+		cleanup = nextCleanup
+		mu.Unlock()
+	}
+
+	cancelFns := make([]CancelFunc, 0, len(deps))
+	for _, dep := range deps {
+		if qd, ok := dep.(QuietDep); ok {
+			cancelFns = append(cancelFns, qd.OnChangeQuiet(rerun))
+		} else {
+			cancelFns = append(cancelFns, dep.OnChange(rerun))
+		}
+	}
+
+	return func() {
+		Join(cancelFns...)()
+
+		mu.Lock()
+		prevCleanup := cleanup
+		cleanup = nil
+		mu.Unlock()
+
+		if prevCleanup != nil {
+			prevCleanup()
+		}
+	}
+}

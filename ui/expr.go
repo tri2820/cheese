@@ -227,12 +227,16 @@ func Const(v float64) Expr {
 	return Expr{kind: exprConst, constant: v}
 }
 
-// Add returns a + b (accepts float64, int, or Expr)
+// Add returns a + b (accepts float64, int, DesignUnit, Pixel, or Expr)
 func (e Expr) Add(v any) Expr {
 	switch val := v.(type) {
 	case float64:
 		return Expr{kind: exprOp, op: opAdd, left: &e, right: &Expr{kind: exprConst, constant: val}}
 	case int:
+		return Expr{kind: exprOp, op: opAdd, left: &e, right: &Expr{kind: exprConst, constant: float64(val)}}
+	case DesignUnit:
+		return Expr{kind: exprOp, op: opAdd, left: &e, right: &Expr{kind: exprConst, constant: float64(val)}}
+	case Pixel:
 		return Expr{kind: exprOp, op: opAdd, left: &e, right: &Expr{kind: exprConst, constant: float64(val)}}
 	case Expr:
 		return Expr{kind: exprOp, op: opAdd, left: &e, right: &val}
@@ -241,12 +245,16 @@ func (e Expr) Add(v any) Expr {
 	}
 }
 
-// Sub returns a - b (accepts float64, int, or Expr)
+// Sub returns a - b (accepts float64, int, DesignUnit, Pixel, or Expr)
 func (e Expr) Sub(v any) Expr {
 	switch val := v.(type) {
 	case float64:
 		return Expr{kind: exprOp, op: opSub, left: &e, right: &Expr{kind: exprConst, constant: val}}
 	case int:
+		return Expr{kind: exprOp, op: opSub, left: &e, right: &Expr{kind: exprConst, constant: float64(val)}}
+	case DesignUnit:
+		return Expr{kind: exprOp, op: opSub, left: &e, right: &Expr{kind: exprConst, constant: float64(val)}}
+	case Pixel:
 		return Expr{kind: exprOp, op: opSub, left: &e, right: &Expr{kind: exprConst, constant: float64(val)}}
 	case Expr:
 		return Expr{kind: exprOp, op: opSub, left: &e, right: &val}
@@ -410,7 +418,7 @@ func (c Constraint) String() string {
 	return fmt.Sprintf("%s %s %s", c.left.String(), c.relation.String(), c.right.String())
 }
 
-// toExpr converts float64, int, or Expr to Expr
+// toExpr converts float64, int, DesignUnit, Pixel, or Expr to Expr
 func toExpr(v any) Expr {
 	switch val := v.(type) {
 	case Expr:
@@ -418,6 +426,10 @@ func toExpr(v any) Expr {
 	case float64:
 		return Const(val)
 	case int:
+		return Const(float64(val))
+	case DesignUnit:
+		return Const(float64(val))
+	case Pixel:
 		return Const(float64(val))
 	default:
 		panic(fmt.Sprintf("unsupported type: %T", v))

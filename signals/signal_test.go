@@ -129,3 +129,49 @@ func TestSetSnapshotsObservers(t *testing.T) {
 		t.Fatalf("OnChange snapshot behavior = %v, want %v", got, want)
 	}
 }
+
+func TestScopeRunsCleanupBeforeRerunAndOnCancel(t *testing.T) {
+	sig := New(1)
+
+	var got []string
+	cancel := Scope(func() CancelFunc {
+		value := sig.Get()
+		got = append(got, "run")
+		return func() {
+			got = append(got, "cleanup")
+			_ = value
+		}
+	}, sig)
+
+	sig.Set(2)
+	cancel()
+	sig.Set(3)
+
+	want := []string{"run", "cleanup", "run", "cleanup"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Scope() lifecycle = %v, want %v", got, want)
+	}
+}
+
+func TestScopeUsesQuietDependencies(t *testing.T) {
+	sig := New(1)
+
+	runs := 0
+	cleanups := 0
+	cancel := Scope(func() CancelFunc {
+		runs++
+		return func() {
+			cleanups++
+		}
+	}, sig)
+
+	sig.SetQuiet(2)
+	cancel()
+
+	if runs != 2 {
+		t.Fatalf("Scope() runs with SetQuiet = %d, want 2", runs)
+	}
+	if cleanups != 2 {
+		t.Fatalf("Scope() cleanups with SetQuiet = %d, want 2", cleanups)
+	}
+}

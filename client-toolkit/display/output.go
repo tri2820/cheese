@@ -6,6 +6,20 @@ import (
 	"github.com/tri2820/cheese/protocols/client"
 )
 
+// DesignUnit is the internal UI baseline unit used before per-output pixel conversion.
+type DesignUnit float64
+
+// Pixel is a physical pixel distance in output space.
+type Pixel float64
+
+func (p Pixel) Int() int {
+	return int(p)
+}
+
+func (p Pixel) Float64() float64 {
+	return float64(p)
+}
+
 // Output represents a monitor/display output.
 type Output struct {
 	wlOutput *client.WlOutput
@@ -76,10 +90,14 @@ func (o *Output) DPIOrDefault() float64 {
 	return dpi
 }
 
-// ScaleFrom96DPI converts a distance in 96 DPI pixels to physical pixels for this output.
-// For example, if the output is 192 DPI and distance96 is 100, this returns 200.
-func (o *Output) ScaleFrom96DPI(distance96 float64) int {
-	return int(distance96 * o.DPIOrDefault() / 96.0)
+// ToPixels converts a design-space distance into physical pixels for this output.
+func (o *Output) ToPixels(distance DesignUnit) Pixel {
+	return Pixel(float64(distance) * o.DPIOrDefault() / 96.0)
+}
+
+// ToIntPixels converts a design-space distance into physical pixels, rounded down to int.
+func (o *Output) ToIntPixels(distance DesignUnit) int {
+	return o.ToPixels(distance).Int()
 }
 
 // String returns a human-readable description of the output.

@@ -41,8 +41,6 @@ func (b *Content) Cleanup(layout *Layout) {
 	}
 	b.disposers = nil
 
-	layout.removeVar(b.LayoutItem.Left.state.symbol)
-	layout.removeVar(b.LayoutItem.Top.state.symbol)
-	layout.removeVar(b.LayoutItem.Right.state.symbol)
-	layout.removeVar(b.LayoutItem.Bottom.state.symbol)
+	b.LayoutItem.releaseOwnedConstraints()
+	layout.removeLayoutItem(b.LayoutItem)
 }
