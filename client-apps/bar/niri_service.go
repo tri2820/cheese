@@ -6,16 +6,22 @@ import (
 	"encoding/json"
 	"log"
 	"os/exec"
+	"sort"
 	"sync"
 )
 
+type NiriWindowLayout struct {
+	PosInScrollingLayout [2]int `json:"pos_in_scrolling_layout"`
+}
+
 type NiriWindow struct {
-	ID          int64  `json:"id"`
-	Title       string `json:"title"`
-	AppID       string `json:"app_id"`
-	WorkspaceID int64  `json:"workspace_id"`
-	IsFocused   bool   `json:"is_focused"`
-	IsFloating  bool   `json:"is_floating"`
+	ID          int64            `json:"id"`
+	Title       string           `json:"title"`
+	AppID       string           `json:"app_id"`
+	WorkspaceID int64            `json:"workspace_id"`
+	IsFocused   bool             `json:"is_focused"`
+	IsFloating  bool             `json:"is_floating"`
+	Layout      NiriWindowLayout `json:"layout"`
 }
 
 type NiriWorkspace struct {
@@ -39,6 +45,10 @@ type niriWorkspacesChanged struct {
 
 type niriWindowFocusChanged struct {
 	ID int64 `json:"id"`
+}
+
+type niriWindowLayoutsChanged struct {
+	Changes [][2]json.RawMessage `json:"changes"`
 }
 
 type NiriService struct {
@@ -149,6 +159,31 @@ func (s *NiriService) handleEvent(line []byte) {
 			changed = true
 		}
 	}
+	if data, ok := raw["WindowLayoutsChanged"]; ok {
+		var ev niriWindowLayoutsChanged
+		if err := json.Unmarshal(data, &ev); err == nil {
+			for _, pair := range ev.Changes {
+				if len(pair) != 2 {
+					continue
+				}
+				var id int64
+				var layout NiriWindowLayout
+				if err := json.Unmarshal(pair[0], &id); err != nil {
+					continue
+				}
+				if err := json.Unmarshal(pair[1], &layout); err != nil {
+					continue
+				}
+				for i := range s.state.Windows {
+					if s.state.Windows[i].ID == id {
+						s.state.Windows[i].Layout = layout
+						changed = true
+						break
+					}
+				}
+			}
+		}
+	}
 	if !changed {
 		return
 	}
@@ -214,5 +249,13 @@ func windowsForOutput(state NiriState, output string) []NiriWindow {
 			windows = append(windows, win)
 		}
 	}
+	sort.SliceStable(windows, func(i, j int) bool {
+		xi := windows[i].Layout.PosInScrollingLayout[0]
+		xj := windows[j].Layout.PosInScrollingLayout[0]
+		if xi != xj {
+			return xi < xj
+		}
+		return windows[i].ID < windows[j].ID
+	})
 	return windows
 }

@@ -80,5 +80,5 @@ func (m *InputMethodModule) refresh() {
 		name = name[idx+1:]
 	}
 
-	m.SetText(name + " ")
+	m.SetText(name)
 }
