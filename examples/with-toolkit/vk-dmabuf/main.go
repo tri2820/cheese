@@ -5,6 +5,7 @@ import (
 
 	"github.com/tri2820/cheese/client-toolkit/display"
 	"github.com/tri2820/cheese/client-toolkit/dmabuf"
+	"github.com/tri2820/cheese/client-toolkit/gpu"
 	"github.com/tri2820/cheese/client-toolkit/shell"
 	"github.com/tri2820/cheese/client-toolkit/surface"
 )
@@ -46,11 +47,11 @@ func main() {
 	}
 
 	// Create renderer with callbacks
-	renderer, err := dmabuf.NewRenderer(dmabuf.RendererConfig{
+	renderer, err := gpu.NewRenderer(gpu.RendererConfig{
 		State:   dmabufState,
 		Target:  win,
 		Buffers: 2,
-		OnCreateBuffers: func(width, height, count int) ([]dmabuf.BufferInfo, error) {
+		CreateBuffers: func(width, height, count int) ([]dmabuf.BufferInfo, error) {
 			buffers, err := initDmaBufBuffers(width, height, count)
 			if err != nil {
 				return nil, err
@@ -66,12 +67,12 @@ func main() {
 			}
 			return infos, nil
 		},
-		OnRender: func(bufferIndex, width, height int, frameTime uint32) error {
+		Render: func(bufferIndex, width, height int, frameTime uint32) error {
 			// Render to Vulkan image at bufferIndex
 			animTime := float32(frameTime) / 1000.0
 			return renderToDmaBuf(bufferIndex, animTime)
 		},
-		OnDestroyBuffers: func() {
+		DestroyBuffers: func() {
 			// Cleanup Vulkan resources
 			CleanupTriangleRenderer()
 			cleanupDmaBufBuffers()
@@ -81,6 +82,10 @@ func main() {
 		log.Fatal("Failed to create renderer:", err)
 	}
 	defer renderer.Close()
+
+	renderer.OnError(func(err error) {
+		log.Printf("Renderer error: %v", err)
+	})
 
 	log.Println("Running! Close the window to exit.")
 

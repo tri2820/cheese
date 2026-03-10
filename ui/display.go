@@ -5,26 +5,26 @@ import (
 	"github.com/tri2820/cheese/signals"
 )
 
-// Display wraps display.Display with reactive outputs signal.
-type Display struct {
+// ReactiveDisplay wraps display.Display with a reactive outputs signal.
+type ReactiveDisplay struct {
 	disp    *display.Display
 	outputs signals.Signal[[]*display.Output]
 }
 
-// Connect wraps display.Connect, creating a new Display with reactive outputs.
-func Connect(config display.Config) (*Display, error) {
+// Connect wraps display.Connect, creating a ReactiveDisplay with reactive outputs.
+func Connect(config display.Config) (*ReactiveDisplay, error) {
 	disp, err := display.Connect(config)
 	if err != nil {
 		return nil, err
 	}
 
-	d := &Display{
+	d := &ReactiveDisplay{
 		disp:    disp,
 		outputs: signals.New(disp.Outputs()),
 	}
 
 	// Set up handler to update signal on hotplug
-	disp.SetOutputHandler(func(output *display.Output, added bool) {
+	disp.OnOutput(func(output *display.Output, added bool) {
 		// Rebuild outputs list and update signal
 		d.outputs.Set(disp.Outputs())
 	})
@@ -33,22 +33,22 @@ func Connect(config display.Config) (*Display, error) {
 }
 
 // Run runs the Wayland event loop.
-func (d *Display) Run() error {
+func (d *ReactiveDisplay) Run() error {
 	return d.disp.Run()
 }
 
 // Close closes the display connection.
-func (d *Display) Close() error {
+func (d *ReactiveDisplay) Close() error {
 	return d.disp.Close()
 }
 
-// Outputs returns a signal that emits the current list of outputs.
+// OutputsSignal returns a signal that emits the current list of outputs.
 // The signal updates whenever outputs are added or removed via hotplug.
-func (d *Display) Outputs() signals.Signal[[]*display.Output] {
+func (d *ReactiveDisplay) OutputsSignal() signals.Signal[[]*display.Output] {
 	return d.outputs
 }
 
 // Display returns the underlying display.Display for direct access.
-func (d *Display) Display() *display.Display {
+func (d *ReactiveDisplay) Display() *display.Display {
 	return d.disp
 }

@@ -40,7 +40,7 @@ func main() {
 	}
 
 	// Set up output handler for monitor plug/unplug events
-	disp.SetOutputHandler(func(output *display.Output, added bool) {
+	disp.OnOutput(func(output *display.Output, added bool) {
 		if added {
 			app.AddBar(disp, output)
 		} else {
@@ -63,11 +63,11 @@ func main() {
 
 // App manages multiple bars, one per monitor
 type App struct {
-	bars        map[*client.WlOutput]*Bar
-	mu          sync.Mutex
-	focusedBar  *Bar
-	seat        *seat.Seat
-	pointer     *seat.Pointer
+	bars       map[*client.WlOutput]*Bar
+	mu         sync.Mutex
+	focusedBar *Bar
+	seat       *seat.Seat
+	pointer    *seat.Pointer
 }
 
 func NewApp() *App {
@@ -112,7 +112,7 @@ func (a *App) RemoveBar(output *display.Output) {
 
 // setupPointerHandlers sets up the shared pointer handlers for all bars.
 func (a *App) setupPointerHandlers() {
-	a.pointer.SetEnterHandler(func(ev client.WlPointerEnterEvent) {
+	a.pointer.OnEnter(func(ev client.WlPointerEnterEvent) {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 
@@ -127,7 +127,7 @@ func (a *App) setupPointerHandlers() {
 		}
 	})
 
-	a.pointer.SetLeaveHandler(func(ev client.WlPointerLeaveEvent) {
+	a.pointer.OnLeave(func(ev client.WlPointerLeaveEvent) {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 
@@ -137,7 +137,7 @@ func (a *App) setupPointerHandlers() {
 		}
 	})
 
-	a.pointer.SetMotionHandler(func(ev client.WlPointerMotionEvent) {
+	a.pointer.OnMotion(func(ev client.WlPointerMotionEvent) {
 		a.mu.Lock()
 		defer a.mu.Unlock()
 

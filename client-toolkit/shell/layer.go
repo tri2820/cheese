@@ -14,10 +14,10 @@ type LayerSurface struct {
 	layerSurface *wlr_layer_shell_unstable_v1.ZwlrLayerSurfaceV1
 	surface      *surface.Surface
 
-	width       int
-	height      int
-	onConfigure func()
-	onClose     func()
+	width             int
+	height            int
+	configureHandlers []func()
+	closeHandlers     []func()
 }
 
 // LayerPosition is the layer position for a layer surface.
@@ -122,18 +122,23 @@ func (l *LayerSurface) handleConfigure(ev wlr_layer_shell_unstable_v1.ZwlrLayerS
 		log.Printf("failed to ack configure: %v", err)
 	}
 
-	if l.onConfigure != nil {
-		l.onConfigure()
+	for _, fn := range append([]func(){}, l.configureHandlers...) {
+		if fn != nil {
+			fn()
+		}
 	}
 }
 
 // handleClosed handles layer surface closed events.
 func (l *LayerSurface) handleClosed(ev wlr_layer_shell_unstable_v1.ZwlrLayerSurfaceV1ClosedEvent) {
-	if l.onClose != nil {
-		l.onClose()
-	} else {
-		// Default behavior: log warning, don't exit
+	if len(l.closeHandlers) == 0 {
 		log.Printf("Warning: Layer surface closed, no close handler set")
+		return
+	}
+	for _, fn := range append([]func(){}, l.closeHandlers...) {
+		if fn != nil {
+			fn()
+		}
 	}
 }
 
@@ -154,14 +159,20 @@ func (l *LayerSurface) SetExclusiveZone(zone int32) error {
 	return l.layerSurface.SetExclusiveZone(zone)
 }
 
-// SetConfigureHandler sets a handler for configure events.
-func (l *LayerSurface) SetConfigureHandler(fn func()) {
-	l.onConfigure = fn
+// OnConfigure registers a handler for configure events.
+func (l *LayerSurface) OnConfigure(fn func()) {
+	if fn == nil {
+		return
+	}
+	l.configureHandlers = append(l.configureHandlers, fn)
 }
 
-// SetCloseHandler sets a handler for close requests.
-func (l *LayerSurface) SetCloseHandler(fn func()) {
-	l.onClose = fn
+// OnClose registers a handler for close requests.
+func (l *LayerSurface) OnClose(fn func()) {
+	if fn == nil {
+		return
+	}
+	l.closeHandlers = append(l.closeHandlers, fn)
 }
 
 // Surface returns the surface for this layer.

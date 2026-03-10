@@ -44,12 +44,13 @@ type Output struct {
 	Ready bool
 
 	// Callbacks for output events
-	onGeometry    func(client.WlOutputGeometryEvent)
-	onMode        func(client.WlOutputModeEvent)
-	onScale       func(client.WlOutputScaleEvent)
-	onName        func(client.WlOutputNameEvent)
-	onDescription func(client.WlOutputDescriptionEvent)
-	onDone        func(client.WlOutputDoneEvent)
+	geometryHandlers    []func(client.WlOutputGeometryEvent)
+	modeHandlers        []func(client.WlOutputModeEvent)
+	scaleHandlers       []func(client.WlOutputScaleEvent)
+	nameHandlers        []func(client.WlOutputNameEvent)
+	descriptionHandlers []func(client.WlOutputDescriptionEvent)
+	doneHandlers        []func(client.WlOutputDoneEvent)
+	readyHandlers       []func(*Output)
 }
 
 // DPI calculates the DPI based on physical size and current resolution.
@@ -104,9 +105,7 @@ func newOutput(wlOutput *client.WlOutput, handler func(*Output)) *Output {
 		Scale:    1, // Default scale
 	}
 	if handler != nil {
-		o.onDone = func(ev client.WlOutputDoneEvent) {
-			handler(o)
-		}
+		o.OnReady(handler)
 	}
 
 	wlOutput.SetGeometryHandler(o.handleGeometry)
@@ -128,8 +127,10 @@ func (o *Output) handleGeometry(ev client.WlOutputGeometryEvent) {
 	o.Transform = ev.Transform
 	o.Make = ev.Make
 	o.Model = ev.Model
-	if o.onGeometry != nil {
-		o.onGeometry(ev)
+	for _, fn := range append([]func(client.WlOutputGeometryEvent){}, o.geometryHandlers...) {
+		if fn != nil {
+			fn(ev)
+		}
 	}
 }
 
@@ -137,65 +138,109 @@ func (o *Output) handleMode(ev client.WlOutputModeEvent) {
 	o.ModeWidth = ev.Width
 	o.ModeHeight = ev.Height
 	o.Refresh = ev.Refresh
-	if o.onMode != nil {
-		o.onMode(ev)
+	for _, fn := range append([]func(client.WlOutputModeEvent){}, o.modeHandlers...) {
+		if fn != nil {
+			fn(ev)
+		}
 	}
 }
 
 func (o *Output) handleScale(ev client.WlOutputScaleEvent) {
 	o.Scale = ev.Factor
-	if o.onScale != nil {
-		o.onScale(ev)
+	for _, fn := range append([]func(client.WlOutputScaleEvent){}, o.scaleHandlers...) {
+		if fn != nil {
+			fn(ev)
+		}
 	}
 }
 
 func (o *Output) handleName(ev client.WlOutputNameEvent) {
 	o.Name = ev.Name
-	if o.onName != nil {
-		o.onName(ev)
+	for _, fn := range append([]func(client.WlOutputNameEvent){}, o.nameHandlers...) {
+		if fn != nil {
+			fn(ev)
+		}
 	}
 }
 
 func (o *Output) handleDescription(ev client.WlOutputDescriptionEvent) {
 	o.Description = ev.Description
-	if o.onDescription != nil {
-		o.onDescription(ev)
+	for _, fn := range append([]func(client.WlOutputDescriptionEvent){}, o.descriptionHandlers...) {
+		if fn != nil {
+			fn(ev)
+		}
 	}
 }
 
 func (o *Output) handleDone(ev client.WlOutputDoneEvent) {
+	firstReady := !o.Ready
 	o.Ready = true
-	if o.onDone != nil {
-		o.onDone(ev)
+	for _, fn := range append([]func(client.WlOutputDoneEvent){}, o.doneHandlers...) {
+		if fn != nil {
+			fn(ev)
+		}
+	}
+	if firstReady {
+		for _, fn := range append([]func(*Output){}, o.readyHandlers...) {
+			if fn != nil {
+				fn(o)
+			}
+		}
 	}
 }
 
-// SetGeometryHandler sets a callback for geometry events.
-func (o *Output) SetGeometryHandler(fn func(client.WlOutputGeometryEvent)) {
-	o.onGeometry = fn
+// OnGeometry registers a geometry handler.
+func (o *Output) OnGeometry(fn func(client.WlOutputGeometryEvent)) {
+	if fn == nil {
+		return
+	}
+	o.geometryHandlers = append(o.geometryHandlers, fn)
 }
 
-// SetModeHandler sets a callback for mode events.
-func (o *Output) SetModeHandler(fn func(client.WlOutputModeEvent)) {
-	o.onMode = fn
+// OnMode registers a mode handler.
+func (o *Output) OnMode(fn func(client.WlOutputModeEvent)) {
+	if fn == nil {
+		return
+	}
+	o.modeHandlers = append(o.modeHandlers, fn)
 }
 
-// SetScaleHandler sets a callback for scale events.
-func (o *Output) SetScaleHandler(fn func(client.WlOutputScaleEvent)) {
-	o.onScale = fn
+// OnScale registers a scale handler.
+func (o *Output) OnScale(fn func(client.WlOutputScaleEvent)) {
+	if fn == nil {
+		return
+	}
+	o.scaleHandlers = append(o.scaleHandlers, fn)
 }
 
-// SetNameHandler sets a callback for name events.
-func (o *Output) SetNameHandler(fn func(client.WlOutputNameEvent)) {
-	o.onName = fn
+// OnName registers a name handler.
+func (o *Output) OnName(fn func(client.WlOutputNameEvent)) {
+	if fn == nil {
+		return
+	}
+	o.nameHandlers = append(o.nameHandlers, fn)
 }
 
-// SetDescriptionHandler sets a callback for description events.
-func (o *Output) SetDescriptionHandler(fn func(client.WlOutputDescriptionEvent)) {
-	o.onDescription = fn
+// OnDescription registers a description handler.
+func (o *Output) OnDescription(fn func(client.WlOutputDescriptionEvent)) {
+	if fn == nil {
+		return
+	}
+	o.descriptionHandlers = append(o.descriptionHandlers, fn)
 }
 
-// SetDoneHandler sets a callback for done events.
-func (o *Output) SetDoneHandler(fn func(client.WlOutputDoneEvent)) {
-	o.onDone = fn
+// OnDone registers a done handler.
+func (o *Output) OnDone(fn func(client.WlOutputDoneEvent)) {
+	if fn == nil {
+		return
+	}
+	o.doneHandlers = append(o.doneHandlers, fn)
+}
+
+// OnReady registers a callback that runs only once, on the first done event.
+func (o *Output) OnReady(fn func(*Output)) {
+	if fn == nil {
+		return
+	}
+	o.readyHandlers = append(o.readyHandlers, fn)
 }

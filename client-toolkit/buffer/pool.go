@@ -7,8 +7,8 @@ import (
 	"github.com/tri2820/cheese/protocols/client"
 )
 
-// Config configures a new SHM pool.
-type Config struct {
+// PoolConfig configures a new SHM pool.
+type PoolConfig struct {
 	Width  int
 	Height int
 	Format client.WlShmFormat
@@ -22,13 +22,13 @@ type Config struct {
 type Pool struct {
 	wlPool  *client.WlShmPool
 	memFile *os.File
-	data    []byte     // memory-mapped region
+	data    []byte // memory-mapped region
 	size    int
 	slots   []*Slot
 }
 
 // NewPool creates a new SHM pool.
-func NewPool(shm *client.WlShm, config Config) (*Pool, error) {
+func NewPool(shm *client.WlShm, config PoolConfig) (*Pool, error) {
 	width := config.Width
 	height := config.Height
 	format := config.Format

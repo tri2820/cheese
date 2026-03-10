@@ -6,11 +6,11 @@ import (
 
 // Surface represents a Wayland surface.
 type Surface struct {
-	wlSurface   *client.WlSurface
-	callback    *client.WlCallback
-	onFrame     func(uint32)
-	onEnter     func(*client.WlOutput)
-	onLeave     func(*client.WlOutput)
+	wlSurface      *client.WlSurface
+	callback       *client.WlCallback
+	frameHandlers  []func(uint32)
+	enterHandlers  []func(*client.WlOutput)
+	leaveHandlers  []func(*client.WlOutput)
 	currentOutputs map[*client.WlOutput]bool
 }
 
@@ -35,16 +35,12 @@ func New(compositor *client.WlCompositor) (*Surface, error) {
 
 func (s *Surface) handleEnter(ev client.WlSurfaceEnterEvent) {
 	s.currentOutputs[ev.Output] = true
-	if s.onEnter != nil {
-		s.onEnter(ev.Output)
-	}
+	s.emitEnter(ev.Output)
 }
 
 func (s *Surface) handleLeave(ev client.WlSurfaceLeaveEvent) {
 	delete(s.currentOutputs, ev.Output)
-	if s.onLeave != nil {
-		s.onLeave(ev.Output)
-	}
+	s.emitLeave(ev.Output)
 }
 
 // WlSurface returns the underlying wl_surface.
@@ -78,40 +74,64 @@ func (s *Surface) Frame() error {
 	s.callback = callback
 
 	callback.SetDoneHandler(func(ev client.WlCallbackDoneEvent) {
-		if s.onFrame != nil {
-			s.onFrame(ev.CallbackData)
-		}
+		s.emitFrame(ev.CallbackData)
 	})
 
 	return nil
 }
 
-// SetFrameHandler sets a function to be called when the frame callback fires.
+func (s *Surface) emitFrame(time uint32) {
+	for _, fn := range append([]func(uint32){}, s.frameHandlers...) {
+		if fn != nil {
+			fn(time)
+		}
+	}
+}
+
+func (s *Surface) emitEnter(output *client.WlOutput) {
+	for _, fn := range append([]func(*client.WlOutput){}, s.enterHandlers...) {
+		if fn != nil {
+			fn(output)
+		}
+	}
+}
+
+func (s *Surface) emitLeave(output *client.WlOutput) {
+	for _, fn := range append([]func(*client.WlOutput){}, s.leaveHandlers...) {
+		if fn != nil {
+			fn(output)
+		}
+	}
+}
+
+// OnFrame registers a function to be called when the frame callback fires.
 // The function receives the callback time in milliseconds.
-func (s *Surface) SetFrameHandler(fn func(uint32)) {
-	s.onFrame = fn
+func (s *Surface) OnFrame(fn func(uint32)) {
+	if fn == nil {
+		return
+	}
+	s.frameHandlers = append(s.frameHandlers, fn)
 }
 
 // HasFrameHandler returns true if a frame handler is set.
 func (s *Surface) HasFrameHandler() bool {
-	return s.onFrame != nil
+	return len(s.frameHandlers) > 0
 }
 
-// RequestFrame requests a frame callback with the given handler.
-// This is a convenience method that combines SetFrameHandler and Frame.
-func (s *Surface) RequestFrame(fn func(uint32)) error {
-	s.SetFrameHandler(fn)
-	return s.Frame()
+// OnEnter registers a function to be called when the surface enters an output.
+func (s *Surface) OnEnter(fn func(*client.WlOutput)) {
+	if fn == nil {
+		return
+	}
+	s.enterHandlers = append(s.enterHandlers, fn)
 }
 
-// SetEnterHandler sets a function to be called when the surface enters an output.
-func (s *Surface) SetEnterHandler(fn func(*client.WlOutput)) {
-	s.onEnter = fn
-}
-
-// SetLeaveHandler sets a function to be called when the surface leaves an output.
-func (s *Surface) SetLeaveHandler(fn func(*client.WlOutput)) {
-	s.onLeave = fn
+// OnLeave registers a function to be called when the surface leaves an output.
+func (s *Surface) OnLeave(fn func(*client.WlOutput)) {
+	if fn == nil {
+		return
+	}
+	s.leaveHandlers = append(s.leaveHandlers, fn)
 }
 
 // Outputs returns all outputs the surface is currently on.

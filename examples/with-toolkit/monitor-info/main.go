@@ -11,17 +11,16 @@ func main() {
 	log.Println("Connecting to Wayland display...")
 	log.Println("Monitoring for output hotplug events...")
 
-	// Connect to display with output handler
-	disp := display.MustConnect(display.Config{
-		OutputHandler: func(output *display.Output, added bool) {
-			if added {
-				log.Printf(">>> OUTPUT ADDED: %s\n", output.Name)
-				printOutput(output)
-			} else {
-				log.Printf("<<< OUTPUT REMOVED: %s\n", output.Name)
-			}
-			fmt.Println()
-		},
+	disp := display.MustConnect(display.Config{})
+
+	disp.OnOutput(func(output *display.Output, added bool) {
+		if added {
+			log.Printf(">>> OUTPUT ADDED: %s\n", output.Name)
+			printOutput(output)
+		} else {
+			log.Printf("<<< OUTPUT REMOVED: %s\n", output.Name)
+		}
+		fmt.Println()
 	})
 
 	// Do a roundtrip to receive all initial output information
@@ -43,7 +42,7 @@ func main() {
 
 	log.Println("Press Ctrl+C to exit (monitoring for hotplug events)...")
 
-	// Run event loop - OutputHandler will be called on hotplug
+	// Run event loop - OnOutput will be called on hotplug
 	if err := disp.Run(); err != nil {
 		log.Printf("Dispatch error: %v", err)
 	}

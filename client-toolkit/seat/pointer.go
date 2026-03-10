@@ -6,13 +6,13 @@ import (
 
 // Pointer represents a Wayland pointer input device.
 type Pointer struct {
-	wlPointer *client.WlPointer
-	onEnter   func(ev client.WlPointerEnterEvent)
-	onLeave   func(client.WlPointerLeaveEvent)
-	onMotion  func(ev client.WlPointerMotionEvent)
-	onButton  func(ev client.WlPointerButtonEvent)
-	onAxis    func(ev client.WlPointerAxisEvent)
-	onFrame   func(client.WlPointerFrameEvent)
+	wlPointer      *client.WlPointer
+	enterHandlers  []func(ev client.WlPointerEnterEvent)
+	leaveHandlers  []func(client.WlPointerLeaveEvent)
+	motionHandlers []func(ev client.WlPointerMotionEvent)
+	buttonHandlers []func(ev client.WlPointerButtonEvent)
+	axisHandlers   []func(ev client.WlPointerAxisEvent)
+	frameHandlers  []func(client.WlPointerFrameEvent)
 }
 
 // NewPointer creates a new Pointer from a wl_pointer.
@@ -33,70 +33,100 @@ func NewPointer(wlPointer *client.WlPointer) *Pointer {
 }
 
 func (p *Pointer) handleEnter(ev client.WlPointerEnterEvent) {
-	if p.onEnter != nil {
-		p.onEnter(ev)
+	for _, fn := range append([]func(client.WlPointerEnterEvent){}, p.enterHandlers...) {
+		if fn != nil {
+			fn(ev)
+		}
 	}
 }
 
 func (p *Pointer) handleLeave(ev client.WlPointerLeaveEvent) {
-	if p.onLeave != nil {
-		p.onLeave(ev)
+	for _, fn := range append([]func(client.WlPointerLeaveEvent){}, p.leaveHandlers...) {
+		if fn != nil {
+			fn(ev)
+		}
 	}
 }
 
 func (p *Pointer) handleMotion(ev client.WlPointerMotionEvent) {
-	if p.onMotion != nil {
-		p.onMotion(ev)
+	for _, fn := range append([]func(client.WlPointerMotionEvent){}, p.motionHandlers...) {
+		if fn != nil {
+			fn(ev)
+		}
 	}
 }
 
 func (p *Pointer) handleButton(ev client.WlPointerButtonEvent) {
-	if p.onButton != nil {
-		p.onButton(ev)
+	for _, fn := range append([]func(client.WlPointerButtonEvent){}, p.buttonHandlers...) {
+		if fn != nil {
+			fn(ev)
+		}
 	}
 }
 
 func (p *Pointer) handleAxis(ev client.WlPointerAxisEvent) {
-	if p.onAxis != nil {
-		p.onAxis(ev)
+	for _, fn := range append([]func(client.WlPointerAxisEvent){}, p.axisHandlers...) {
+		if fn != nil {
+			fn(ev)
+		}
 	}
 }
 
 func (p *Pointer) handleFrame(ev client.WlPointerFrameEvent) {
-	if p.onFrame != nil {
-		p.onFrame(ev)
+	for _, fn := range append([]func(client.WlPointerFrameEvent){}, p.frameHandlers...) {
+		if fn != nil {
+			fn(ev)
+		}
 	}
 }
 
-// SetEnterHandler sets the handler for pointer enter events.
+// OnEnter registers a handler for pointer enter events.
 // The event provides the surface and surface-local x/y coordinates.
-func (p *Pointer) SetEnterHandler(fn func(ev client.WlPointerEnterEvent)) {
-	p.onEnter = fn
+func (p *Pointer) OnEnter(fn func(ev client.WlPointerEnterEvent)) {
+	if fn == nil {
+		return
+	}
+	p.enterHandlers = append(p.enterHandlers, fn)
 }
 
-// SetLeaveHandler sets the handler for pointer leave events.
-func (p *Pointer) SetLeaveHandler(fn func(ev client.WlPointerLeaveEvent)) {
-	p.onLeave = fn
+// OnLeave registers a handler for pointer leave events.
+func (p *Pointer) OnLeave(fn func(ev client.WlPointerLeaveEvent)) {
+	if fn == nil {
+		return
+	}
+	p.leaveHandlers = append(p.leaveHandlers, fn)
 }
 
-// SetMotionHandler sets the handler for pointer motion events.
-func (p *Pointer) SetMotionHandler(fn func(ev client.WlPointerMotionEvent)) {
-	p.onMotion = fn
+// OnMotion registers a handler for pointer motion events.
+func (p *Pointer) OnMotion(fn func(ev client.WlPointerMotionEvent)) {
+	if fn == nil {
+		return
+	}
+	p.motionHandlers = append(p.motionHandlers, fn)
 }
 
-// SetButtonHandler sets the handler for pointer button events.
-func (p *Pointer) SetButtonHandler(fn func(ev client.WlPointerButtonEvent)) {
-	p.onButton = fn
+// OnButton registers a handler for pointer button events.
+func (p *Pointer) OnButton(fn func(ev client.WlPointerButtonEvent)) {
+	if fn == nil {
+		return
+	}
+	p.buttonHandlers = append(p.buttonHandlers, fn)
 }
 
-// SetAxisHandler sets the handler for pointer axis (scroll) events.
-func (p *Pointer) SetAxisHandler(fn func(ev client.WlPointerAxisEvent)) {
-	p.onAxis = fn
+// OnAxis registers a handler for pointer axis (scroll) events.
+func (p *Pointer) OnAxis(fn func(ev client.WlPointerAxisEvent)) {
+	if fn == nil {
+		return
+	}
+	p.axisHandlers = append(p.axisHandlers, fn)
 }
 
-// SetFrameHandler sets the handler for pointer frame events.
-func (p *Pointer) SetFrameHandler(fn func(ev client.WlPointerFrameEvent)) {
-	p.onFrame = fn
+// OnFrame registers a handler for pointer frame events.
+func (p *Pointer) OnFrame(fn func(ev client.WlPointerFrameEvent)) {
+	if fn == nil {
+		return
+	}
+	p.frameHandlers = append(p.frameHandlers, fn)
 }
 
 // WlPointer returns the underlying wl_pointer object.

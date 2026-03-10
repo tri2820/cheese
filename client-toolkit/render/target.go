@@ -6,7 +6,7 @@ import (
 
 // RenderTarget is a surface that can be rendered to (Window or LayerSurface).
 type RenderTarget interface {
-	SetConfigureHandler(func())
+	OnConfigure(func())
 	Surface() *surface.Surface
 	Width() int
 	Height() int

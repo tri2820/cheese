@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/tri2820/cheese/apps/common"
-	"github.com/tri2820/cheese/client-toolkit/buffer"
 	"github.com/tri2820/cheese/client-toolkit/display"
 	"github.com/tri2820/cheese/client-toolkit/shell"
+	"github.com/tri2820/cheese/client-toolkit/shm"
 	"github.com/tri2820/cheese/client-toolkit/surface"
 	"github.com/tri2820/cheese/protocols/client"
 	xdraw "golang.org/x/image/draw"
@@ -29,7 +29,7 @@ type Bar struct {
 	output     *display.Output
 	surface    *surface.Surface
 	layer      *shell.LayerSurface
-	frame      *buffer.Frame
+	frame      *shm.Frame
 	fontFace   font.Face
 	icon       image.Image
 	iconRegion *client.WlRegion // Input region for the icon
@@ -38,12 +38,12 @@ type Bar struct {
 	stop       chan struct{}
 
 	// Hover state
-	hovered  bool
-	hoverMu  sync.Mutex
+	hovered bool
+	hoverMu sync.Mutex
 
 	// Mouse position (surface-local coordinates)
-	mouseX float64
-	mouseY float64
+	mouseX  float64
+	mouseY  float64
 	mouseMu sync.Mutex
 }
 
@@ -122,7 +122,7 @@ func NewBar(disp *display.Display, output *display.Output) (*Bar, error) {
 	}
 
 	// Create frame with ARGB8888
-	frame, err := buffer.NewFrame(disp.Shm(), barLayer, disp, buffer.FrameConfig{
+	frame, err := shm.NewFrame(disp.Shm(), barLayer, disp, shm.FrameConfig{
 		Format:  client.WlShmFormatArgb8888,
 		Buffers: 2,
 	})
@@ -133,16 +133,20 @@ func NewBar(disp *display.Display, output *display.Output) (*Bar, error) {
 	}
 	b.frame = frame
 
-	// Set up render callback BEFORE enabling manual mode
-	frame.OnRender(func(w, h int, frameTime uint32, pixels []byte) {
+	frame.OnError(func(err error) {
+		log.Printf("bar frame error on %s: %v", output.Name, err)
+	})
+
+	// Set the render delegate BEFORE enabling manual mode
+	frame.SetRender(func(w, h int, frameTime uint32, pixels []byte) {
 		b.draw(w, h, pixels, time.UnixMilli(int64(frameTime)))
 	})
 
-	// Enable manual mode AFTER setting up OnRender (so configure events work)
+	// Enable manual mode AFTER setting the render delegate (so configure events work)
 	frame.SetManualMode(true)
 
 	// Set up close handler
-	barLayer.SetCloseHandler(func() {
+	barLayer.OnClose(func() {
 		b.Close()
 	})
 

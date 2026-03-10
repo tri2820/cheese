@@ -29,13 +29,6 @@ type Config struct {
 
 	// Required specifies which globals must be present.
 	Required RequiredGlobals
-
-	// ErrorHandler is called on Wayland protocol errors.
-	// If nil, a default handler that logs and exits is used.
-	ErrorHandler func(client.WlDisplayErrorEvent)
-
-	// OutputHandler is called when an output becomes ready or is removed.
-	OutputHandler func(output *Output, added bool)
 }
 
 // Display represents a connection to a Wayland compositor.
@@ -52,8 +45,9 @@ type Display struct {
 	formats map[client.WlShmFormat]bool
 
 	// Output tracking (global name -> Output)
-	outputs       map[uint32]*Output
-	outputHandler func(output *Output, added bool)
+	outputs        map[uint32]*Output
+	outputHandlers []func(output *Output, added bool)
+	errorHandlers  []func(client.WlDisplayErrorEvent)
 
 	// wl_output proxy -> Output mapping for surface enter/leave events
 	outputsByProxy map[*client.WlOutput]*Output
@@ -71,10 +65,8 @@ func Connect(config Config) (*Display, error) {
 		outputs:        make(map[uint32]*Output),
 		outputsByProxy: make(map[*client.WlOutput]*Output),
 		seats:          make(map[uint32]*seat.Seat),
-		outputHandler:  config.OutputHandler,
 		required:       config.Required,
 	}
-
 	// Connect to display
 	display, err := client.Connect(config.Name)
 	if err != nil {
@@ -83,14 +75,7 @@ func Connect(config Config) (*Display, error) {
 	d.wlDisplay = display
 
 	// Set error handler
-	if config.ErrorHandler != nil {
-		d.wlDisplay.SetErrorHandler(config.ErrorHandler)
-	} else {
-		d.wlDisplay.SetErrorHandler(func(ev client.WlDisplayErrorEvent) {
-			log.Fatalf("Display error: object_id=%v code=%d message=%s\n",
-				ev.ObjectId, ev.Code, ev.Message)
-		})
-	}
+	d.wlDisplay.SetErrorHandler(d.handleError)
 
 	// Get registry
 	registry, err := d.wlDisplay.GetRegistry()
@@ -144,6 +129,23 @@ func Connect(config Config) (*Display, error) {
 	}
 
 	return d, nil
+}
+
+func (d *Display) handleError(ev client.WlDisplayErrorEvent) {
+	if len(d.errorHandlers) == 0 {
+		log.Printf("Display error: object_id=%v code=%d message=%s",
+			ev.ObjectId, ev.Code, ev.Message)
+	} else {
+		for _, fn := range append([]func(client.WlDisplayErrorEvent){}, d.errorHandlers...) {
+			if fn != nil {
+				fn(ev)
+			}
+		}
+	}
+
+	if err := d.Close(); err != nil {
+		log.Printf("failed to close display after protocol error: %v", err)
+	}
 }
 
 // MustConnect connects to a Wayland compositor and panics on error.
@@ -221,8 +223,10 @@ func (d *Display) handleGlobal(ev client.WlRegistryGlobalEvent) {
 			return
 		}
 		output := newOutput(wlOutput, func(o *Output) {
-			if d.outputHandler != nil {
-				d.outputHandler(o, true) // added = true
+			for _, fn := range append([]func(*Output, bool){}, d.outputHandlers...) {
+				if fn != nil {
+					fn(o, true)
+				}
 			}
 		})
 		d.outputs[ev.Name] = output
@@ -252,8 +256,10 @@ func (d *Display) handleGlobalRemove(ev client.WlRegistryGlobalRemoveEvent) {
 	if o, ok := d.outputs[ev.Name]; ok {
 		delete(d.outputs, ev.Name)
 		delete(d.outputsByProxy, o.WlOutput())
-		if d.outputHandler != nil {
-			d.outputHandler(o, false) // added = false (removed)
+		for _, fn := range append([]func(*Output, bool){}, d.outputHandlers...) {
+			if fn != nil {
+				fn(o, false)
+			}
 		}
 	}
 }
@@ -384,10 +390,20 @@ func (d *Display) OutputByWlOutput(wlOutput *client.WlOutput) *Output {
 	return d.outputsByProxy[wlOutput]
 }
 
-// SetOutputHandler sets the handler for output add/remove events.
-// This can be called after Connect to enable dynamic output handling.
-func (d *Display) SetOutputHandler(handler func(output *Output, added bool)) {
-	d.outputHandler = handler
+// OnOutput registers a handler for output add/remove events.
+func (d *Display) OnOutput(handler func(output *Output, added bool)) {
+	if handler == nil {
+		return
+	}
+	d.outputHandlers = append(d.outputHandlers, handler)
+}
+
+// OnError registers a handler for Wayland protocol errors.
+func (d *Display) OnError(handler func(client.WlDisplayErrorEvent)) {
+	if handler == nil {
+		return
+	}
+	d.errorHandlers = append(d.errorHandlers, handler)
 }
 
 // Seats returns all detected seats.

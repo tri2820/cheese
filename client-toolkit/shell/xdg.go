@@ -2,10 +2,9 @@ package shell
 
 import (
 	"log"
-	"os"
 
-	"github.com/tri2820/cheese/protocols/xdg_shell"
 	"github.com/tri2820/cheese/client-toolkit/surface"
+	"github.com/tri2820/cheese/protocols/xdg_shell"
 )
 
 // ToplevelSurface represents an xdg-shell toplevel surface.
@@ -15,17 +14,17 @@ type ToplevelSurface struct {
 	toplevel   *xdg_shell.XdgToplevel
 	surface    *surface.Surface
 
-	width     int
-	height    int
-	onConfigure     func()
-	onCloseRequested func()
+	width             int
+	height            int
+	configureHandlers []func()
+	closeHandlers     []func()
 }
 
 // ToplevelConfig configures a new ToplevelSurface.
 type ToplevelConfig struct {
-	Title string
-	AppId string
-	Width int
+	Title  string
+	AppId  string
+	Width  int
 	Height int
 }
 
@@ -81,8 +80,10 @@ func (t *ToplevelSurface) handleSurfaceConfigure(ev xdg_shell.XdgSurfaceConfigur
 		log.Printf("failed to ack configure: %v", err)
 	}
 
-	if t.onConfigure != nil {
-		t.onConfigure()
+	for _, fn := range append([]func(){}, t.configureHandlers...) {
+		if fn != nil {
+			fn()
+		}
 	}
 }
 
@@ -98,12 +99,14 @@ func (t *ToplevelSurface) handleToplevelConfigure(ev xdg_shell.XdgToplevelConfig
 
 // handleToplevelClose handles toplevel close requests.
 func (t *ToplevelSurface) handleToplevelClose(ev xdg_shell.XdgToplevelCloseEvent) {
-	if t.onCloseRequested != nil {
-		t.onCloseRequested()
-	} else {
-		// Default behavior: exit
+	if len(t.closeHandlers) == 0 {
 		log.Println("Toplevel surface close requested")
-		os.Exit(0)
+		return
+	}
+	for _, fn := range append([]func(){}, t.closeHandlers...) {
+		if fn != nil {
+			fn()
+		}
 	}
 }
 
@@ -117,14 +120,20 @@ func (t *ToplevelSurface) SetAppId(appId string) error {
 	return t.toplevel.SetAppId(appId)
 }
 
-// SetConfigureHandler sets a handler for configure events.
-func (t *ToplevelSurface) SetConfigureHandler(fn func()) {
-	t.onConfigure = fn
+// OnConfigure registers a handler for configure events.
+func (t *ToplevelSurface) OnConfigure(fn func()) {
+	if fn == nil {
+		return
+	}
+	t.configureHandlers = append(t.configureHandlers, fn)
 }
 
-// SetCloseHandler sets a handler for close requests.
-func (t *ToplevelSurface) SetCloseHandler(fn func()) {
-	t.onCloseRequested = fn
+// OnClose registers a handler for close requests.
+func (t *ToplevelSurface) OnClose(fn func()) {
+	if fn == nil {
+		return
+	}
+	t.closeHandlers = append(t.closeHandlers, fn)
 }
 
 // Surface returns the underlying surface.

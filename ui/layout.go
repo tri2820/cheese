@@ -4,7 +4,7 @@ import (
 	"sync"
 
 	"github.com/lithdew/casso"
-	"github.com/tri2820/cheese/client-toolkit/buffer"
+	"github.com/tri2820/cheese/client-toolkit/shm"
 )
 
 // Priority represents constraint strength (alias for casso.Priority)
@@ -28,11 +28,11 @@ type Layout struct {
 	resolveMut sync.Mutex                  // Protects resolving flag
 	stopRender chan struct{}               // Stop render loop
 
-	frames       []*buffer.Frame         // Frames to notify when render is needed
-	maskForFrame map[*buffer.Frame]*Mask // Maps frame to its mask
-	framesMut    sync.Mutex              // Protects frames slice and maskForFrame map
-	dirty        bool                    // True when rendering is needed
-	dirtyMut     sync.Mutex              // Protects dirty flag
+	frames       []*shm.Frame         // Frames to notify when render is needed
+	maskForFrame map[*shm.Frame]*Mask // Maps frame to its mask
+	framesMut    sync.Mutex           // Protects frames slice and maskForFrame map
+	dirty        bool                 // True when rendering is needed
+	dirtyMut     sync.Mutex           // Protects dirty flag
 
 	widgets    []*Widget  // Widgets to manage
 	widgetsMut sync.Mutex // Protects widgets slice
@@ -45,14 +45,14 @@ func NewLayout() *Layout {
 		vars:         make(map[casso.Symbol]*exprState),
 		renderReq:    make(chan struct{}, 1),
 		stopRender:   make(chan struct{}),
-		maskForFrame: make(map[*buffer.Frame]*Mask),
+		maskForFrame: make(map[*shm.Frame]*Mask),
 	}
 }
 
 // AddFrame adds a frame to the layout.
-// Sets up the frame's OnConfigured and OnRender handlers automatically.
-// The onConfigured callback is invoked after the frame is configured, with the frame dimensions.
-func (l *Layout) AddFrame(frame *buffer.Frame, mask *Mask, onConfigured func(w, h int)) {
+// Sets up the frame's OnResize and render handlers automatically.
+// The onResize callback is invoked after the frame receives a configured size.
+func (l *Layout) AddFrame(frame *shm.Frame, mask *Mask, onResize func(w, h int)) {
 	// Store frame for render notifications and map to mask
 	l.framesMut.Lock()
 	l.frames = append(l.frames, frame)
@@ -60,24 +60,24 @@ func (l *Layout) AddFrame(frame *buffer.Frame, mask *Mask, onConfigured func(w, 
 	l.framesMut.Unlock()
 
 	// Set up configure handler
-	frame.OnConfigured(func(w, h int) {
+	frame.OnResize(func(w, h int) {
 		// Set up render function for this frame
 		renderFunc := func(frameW, frameH int, frameTime uint32, pixels []byte) {
 			l.renderFrame(frame, pixels, frameW, frameH)
 		}
 
-		frame.OnRender(renderFunc)
+		frame.SetRender(renderFunc)
 
-		// Call app's configured callback if provided
-		if onConfigured != nil {
-			onConfigured(w, h)
+		// Call app's resize callback if provided
+		if onResize != nil {
+			onResize(w, h)
 		}
 	})
 }
 
 // RemoveFrame removes a frame from the layout's tracking.
 // Called when a mask is destroyed to prevent rendering to closed frames.
-func (l *Layout) RemoveFrame(frame *buffer.Frame) {
+func (l *Layout) RemoveFrame(frame *shm.Frame) {
 	l.framesMut.Lock()
 	defer l.framesMut.Unlock()
 
@@ -94,7 +94,7 @@ func (l *Layout) RemoveFrame(frame *buffer.Frame) {
 }
 
 // renderFrame renders all contents from the widget to a single frame's pixel buffer.
-func (l *Layout) renderFrame(frame *buffer.Frame, pixels []byte, width, height int) {
+func (l *Layout) renderFrame(frame *shm.Frame, pixels []byte, width, height int) {
 	stride := width * 4
 
 	// Get mask for this frame

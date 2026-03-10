@@ -146,7 +146,7 @@ func main() {
 
 	// Set up reactive output handling using Effect
 	signals.Effect(func() {
-		current := disp.Outputs().Get()
+		current := disp.OutputsSignal().Get()
 
 		// Build sets for O(1) lookup
 		prevSet := make(map[*display.Output]bool)
@@ -191,7 +191,7 @@ func main() {
 		}
 
 		prevOutputs = current
-	}, disp.Outputs())
+	}, disp.OutputsSignal())
 
 	log.Println()
 	log.Println("Portal running... Press Ctrl+C to exit")

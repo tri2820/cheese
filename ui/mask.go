@@ -4,9 +4,9 @@ import (
 	"log"
 	"sync"
 
-	"github.com/tri2820/cheese/client-toolkit/buffer"
 	"github.com/tri2820/cheese/client-toolkit/display"
 	"github.com/tri2820/cheese/client-toolkit/shell"
+	"github.com/tri2820/cheese/client-toolkit/shm"
 	"github.com/tri2820/cheese/client-toolkit/surface"
 	"github.com/tri2820/cheese/protocols/client"
 )
@@ -23,7 +23,7 @@ import (
 type Mask struct {
 	*LayoutItem                     // Controls layer margin for global positioning (via reactive Effect)
 	layer       *shell.LayerSurface // Layer surface reference for reactive margin updates
-	frame       *buffer.Frame       // Frame for this output
+	frame       *shm.Frame          // Frame for this output
 	widget      *Widget             // Parent widget (for accessing contents during render)
 	display     *display.Display    // For frame creation
 	output      *client.WlOutput
@@ -46,7 +46,7 @@ type LayerConfig struct {
 }
 
 // getOrCreateFrame creates frame lazily when mask is first used
-func (m *Mask) getOrCreateFrame() (*buffer.Frame, error) {
+func (m *Mask) getOrCreateFrame() (*shm.Frame, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -82,13 +82,17 @@ func (m *Mask) getOrCreateFrame() (*buffer.Frame, error) {
 	m.layer = layer
 
 	// Create frame
-	frame, err := buffer.NewFrame(m.display.Shm(), layer, m.display, buffer.FrameConfig{
+	frame, err := shm.NewFrame(m.display.Shm(), layer, m.display, shm.FrameConfig{
 		Format:  client.WlShmFormatArgb8888,
 		Buffers: 2,
 	})
 	if err != nil {
 		return nil, err
 	}
+
+	frame.OnError(func(err error) {
+		log.Printf("mask frame error: %v", err)
+	})
 
 	frame.SetManualMode(true)
 	m.frame = frame
@@ -99,7 +103,7 @@ func (m *Mask) getOrCreateFrame() (*buffer.Frame, error) {
 }
 
 // Frame returns the frame for this mask (creates if needed)
-func (m *Mask) Frame() *buffer.Frame {
+func (m *Mask) Frame() *shm.Frame {
 	m.mu.RLock()
 	if m.frame != nil {
 		m.mu.RUnlock()
