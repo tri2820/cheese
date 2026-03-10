@@ -2,15 +2,18 @@ package main
 
 import (
 	"log"
+	"sync"
 
 	"github.com/tri2820/cheese/client-toolkit/display"
 	"github.com/tri2820/cheese/client-toolkit/shell"
+	"github.com/tri2820/cheese/protocols/client"
+	"github.com/tri2820/cheese/signals"
 	"github.com/tri2820/cheese/ui"
 )
 
 func main() {
 	// Connect to Wayland display
-	disp, err := display.Connect(display.Config{
+	disp, err := ui.Connect(display.Config{
 		Required: display.RequiredGlobals{
 			Compositor: true,
 			Shm:        true,
@@ -23,16 +26,19 @@ func main() {
 	defer disp.Close()
 
 	// Create layout
-	layout := ui.NewLayout(disp)
+	layout := ui.NewLayout()
 	go layout.RenderLoop()
 
-	// Get all outputs
-	outputs := disp.ReadyOutputs()
-	log.Printf("Found %d outputs", len(outputs))
-
-	if len(outputs) < 2 {
-		log.Fatalf("Portal demo requires at least 2 outputs, found %d", len(outputs))
+	// Track masks by output for dynamic hotplug handling
+	type maskState struct {
+		mask *ui.Mask
+		left bool // true = left output (shows right 70%), false = right output (shows left 30%)
 	}
+	masks := make(map[*client.WlOutput]*maskState)
+	var masksMu sync.Mutex
+
+	// Note: We now handle dynamic output changes, so we don't fail fast
+	// The portal will adapt as outputs are added/removed
 
 	// Create ONE widget with contents (coordinate-free, shared across outputs)
 	widget := ui.NewWidget(layout)
@@ -83,51 +89,110 @@ func main() {
 
 	// Helper function to create a mask for an output
 	// Anchor is always AnchorTop|AnchorLeft - position controlled by margin via reactive Effect
-	createMask := func(output *display.Output, name string, clipX, clipY float64, surfaceWidth, surfaceHeight int) *ui.Mask {
-		log.Printf("%s: %s at (%d, %d) size %dx%d DPI=%.1f",
-			name, output.Name, output.X, output.Y, output.ModeWidth, output.ModeHeight, output.DPIOrDefault())
-		log.Printf("  Clip origin: (%.1f, %.1f) in widget coordinates", clipX, clipY)
-		log.Printf("  Surface (mask) size: %dx%d (visible region)", surfaceWidth, surfaceHeight)
+	setupMask := func(output *display.Output, isLeft bool) *ui.Mask {
+		if isLeft {
+			// Left side: shows right 70% of content (180 to 600)
+			clipLeft := 0.3 * widget.Width
+			clipTop := 0.0
+			surfaceW := int(0.7 * float64(output.ScaleFrom96DPI(widget.Width)))
+			surfaceH := int(1.0 * float64(output.ScaleFrom96DPI(widget.Height)))
 
-		mask := widget.NewMask(output.WlOutput(), ui.LayerConfig{
-			Layer: shell.LayerPositionTop,
-			Name:  name,
-		})
+			log.Printf("Creating LEFT mask for %s: clip=(%.1f, %.1f) size=%dx%d",
+				output.Name, clipLeft, clipTop, surfaceW, surfaceH)
 
-		// Set clip origin in widget coordinates (96 DPI units)
-		mask.ClipX = clipX
-		mask.ClipY = clipY
+			mask := widget.NewMask(disp.Display(), output.WlOutput(), ui.LayerConfig{
+				Layer: shell.LayerPositionTop,
+				Name:  "portal-left-" + output.Name,
+			})
+			mask.ClipX = clipLeft
+			mask.ClipY = clipTop
 
-		return mask
+			// Position at left edge, vertically centered
+			ui.Eq(mask.Left, 0).Add()
+			ui.Eq(mask.Width(), float64(surfaceW)).Add()
+			ui.Eq(mask.CenterY(), float64(output.ModeHeight)/2).Add()
+			ui.Eq(mask.Height(), float64(surfaceH)).Add()
+
+			return mask
+		} else {
+			// Right side: shows left 30% of content (0 to 180)
+			clipLeft := 0.031
+			clipTop := 0.0
+			surfaceW := int(0.3 * float64(output.ScaleFrom96DPI(widget.Width)))
+			surfaceH := int(1.0 * float64(output.ScaleFrom96DPI(widget.Height)))
+
+			log.Printf("Creating RIGHT mask for %s: clip=(%.1f, %.1f) size=%dx%d",
+				output.Name, clipLeft, clipTop, surfaceW, surfaceH)
+
+			mask := widget.NewMask(disp.Display(), output.WlOutput(), ui.LayerConfig{
+				Layer: shell.LayerPositionTop,
+				Name:  "portal-right-" + output.Name,
+			})
+			mask.ClipX = clipLeft
+			mask.ClipY = clipTop
+
+			// Position at right edge, vertically centered
+			ui.Eq(mask.Right, float64(output.ModeWidth)).Add()
+			ui.Eq(mask.Width(), float64(surfaceW)).Add()
+			ui.Eq(mask.CenterY(), float64(output.ModeHeight)/2).Add()
+			ui.Eq(mask.Height(), float64(surfaceH)).Add()
+
+			return mask
+		}
 	}
 
-	// Output 0: shows left 30% of content (0 to 180) at right edge
-	// Widget is 600 wide, so left 30% = 180 widget units
-	clipLeft0 := 0.0
-	clipTop0 := 0.0
-	// Surface size in physical pixels: 30% of widget width scaled by DPI
-	surfaceW0 := int(0.3 * float64(outputs[0].ScaleFrom96DPI(widget.Width)))
-	surfaceH0 := int(1.0 * float64(outputs[0].ScaleFrom96DPI(widget.Height)))
-	mask0 := createMask(outputs[0], "portal-output-0", clipLeft0, clipTop0, surfaceW0, surfaceH0)
+	// Track previous outputs for diffing
+	var prevOutputs []*display.Output
 
-	// Position at right edge, vertically centered
-	ui.Eq(mask0.Right, float64(outputs[0].ModeWidth)).Add()
-	ui.Eq(mask0.Width(), float64(surfaceW0)).Add()
-	ui.Eq(mask0.CenterY(), float64(outputs[0].ModeHeight)/2).Add()
-	ui.Eq(mask0.Height(), float64(surfaceH0)).Add()
+	// Set up reactive output handling using Effect
+	signals.Effect(func() {
+		current := disp.Outputs().Get()
 
-	// Output 1: shows right 70% of content (180 to 600) at left edge
-	clipLeft1 := 0.3 * widget.Width  // Start at 30% from left
-	clipTop1 := 0.0
-	surfaceW1 := int(0.7 * float64(outputs[1].ScaleFrom96DPI(widget.Width)))
-	surfaceH1 := int(1.0 * float64(outputs[1].ScaleFrom96DPI(widget.Height)))
-	mask1 := createMask(outputs[1], "portal-output-1", clipLeft1, clipTop1, surfaceW1, surfaceH1)
+		// Build sets for O(1) lookup
+		prevSet := make(map[*display.Output]bool)
+		for _, p := range prevOutputs {
+			prevSet[p] = true
+		}
+		currentSet := make(map[*display.Output]bool)
+		for _, c := range current {
+			currentSet[c] = true
+		}
 
-	// Position at left edge, vertically centered
-	ui.Eq(mask1.Left, 0).Add()
-	ui.Eq(mask1.Width(), float64(surfaceW1)).Add()
-	ui.Eq(mask1.CenterY(), float64(outputs[1].ModeHeight)/2).Add()
-	ui.Eq(mask1.Height(), float64(surfaceH1)).Add()
+		// Find added outputs
+		for _, output := range current {
+			if !prevSet[output] {
+				// New output added
+				masksMu.Lock()
+				isLeft := len(masks) == 1
+				mask := setupMask(output, isLeft)
+				masks[output.WlOutput()] = &maskState{mask: mask, left: isLeft}
+				masksMu.Unlock()
+				log.Printf("Output added: %s (assigned to %s side)", output.Name, map[bool]string{true: "LEFT", false: "RIGHT"}[isLeft])
+			}
+		}
+
+		// Find removed outputs
+		for _, p := range prevOutputs {
+			if !currentSet[p] {
+				// Output removed
+				masksMu.Lock()
+				if state, ok := masks[p.WlOutput()]; ok {
+					// Close the frame to release resources
+					if frame := state.mask.Frame(); frame != nil {
+						frame.Close()
+						// Remove from layout tracking to prevent rendering to closed frame
+						layout.RemoveFrame(frame)
+					}
+					delete(masks, p.WlOutput())
+					log.Printf("Output removed: %s", p.Name)
+				}
+				masksMu.Unlock()
+			}
+		}
+
+		prevOutputs = current
+	}, disp.Outputs())
+
 	log.Println()
 	log.Println("Portal running... Press Ctrl+C to exit")
 

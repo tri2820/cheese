@@ -2,11 +2,10 @@ package shell
 
 import (
 	"log"
-	"os"
 
+	"github.com/tri2820/cheese/client-toolkit/surface"
 	"github.com/tri2820/cheese/protocols/client"
 	"github.com/tri2820/cheese/protocols/wlr_layer_shell_unstable_v1"
-	"github.com/tri2820/cheese/client-toolkit/surface"
 )
 
 // LayerSurface represents a layer shell surface (for panels, status bars, wallpapers, etc).
@@ -15,8 +14,8 @@ type LayerSurface struct {
 	layerSurface *wlr_layer_shell_unstable_v1.ZwlrLayerSurfaceV1
 	surface      *surface.Surface
 
-	width        int
-	height       int
+	width       int
+	height      int
 	onConfigure func()
 	onClose     func()
 }
@@ -133,9 +132,8 @@ func (l *LayerSurface) handleClosed(ev wlr_layer_shell_unstable_v1.ZwlrLayerSurf
 	if l.onClose != nil {
 		l.onClose()
 	} else {
-		// Default behavior: exit
-		log.Println("Layer surface closed")
-		os.Exit(0)
+		// Default behavior: log warning, don't exit
+		log.Printf("Warning: Layer surface closed, no close handler set")
 	}
 }
 

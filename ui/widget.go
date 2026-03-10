@@ -5,6 +5,7 @@ import (
 	"math"
 	"sync"
 
+	"github.com/tri2820/cheese/client-toolkit/display"
 	"github.com/tri2820/cheese/protocols/client"
 	"github.com/tri2820/cheese/signals"
 )
@@ -37,11 +38,11 @@ func NewWidget(layout *Layout) *Widget {
 
 // NewMask creates a mask for a specific output/layer.
 // The mask embeds a LayoutItem that positions the entire widget on that output.
-func (w *Widget) NewMask(output *client.WlOutput, config LayerConfig) *Mask {
+func (w *Widget) NewMask(disp *display.Display, output *client.WlOutput, config LayerConfig) *Mask {
 	mask := &Mask{
 		LayoutItem: w.layout.NewLayoutItem(),
 		widget:     w,
-		display:    w.layout.display,
+		display:    disp,
 		output:     output,
 		config:     config,
 	}

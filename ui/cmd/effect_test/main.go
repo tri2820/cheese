@@ -8,7 +8,7 @@ import (
 )
 
 func main() {
-	layout := ui.NewLayout(nil)
+	layout := ui.NewLayout()
 
 	// Create a simple rectangle with LayoutItem
 	rect := layout.NewLayoutItem()

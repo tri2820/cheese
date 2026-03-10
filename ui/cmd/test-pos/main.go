@@ -23,7 +23,7 @@ func main() {
 	defer disp.Close()
 
 	// Create layout
-	layout := ui.NewLayout(disp)
+	layout := ui.NewLayout()
 	go layout.RenderLoop()
 
 	// Get all outputs
@@ -55,7 +55,7 @@ func main() {
 			i, output.Name, output.X, output.Y, output.ModeWidth, output.ModeHeight)
 		log.Printf("  Square size: %d (half of monitor height %d)", squareSize, output.ModeHeight)
 
-		mask := widget.NewMask(output.WlOutput(), ui.LayerConfig{
+		mask := widget.NewMask(disp, output.WlOutput(), ui.LayerConfig{
 			Layer: shell.LayerPositionTop,
 			Name:  "test-pos-square",
 		})

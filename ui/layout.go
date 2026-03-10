@@ -5,7 +5,6 @@ import (
 
 	"github.com/lithdew/casso"
 	"github.com/tri2820/cheese/client-toolkit/buffer"
-	"github.com/tri2820/cheese/client-toolkit/display"
 )
 
 // Priority represents constraint strength (alias for casso.Priority)
@@ -29,8 +28,6 @@ type Layout struct {
 	resolveMut sync.Mutex                  // Protects resolving flag
 	stopRender chan struct{}               // Stop render loop
 
-	display *display.Display // Display connection for mask frame creation
-
 	frames       []*buffer.Frame         // Frames to notify when render is needed
 	maskForFrame map[*buffer.Frame]*Mask // Maps frame to its mask
 	framesMut    sync.Mutex              // Protects frames slice and maskForFrame map
@@ -42,13 +39,12 @@ type Layout struct {
 }
 
 // NewLayout creates a new constraint solver
-func NewLayout(disp *display.Display) *Layout {
+func NewLayout() *Layout {
 	return &Layout{
 		inner:        casso.NewSolver(),
 		vars:         make(map[casso.Symbol]*exprState),
 		renderReq:    make(chan struct{}, 1),
 		stopRender:   make(chan struct{}),
-		display:      disp,
 		maskForFrame: make(map[*buffer.Frame]*Mask),
 	}
 }
@@ -77,6 +73,24 @@ func (l *Layout) AddFrame(frame *buffer.Frame, mask *Mask, onConfigured func(w, 
 			onConfigured(w, h)
 		}
 	})
+}
+
+// RemoveFrame removes a frame from the layout's tracking.
+// Called when a mask is destroyed to prevent rendering to closed frames.
+func (l *Layout) RemoveFrame(frame *buffer.Frame) {
+	l.framesMut.Lock()
+	defer l.framesMut.Unlock()
+
+	// Remove from frames slice
+	for i, f := range l.frames {
+		if f == frame {
+			l.frames = append(l.frames[:i], l.frames[i+1:]...)
+			break
+		}
+	}
+
+	// Remove from maskForFrame map
+	delete(l.maskForFrame, frame)
 }
 
 // renderFrame renders all contents from the widget to a single frame's pixel buffer.
