@@ -66,6 +66,7 @@ func main() {
 		app.SyncOutputs(disp)
 	})
 
+	app.StartDDCMonitor(disp)
 	app.SyncOutputs(disp)
 
 	log.Println("client bar running")
@@ -86,6 +87,7 @@ type App struct {
 	niri          *NiriService
 	icons         *IconResolver
 	notifications *NotificationService
+	ddc           *DDCMonitor
 	shutdown      func()
 	shutdownOnce  sync.Once
 	shuttingDown  bool
@@ -134,7 +136,13 @@ func (a *App) Close() {
 	a.niri = nil
 	notifications := a.notifications
 	a.notifications = nil
+	ddc := a.ddc
+	a.ddc = nil
 	a.mu.Unlock()
+
+	if ddc != nil {
+		ddc.Close()
+	}
 
 	if listener != nil {
 		_ = listener.Close()
@@ -405,11 +413,26 @@ func (a *App) BindPointer(s *seat.Seat, manager *cursor_shape_v1.WpCursorShapeMa
 	})
 }
 
-func pickPrimaryOutput(outputs []*display.Output) *display.Output {
+func (a *App) StartDDCMonitor(disp *display.Display) {
+	a.mu.Lock()
+	if a.ddc != nil {
+		a.mu.Unlock()
+		return
+	}
+	a.ddc = NewDDCMonitor(disp, func() {
+		a.SyncOutputs(disp)
+	})
+	a.mu.Unlock()
+}
+
+func pickPrimaryOutput(outputs []*display.Output, ddc *DDCMonitor) *display.Output {
 	var best *display.Output
 	var bestArea int64 = -1
 	for _, o := range outputs {
 		if o == nil {
+			continue
+		}
+		if ddc != nil && ddc.IsPoweredOff(o.Name) {
 			continue
 		}
 		area := int64(o.ModeWidth) * int64(o.ModeHeight)
@@ -418,12 +441,18 @@ func pickPrimaryOutput(outputs []*display.Output) *display.Output {
 			bestArea = area
 		}
 	}
+	if best == nil && len(outputs) > 0 {
+		return outputs[0]
+	}
 	return best
 }
 
 func (a *App) SyncOutputs(disp *display.Display) {
 	ready := disp.ReadyOutputs()
-	primary := pickPrimaryOutput(ready)
+	a.mu.Lock()
+	ddc := a.ddc
+	a.mu.Unlock()
+	primary := pickPrimaryOutput(ready, ddc)
 	readySet := make(map[*client.WlOutput]*display.Output, len(ready))
 	for _, o := range ready {
 		readySet[o.WlOutput()] = o
