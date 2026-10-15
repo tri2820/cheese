@@ -6,14 +6,20 @@ import (
 	"image/draw"
 	"log"
 	"os/exec"
+	"sort"
 	"strconv"
+	"sync"
 
 	"golang.org/x/image/font"
 )
 
 const (
-	taskbarIconSize = 18
-	taskbarItemPadX = 4
+	taskbarIconSize         = 18
+	taskbarItemPadX         = 4
+	taskbarPadY             = 2
+	taskbarPadX             = 2
+	taskbarGroupGap         = 4
+	taskbarMinSlotsPerGroup = 1
 )
 
 type taskbarItem struct {
@@ -21,12 +27,19 @@ type taskbarItem struct {
 	icon   image.Image
 }
 
+type taskbarGroup struct {
+	workspaceID int64
+	isActive    bool
+	items       []taskbarItem
+}
+
 type TaskbarModule struct {
 	output      string
 	niri        *NiriService
 	resolver    *IconResolver
 	unsubscribe func()
-	items       []taskbarItem
+	mu          sync.RWMutex
+	groups      []taskbarGroup
 }
 
 func NewTaskbarModule(output string, niri *NiriService, resolver *IconResolver) *TaskbarModule {
@@ -37,20 +50,20 @@ func NewTaskbarModule(output string, niri *NiriService, resolver *IconResolver) 
 	}
 }
 
+func (m *TaskbarModule) DrawOwnBackground() bool {
+	return true
+}
+
 func (m *TaskbarModule) Start(markDirty func()) {
 	m.unsubscribe = m.niri.Subscribe(func(state NiriState) {
-		windows := windowsForOutput(state, m.output)
-		next := make([]taskbarItem, 0, len(windows))
-		for _, win := range windows {
-			next = append(next, taskbarItem{
-				window: win,
-				icon:   m.resolver.ResolveAppIcon(win.AppID, taskbarIconSize),
-			})
-		}
-		if taskbarItemsEqual(m.items, next) {
+		next := buildTaskbarGroups(state, m.output, m.resolver)
+		m.mu.Lock()
+		if taskbarGroupsEqual(m.groups, next) {
+			m.mu.Unlock()
 			return
 		}
-		m.items = next
+		m.groups = next
+		m.mu.Unlock()
 		markDirty()
 	})
 }
@@ -63,27 +76,58 @@ func (m *TaskbarModule) Close() {
 }
 
 func (m *TaskbarModule) Width(face font.Face) int {
-	if len(m.items) == 0 {
+	groups := m.snapshotGroups()
+	if len(groups) == 0 {
 		return 0
 	}
-	return 2*modulePadX + len(m.items)*(taskbarIconSize+2*taskbarItemPadX)
+
+	width := 0
+	for i, group := range groups {
+		width += taskbarGroupWidth(group)
+		if i < len(groups)-1 {
+			width += taskbarGroupGap
+		}
+	}
+	return width
 }
 
 func (m *TaskbarModule) Draw(dst draw.Image, rect image.Rectangle, face font.Face) {
-	x := rect.Min.X + modulePadX
-	y := rect.Min.Y + (rect.Dy()-taskbarIconSize)/2
-	for _, item := range m.items {
-		slotRect := image.Rect(x, rect.Min.Y, x+taskbarIconSize+2*taskbarItemPadX, rect.Max.Y)
-		iconRect := image.Rect(x+taskbarItemPadX, y, x+taskbarItemPadX+taskbarIconSize, y+taskbarIconSize)
-		if item.window.IsFocused {
-			drawTaskbarFocusBorder(dst, slotRect)
+	groups := m.snapshotGroups()
+	if len(groups) == 0 {
+		return
+	}
+
+	y := rect.Min.Y + taskbarPadY + (rect.Dy()-2*taskbarPadY-taskbarIconSize)/2
+	x := rect.Min.X
+	for i, group := range groups {
+		groupWidth := taskbarGroupWidth(group)
+		groupRect := image.Rect(x, rect.Min.Y, x+groupWidth, rect.Max.Y)
+		drawModuleBackground(dst, groupRect)
+
+		slotX := x + taskbarPadX
+		for _, item := range group.items {
+			slotRect := image.Rect(slotX, rect.Min.Y+taskbarPadY, slotX+taskbarSlotWidth(), rect.Max.Y-taskbarPadY)
+			indicatorRect := image.Rect(slotX, rect.Min.Y, slotX+taskbarSlotWidth(), rect.Max.Y)
+			iconRect := image.Rect(slotX+taskbarItemPadX, y, slotX+taskbarItemPadX+taskbarIconSize, y+taskbarIconSize)
+			if item.window.IsFocused {
+				drawTaskbarFocusBorder(dst, indicatorRect)
+			}
+			if item.icon != nil {
+				draw.Draw(dst, iconRect, item.icon, image.Point{}, draw.Over)
+			} else {
+				drawTaskbarFallback(dst, iconRect)
+			}
+			slotX += slotRect.Dx()
 		}
-		if item.icon != nil {
-			draw.Draw(dst, iconRect, item.icon, image.Point{}, draw.Over)
-		} else {
-			drawTaskbarFallback(dst, iconRect)
+
+		if group.isActive && len(group.items) == 0 {
+			drawTaskbarFocusBorder(dst, groupRect)
 		}
-		x += slotRect.Dx()
+
+		x += groupWidth
+		if i < len(groups)-1 {
+			x += taskbarGroupGap
+		}
 	}
 }
 
@@ -108,6 +152,21 @@ func (m *TaskbarModule) OnClickAt(button uint32, rect image.Rectangle, point ima
 	return true
 }
 
+func taskbarGroupsEqual(a, b []taskbarGroup) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i].workspaceID != b[i].workspaceID || a[i].isActive != b[i].isActive {
+			return false
+		}
+		if !taskbarItemsEqual(a[i].items, b[i].items) {
+			return false
+		}
+	}
+	return true
+}
+
 func taskbarItemsEqual(a, b []taskbarItem) bool {
 	if len(a) != len(b) {
 		return false
@@ -121,15 +180,118 @@ func taskbarItemsEqual(a, b []taskbarItem) bool {
 }
 
 func (m *TaskbarModule) itemAt(rect image.Rectangle, point image.Point) (taskbarItem, image.Rectangle, bool) {
-	x := rect.Min.X + modulePadX
-	for _, item := range m.items {
-		slotRect := image.Rect(x, rect.Min.Y, x+taskbarIconSize+2*taskbarItemPadX, rect.Max.Y)
-		if point.In(slotRect) {
-			return item, slotRect, true
+	groups := m.snapshotGroups()
+	x := rect.Min.X
+	for i, group := range groups {
+		groupWidth := taskbarGroupWidth(group)
+		slotX := x + taskbarPadX
+		for _, item := range group.items {
+			slotRect := image.Rect(slotX, rect.Min.Y+taskbarPadY, slotX+taskbarSlotWidth(), rect.Max.Y-taskbarPadY)
+			if point.In(slotRect) {
+				return item, slotRect, true
+			}
+			slotX += slotRect.Dx()
 		}
-		x += slotRect.Dx()
+
+		x += groupWidth
+		if i < len(groups)-1 {
+			x += taskbarGroupGap
+		}
 	}
 	return taskbarItem{}, image.Rectangle{}, false
+}
+
+func (m *TaskbarModule) snapshotGroups() []taskbarGroup {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if len(m.groups) == 0 {
+		return nil
+	}
+
+	groups := make([]taskbarGroup, len(m.groups))
+	for i := range m.groups {
+		groups[i].workspaceID = m.groups[i].workspaceID
+		groups[i].isActive = m.groups[i].isActive
+		if len(m.groups[i].items) == 0 {
+			continue
+		}
+		groups[i].items = make([]taskbarItem, len(m.groups[i].items))
+		copy(groups[i].items, m.groups[i].items)
+	}
+	return groups
+}
+
+func buildTaskbarGroups(state NiriState, output string, resolver *IconResolver) []taskbarGroup {
+	workspaces := taskbarWorkspacesForOutput(state.Workspaces, output)
+	groups := make([]taskbarGroup, 0, len(workspaces))
+	for _, workspace := range workspaces {
+		windows := taskbarWindowsForWorkspace(state.Windows, workspace.ID)
+		if len(windows) == 0 {
+			continue
+		}
+		items := make([]taskbarItem, 0, len(windows))
+		for _, win := range windows {
+			items = append(items, taskbarItem{
+				window: win,
+				icon:   resolver.ResolveAppIcon(win.AppID, taskbarIconSize),
+			})
+		}
+		groups = append(groups, taskbarGroup{
+			workspaceID: workspace.ID,
+			isActive:    workspace.IsActive,
+			items:       items,
+		})
+	}
+	return groups
+}
+
+func taskbarWorkspacesForOutput(workspaces []NiriWorkspace, output string) []NiriWorkspace {
+	filtered := make([]NiriWorkspace, 0, len(workspaces))
+	for _, workspace := range workspaces {
+		if workspace.Output == output {
+			filtered = append(filtered, workspace)
+		}
+	}
+
+	sort.SliceStable(filtered, func(i, j int) bool {
+		if filtered[i].Idx != filtered[j].Idx {
+			return filtered[i].Idx < filtered[j].Idx
+		}
+		return filtered[i].ID < filtered[j].ID
+	})
+	return filtered
+}
+
+func taskbarWindowsForWorkspace(windows []NiriWindow, workspaceID int64) []NiriWindow {
+	filtered := make([]NiriWindow, 0)
+	for _, win := range windows {
+		if win.WorkspaceID == workspaceID {
+			filtered = append(filtered, win)
+		}
+	}
+
+	sort.SliceStable(filtered, func(i, j int) bool {
+		xi := filtered[i].Layout.PosInScrollingLayout[0]
+		xj := filtered[j].Layout.PosInScrollingLayout[0]
+		if xi != xj {
+			return xi < xj
+		}
+		return filtered[i].ID < filtered[j].ID
+	})
+	return filtered
+}
+
+func taskbarSlotWidth() int {
+	return taskbarIconSize + 2*taskbarItemPadX
+}
+
+func taskbarGroupWidth(group taskbarGroup) int {
+	slots := len(group.items)
+	if slots < taskbarMinSlotsPerGroup {
+		slots = taskbarMinSlotsPerGroup
+	}
+	return 2*taskbarPadX + slots*taskbarSlotWidth()
 }
 
 func drawTaskbarFallback(dst draw.Image, rect image.Rectangle) {

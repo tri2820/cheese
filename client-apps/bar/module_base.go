@@ -19,6 +19,11 @@ type Module interface {
 	Draw(dst draw.Image, rect image.Rectangle, face font.Face)
 }
 
+type ModuleBackgroundControl interface {
+	Module
+	DrawOwnBackground() bool
+}
+
 type ClickableModule interface {
 	Module
 	OnClick(button uint32)

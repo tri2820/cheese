@@ -4,6 +4,7 @@ import (
 	"log"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 type InputMethodModule struct {
@@ -20,7 +21,30 @@ func NewInputMethodModule() *InputMethodModule {
 
 func (m *InputMethodModule) Start(markDirty func()) {
 	m.markDirty = markDirty
-	m.refresh()
+	if m.refreshAndMarkDirty() {
+		return
+	}
+
+	go func() {
+		ticker := time.NewTicker(500 * time.Millisecond)
+		defer ticker.Stop()
+
+		timeout := time.NewTimer(15 * time.Second)
+		defer timeout.Stop()
+
+		for {
+			select {
+			case <-ticker.C:
+				if m.refreshAndMarkDirty() {
+					return
+				}
+			case <-timeout.C:
+				return
+			case <-m.stop:
+				return
+			}
+		}
+	}()
 }
 
 func (m *InputMethodModule) Close() {
@@ -42,11 +66,7 @@ func (m *InputMethodModule) OnClick(button uint32) {
 		return
 	}
 
-	before := m.Text()
-	m.refresh()
-	if m.markDirty != nil && m.Text() != before {
-		m.markDirty()
-	}
+	m.refreshAndMarkDirty()
 }
 
 func (m *InputMethodModule) HandleCommand(cmd string) bool {
@@ -54,26 +74,30 @@ func (m *InputMethodModule) HandleCommand(cmd string) bool {
 		return false
 	}
 
-	before := m.Text()
-	m.refresh()
-	if m.markDirty != nil && m.Text() != before {
-		m.markDirty()
-	}
+	m.refreshAndMarkDirty()
 
 	return true
 }
 
-func (m *InputMethodModule) refresh() {
+func (m *InputMethodModule) refreshAndMarkDirty() bool {
+	before := m.Text()
+	ok := m.refresh()
+	if ok && m.markDirty != nil && m.Text() != before {
+		m.markDirty()
+	}
+	return ok
+}
+
+func (m *InputMethodModule) refresh() bool {
 	cmd := exec.Command("qdbus", "org.fcitx.Fcitx5", "/controller", "org.fcitx.Fcitx.Controller1.CurrentInputMethod")
 	output, err := cmd.Output()
 	if err != nil {
-		return
+		return false
 	}
 
 	name := strings.TrimSpace(string(output))
 	if name == "" {
-		m.SetText("")
-		return
+		return false
 	}
 
 	if idx := strings.LastIndex(name, "."); idx >= 0 && idx < len(name)-1 {
@@ -81,4 +105,5 @@ func (m *InputMethodModule) refresh() {
 	}
 
 	m.SetText(name)
+	return true
 }

@@ -9,7 +9,9 @@ import (
 	"math"
 	"net"
 	"os"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/tri2820/cheese/apps/common"
@@ -50,7 +52,9 @@ func main() {
 		log.Fatal("ARGB8888 not supported")
 	}
 
-	app := NewApp()
+	app := NewApp(func() {
+		_ = disp.Close()
+	})
 	defer app.Close()
 	app.BindPointer(disp.FirstSeat(), disp.CursorShape())
 	if err := app.ListenCommands(barSocket); err != nil {
@@ -71,23 +75,28 @@ func main() {
 
 	log.Println("client bar running")
 
-	if err := disp.Run(); err != nil {
+	if err := disp.Run(); err != nil && !app.ShuttingDown() {
 		log.Printf("Dispatch error: %v", err)
 	}
 }
 
 type App struct {
-	mu        sync.Mutex
-	bars      map[*client.WlOutput]*Bar
-	listener  net.Listener
-	audio     *AudioService
-	network   *NetworkService
-	bluetooth *BluetoothService
-	niri      *NiriService
-	icons     *IconResolver
+	mu           sync.Mutex
+	bars         map[*client.WlOutput]*Bar
+	listener     net.Listener
+	socketPath   string
+	audio        *AudioService
+	network      *NetworkService
+	bluetooth    *BluetoothService
+	niri         *NiriService
+	icons        *IconResolver
+	shutdown     func()
+	shutdownOnce sync.Once
+	shuttingDown bool
+	closed       bool
 }
 
-func NewApp() *App {
+func NewApp(shutdown func()) *App {
 	return &App{
 		bars:      make(map[*client.WlOutput]*Bar),
 		audio:     NewAudioService(),
@@ -95,32 +104,59 @@ func NewApp() *App {
 		bluetooth: NewBluetoothService(),
 		niri:      NewNiriService(),
 		icons:     NewIconResolver(),
+		shutdown:  shutdown,
 	}
 }
 
 func (a *App) Close() {
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	if a.closed {
+		a.mu.Unlock()
+		return
+	}
+	a.closed = true
 
-	if a.listener != nil {
-		_ = a.listener.Close()
-		a.listener = nil
+	listener := a.listener
+	a.listener = nil
+	socketPath := a.socketPath
+	a.socketPath = ""
+
+	bars := make([]*Bar, 0, len(a.bars))
+	for output, bar := range a.bars {
+		bars = append(bars, bar)
+		delete(a.bars, output)
 	}
-	if a.audio != nil {
-		a.audio.Close()
-		a.audio = nil
+
+	audio := a.audio
+	a.audio = nil
+	network := a.network
+	a.network = nil
+	bluetooth := a.bluetooth
+	a.bluetooth = nil
+	niri := a.niri
+	a.niri = nil
+	a.mu.Unlock()
+
+	if listener != nil {
+		_ = listener.Close()
 	}
-	if a.network != nil {
-		a.network.Close()
-		a.network = nil
+	if socketPath != "" {
+		_ = os.Remove(socketPath)
 	}
-	if a.bluetooth != nil {
-		a.bluetooth.Close()
-		a.bluetooth = nil
+	for _, bar := range bars {
+		bar.Close()
 	}
-	if a.niri != nil {
-		a.niri.Close()
-		a.niri = nil
+	if audio != nil {
+		audio.Close()
+	}
+	if network != nil {
+		network.Close()
+	}
+	if bluetooth != nil {
+		bluetooth.Close()
+	}
+	if niri != nil {
+		niri.Close()
 	}
 }
 
@@ -132,6 +168,7 @@ func (a *App) ListenCommands(path string) error {
 		return err
 	}
 	a.listener = ln
+	a.socketPath = path
 
 	go func() {
 		for {
@@ -156,12 +193,50 @@ func (a *App) handleCommandConn(conn net.Conn) {
 }
 
 func (a *App) HandleCommand(cmd string) {
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" {
+		return
+	}
+	if cmd == "kill" {
+		a.requestShutdown()
+		return
+	}
+
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	for _, bar := range a.bars {
 		bar.HandleCommand(cmd)
 	}
+}
+
+func (a *App) ShuttingDown() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.shuttingDown
+}
+
+func (a *App) requestShutdown() {
+	a.shutdownOnce.Do(func() {
+		a.mu.Lock()
+		a.shuttingDown = true
+		listener := a.listener
+		a.listener = nil
+		socketPath := a.socketPath
+		a.socketPath = ""
+		shutdown := a.shutdown
+		a.mu.Unlock()
+
+		if listener != nil {
+			_ = listener.Close()
+		}
+		if socketPath != "" {
+			_ = os.Remove(socketPath)
+		}
+		if shutdown != nil {
+			shutdown()
+		}
+	})
 }
 
 func (a *App) BindPointer(s *seat.Seat, manager *cursor_shape_v1.WpCursorShapeManagerV1) {
@@ -251,13 +326,15 @@ type Bar struct {
 	centerModules []Module
 	rightModules  []Module
 
-	closeMu sync.Mutex
-	closed  bool
-	stop    chan struct{}
-	dirtyCh chan struct{}
-	drawMu  sync.RWMutex
-	hits    []moduleHit
-	hover   pointerState
+	closeMu   sync.Mutex
+	closed    bool
+	stop      chan struct{}
+	dirtyCh   chan struct{}
+	drawMu    sync.RWMutex
+	hits      []moduleHit
+	hover     pointerState
+	renders   uint64
+	startTime int64 // UnixMilli at app start, for relative frame timestamps
 }
 
 type moduleHit struct {
@@ -312,13 +389,14 @@ func NewBar(disp *display.Display, output *display.Output, audio *AudioService, 
 	}
 
 	b := &Bar{
-		output:  output,
-		surface: surf,
-		layer:   layer,
-		frame:   frame,
-		face:    loadBarFont(output),
-		stop:    make(chan struct{}),
-		dirtyCh: make(chan struct{}, 1),
+		output:    output,
+		surface:   surf,
+		layer:     layer,
+		frame:     frame,
+		face:      loadBarFont(output),
+		stop:      make(chan struct{}),
+		dirtyCh:   make(chan struct{}, 1),
+		startTime: time.Now().UnixMilli(),
 	}
 
 	b.leftModules = []Module{
@@ -333,7 +411,6 @@ func NewBar(disp *display.Display, output *display.Output, audio *AudioService, 
 		NewVolumeModule(audio),
 		NewBluetoothModule(bluetooth),
 		NewWifiModule(network),
-		NewBatteryModule(),
 	}
 
 	frame.SetRender(func(width, height int, frameTime uint32, pixels []byte) {
@@ -371,14 +448,24 @@ func (b *Bar) markDirty() {
 }
 
 func (b *Bar) renderLoop() {
+	ticker := time.NewTicker(16 * time.Millisecond)
+	defer ticker.Stop()
+
+	pending := false
 	for {
 		select {
 		case <-b.dirtyCh:
-			if b.frame.Ready() {
-				b.frame.ManualRender(uint32(time.Now().UnixMilli()))
-			}
+			pending = true
+		case <-ticker.C:
 		case <-b.stop:
 			return
+		}
+
+		if !pending || !b.frame.Ready() {
+			continue
+		}
+		if b.tryRender() {
+			pending = false
 		}
 	}
 }
@@ -456,6 +543,13 @@ func (b *Bar) draw(width, height int, pixels []byte) {
 		b.updateHoveredModuleLocked()
 	}
 	b.drawMu.Unlock()
+	atomic.AddUint64(&b.renders, 1)
+}
+
+func (b *Bar) tryRender() bool {
+	before := atomic.LoadUint64(&b.renders)
+	b.frame.ManualRender(uint32(time.Now().UnixMilli() - b.startTime))
+	return atomic.LoadUint64(&b.renders) != before
 }
 
 func (b *Bar) drawCentered(dst draw.Image, rect image.Rectangle, mods []Module, hits []moduleHit) []moduleHit {
@@ -464,7 +558,9 @@ func (b *Bar) drawCentered(dst draw.Image, rect image.Rectangle, mods []Module, 
 	for i, mod := range mods {
 		w := mod.Width(b.face)
 		moduleRect := image.Rect(x, rect.Min.Y, x+w, rect.Max.Y)
-		drawModuleBackground(dst, moduleRect)
+		if !moduleDrawsOwnBackground(mod) {
+			drawModuleBackground(dst, moduleRect)
+		}
 		if hoverRect, ok := b.currentHoverRect(mod, moduleRect); ok {
 			drawHoverBackground(dst, hoverRect)
 		}
@@ -484,7 +580,9 @@ func (b *Bar) drawRight(dst draw.Image, rect image.Rectangle, mods []Module, hit
 	for i, mod := range mods {
 		w := mod.Width(b.face)
 		moduleRect := image.Rect(x, rect.Min.Y, x+w, rect.Max.Y)
-		drawModuleBackground(dst, moduleRect)
+		if !moduleDrawsOwnBackground(mod) {
+			drawModuleBackground(dst, moduleRect)
+		}
 		if hoverRect, ok := b.currentHoverRect(mod, moduleRect); ok {
 			drawHoverBackground(dst, hoverRect)
 		}
@@ -686,7 +784,7 @@ func drawHoverBackground(dst draw.Image, rect image.Rectangle) {
 }
 
 func drawModuleBackground(dst draw.Image, rect image.Rectangle) {
-	drawRoundedRect(dst, rect, moduleCornerRadius, color.RGBA{R: 0x00, G: 0x00, B: 0x00, A: 0xff}, draw.Src)
+	drawRoundedRect(dst, rect, moduleCornerRadius, color.RGBA{R: 0x18, G: 0x18, B: 0x18, A: 0xff}, draw.Src)
 }
 
 func drawRoundedRect(dst draw.Image, rect image.Rectangle, radius int, col color.Color, op draw.Op) {
@@ -828,8 +926,13 @@ func (b *Bar) drawLeft(dst draw.Image, rect image.Rectangle, mods []Module, hits
 	x := rect.Min.X + barSidePad
 	for i, mod := range mods {
 		w := mod.Width(b.face)
+		if w <= 0 {
+			continue
+		}
 		moduleRect := image.Rect(x, rect.Min.Y, x+w, rect.Max.Y)
-		drawModuleBackground(dst, moduleRect)
+		if !moduleDrawsOwnBackground(mod) {
+			drawModuleBackground(dst, moduleRect)
+		}
 		if hoverRect, ok := b.currentHoverRect(mod, moduleRect); ok {
 			drawHoverBackground(dst, hoverRect)
 		}
@@ -841,4 +944,11 @@ func (b *Bar) drawLeft(dst draw.Image, rect image.Rectangle, mods []Module, hits
 		}
 	}
 	return hits
+}
+
+func moduleDrawsOwnBackground(mod Module) bool {
+	if controlled, ok := mod.(ModuleBackgroundControl); ok {
+		return controlled.DrawOwnBackground()
+	}
+	return false
 }
