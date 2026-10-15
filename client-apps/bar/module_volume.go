@@ -1,6 +1,7 @@
 package main
 
 import (
+	"image"
 	"log"
 	"strconv"
 )
@@ -8,12 +9,14 @@ import (
 type VolumeModule struct {
 	TextModule
 	audio       *AudioService
+	flyout      *VolumeFlyout
 	unsubscribe func()
 }
 
-func NewVolumeModule(audio *AudioService) *VolumeModule {
+func NewVolumeModule(audio *AudioService, flyout *VolumeFlyout) *VolumeModule {
 	return &VolumeModule{
-		audio: audio,
+		audio:  audio,
+		flyout: flyout,
 	}
 }
 
@@ -35,13 +38,25 @@ func (m *VolumeModule) Close() {
 	}
 }
 
-func (m *VolumeModule) OnClick(button uint32) {
-	if button != 0x110 {
-		return
+func (m *VolumeModule) OnClickAt(button uint32, rect image.Rectangle, _ image.Point) bool {
+	if button == 0x110 {
+		if m.flyout != nil {
+			m.flyout.Toggle(rect)
+		}
+		return true
 	}
+	if button == 0x111 || button == 0x112 {
+		if err := m.audio.ToggleSinkMute(); err != nil {
+			log.Printf("Volume toggle error: %v", err)
+		}
+		return true
+	}
+	return false
+}
 
-	if err := m.audio.ToggleSinkMute(); err != nil {
-		log.Printf("Volume toggle error: %v", err)
+func (m *VolumeModule) OnClick(button uint32) {
+	if button == 0x110 && m.flyout != nil {
+		m.flyout.Toggle(image.Rect(0, 0, 100, barHeight))
 	}
 }
 

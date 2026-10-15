@@ -217,6 +217,23 @@ func (a *App) HandleCommand(cmd string) {
 		}
 		return
 	}
+	if cmd == "vol-toggle" {
+		for _, bar := range a.bars {
+			if bar.volFlyout != nil {
+				rect := image.Rect(1100, 0, 1160, barHeight)
+				bar.drawMu.RLock()
+				for _, hit := range bar.hits {
+					if _, ok := hit.mod.(*VolumeModule); ok {
+						rect = hit.rect
+						break
+					}
+				}
+				bar.drawMu.RUnlock()
+				bar.volFlyout.Toggle(rect)
+			}
+		}
+		return
+	}
 	if strings.HasPrefix(cmd, "notif-scroll ") {
 		var delta float64
 		_, _ = fmt.Sscanf(strings.TrimPrefix(cmd, "notif-scroll "), "%f", &delta)
@@ -381,6 +398,7 @@ type Bar struct {
 	frame         *shm.Frame
 	face          font.Face
 	flyout        *NotificationFlyout
+	volFlyout     *VolumeFlyout
 	leftModules   []Module
 	centerModules []Module
 	rightModules  []Module
@@ -460,6 +478,8 @@ func NewBar(disp *display.Display, output *display.Output, audio *AudioService, 
 
 	flyout := NewNotificationFlyout(disp, output, notifications, icons)
 	b.flyout = flyout
+	volFlyout := NewVolumeFlyout(disp, output, audio)
+	b.volFlyout = volFlyout
 
 	b.leftModules = []Module{
 		NewNotificationModule(notifications, flyout),
@@ -471,7 +491,7 @@ func NewBar(disp *display.Display, output *display.Output, audio *AudioService, 
 	b.rightModules = []Module{
 		NewInputMethodModule(),
 		NewMicModule(audio),
-		NewVolumeModule(audio),
+		NewVolumeModule(audio, volFlyout),
 		NewBluetoothModule(bluetooth),
 		NewWifiModule(network),
 	}
@@ -545,6 +565,9 @@ func (b *Bar) Close() {
 
 	if b.flyout != nil {
 		b.flyout.Destroy()
+	}
+	if b.volFlyout != nil {
+		b.volFlyout.Destroy()
 	}
 
 	for _, mod := range append([]Module{}, b.leftModules...) {
@@ -667,6 +690,9 @@ func (b *Bar) HandlePointerEnter(ev client.WlPointerEnterEvent, cursor *cursor_s
 	if b.flyout != nil {
 		b.flyout.HandlePointerEnter(ev)
 	}
+	if b.volFlyout != nil {
+		b.volFlyout.HandlePointerEnter(ev)
+	}
 
 	if ev.Surface != b.surface.WlSurface() {
 		return
@@ -689,6 +715,9 @@ func (b *Bar) HandlePointerLeave(ev client.WlPointerLeaveEvent, cursor *cursor_s
 	if b.flyout != nil {
 		b.flyout.HandlePointerLeave(ev)
 	}
+	if b.volFlyout != nil {
+		b.volFlyout.HandlePointerLeave(ev)
+	}
 
 	if ev.Surface != b.surface.WlSurface() {
 		return
@@ -710,6 +739,9 @@ func (b *Bar) HandlePointerMotion(ev client.WlPointerMotionEvent, cursor *cursor
 	if b.flyout != nil {
 		b.flyout.HandlePointerMotion(ev)
 	}
+	if b.volFlyout != nil {
+		b.volFlyout.HandlePointerMotion(ev)
+	}
 
 	b.drawMu.Lock()
 	if !b.hover.inside {
@@ -728,6 +760,9 @@ func (b *Bar) HandlePointerMotion(ev client.WlPointerMotionEvent, cursor *cursor
 
 func (b *Bar) HandlePointerButton(ev client.WlPointerButtonEvent) {
 	if b.flyout != nil && b.flyout.HandlePointerButton(ev) {
+		return
+	}
+	if b.volFlyout != nil && b.volFlyout.HandlePointerButton(ev) {
 		return
 	}
 
@@ -763,6 +798,9 @@ func (b *Bar) HandlePointerButton(ev client.WlPointerButtonEvent) {
 func (b *Bar) HandlePointerAxis(ev client.WlPointerAxisEvent) {
 	if b.flyout != nil {
 		b.flyout.HandlePointerAxis(ev)
+	}
+	if b.volFlyout != nil {
+		b.volFlyout.HandlePointerAxis(ev)
 	}
 }
 

@@ -3,6 +3,7 @@ package shm
 import (
 	"errors"
 	"fmt"
+	"sync"
 
 	"github.com/tri2820/cheese/client-toolkit/display"
 	"github.com/tri2820/cheese/client-toolkit/render"
@@ -13,6 +14,7 @@ import (
 // Frame manages SHM-backed frame lifecycle for a render target.
 // It handles frame callbacks, buffer management, and output tracking.
 type Frame struct {
+	mu             sync.Mutex
 	swapchain      *Swapchain
 	surface        *surface.Surface
 	shm            *client.WlShm
@@ -26,6 +28,7 @@ type Frame struct {
 	lastHeight     int
 	manualMode     bool
 	ready          bool
+	closed         bool
 	output         *display.Output
 }
 
@@ -121,8 +124,17 @@ func (f *Frame) emitError(err error) {
 }
 
 func (f *Frame) render(time uint32) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.closed {
+		return
+	}
+
 	width := f.target.Width()
 	height := f.target.Height()
+	if width <= 0 || height <= 0 {
+		return
+	}
 
 	if width != f.lastWidth || height != f.lastHeight {
 		f.ready = false
@@ -208,8 +220,13 @@ func (f *Frame) Format() client.WlShmFormat {
 
 // Close destroys the frame helper and frees resources.
 func (f *Frame) Close() error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closed = true
 	if f.swapchain != nil {
-		return f.swapchain.Close()
+		err := f.swapchain.Close()
+		f.swapchain = nil
+		return err
 	}
 	return nil
 }
@@ -226,7 +243,7 @@ func (f *Frame) ManualRender(time uint32) {
 
 // Ready returns true if the helper has received valid dimensions.
 func (f *Frame) Ready() bool {
-	return f.ready
+	return f.ready || (f.target != nil && f.target.Width() > 0 && f.target.Height() > 0)
 }
 
 // Output returns the current output this surface is on.

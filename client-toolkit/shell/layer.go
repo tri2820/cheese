@@ -176,6 +176,9 @@ func (l *LayerSurface) OnConfigure(fn func()) {
 		return
 	}
 	l.configureHandlers = append(l.configureHandlers, fn)
+	if l.width > 0 && l.height > 0 {
+		fn()
+	}
 }
 
 // OnClose registers a handler for close requests.

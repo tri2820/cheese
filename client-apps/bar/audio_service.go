@@ -10,6 +10,7 @@ import (
 
 type AudioState struct {
 	SinkVolume    int
+	SinkChannels  int
 	SinkMuted     bool
 	SourceMuted   bool
 	DefaultSink   string
@@ -162,6 +163,56 @@ func (s *AudioService) ToggleSinkMute() error {
 	return nil
 }
 
+func (s *AudioService) SetSinkVolume(percent int) error {
+	if percent < 0 {
+		percent = 0
+	}
+	if percent > 100 {
+		percent = 100
+	}
+
+	s.mu.Lock()
+	sink := s.state.DefaultSink
+	channels := s.state.SinkChannels
+	if channels <= 0 {
+		channels = 2
+	}
+	s.state.SinkVolume = percent
+	next := s.state
+	subs := make([]func(AudioState), 0, len(s.subscribers))
+	for _, fn := range s.subscribers {
+		subs = append(subs, fn)
+	}
+	s.mu.Unlock()
+
+	go func() {
+		for _, fn := range subs {
+			if fn != nil {
+				fn(next)
+			}
+		}
+	}()
+
+	if s.client == nil || sink == "" {
+		return nil
+	}
+
+	rawVol := uint32(float64(percent)/100.0*float64(proto.VolumeNorm) + 0.5)
+	vols := make(proto.ChannelVolumes, channels)
+	for i := range vols {
+		vols[i] = rawVol
+	}
+
+	go func() {
+		_ = s.client.Request(&proto.SetSinkVolume{
+			SinkIndex:      proto.Undefined,
+			SinkName:       sink,
+			ChannelVolumes: vols,
+		}, nil)
+	}()
+	return nil
+}
+
 func (s *AudioService) run() {
 	for {
 		select {
@@ -195,6 +246,7 @@ func (s *AudioService) refresh() {
 			SinkName:  server.DefaultSinkName,
 		}, &sink); err == nil {
 			next.SinkVolume = averageVolumePercent(sink.ChannelVolumes)
+			next.SinkChannels = len(sink.ChannelVolumes)
 			next.SinkMuted = sink.Mute
 		} else {
 			log.Printf("Audio sink info error: %v", err)
