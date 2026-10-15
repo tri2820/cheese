@@ -6,6 +6,7 @@ import (
 	"image/draw"
 	"log"
 	"math"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -66,18 +67,32 @@ type Dock struct {
 	frame       *shm.Frame
 	unsubscribe func()
 
-	mu          sync.Mutex
-	entries     []dockEntry
-	curSizes    []float64
-	hover       flyoutPointerState
-	hoveredIdx  int
-	slots       []dockSlotHit
-	pillRect    image.Rectangle
-	hasExclZone bool
-	closed      bool
-	dirtyCh     chan struct{}
-	stop        chan struct{}
-	startTime   int64
+	mu              sync.Mutex
+	entries         []dockEntry
+	curSizes        []float64
+	hover           flyoutPointerState
+	hoveredIdx      int
+	slots           []dockSlotHit
+	pillRect        image.Rectangle
+	autoHide        bool
+	reveal          float64
+	currentExclZone int32
+	closed          bool
+	dirtyCh         chan struct{}
+	stop            chan struct{}
+	startTime       int64
+}
+
+func defaultDockAutoHide() bool {
+	if os.Getenv("CHEESE_DOCK_AUTOHIDE") == "1" || strings.EqualFold(os.Getenv("CHEESE_DOCK_AUTOHIDE"), "true") {
+		return true
+	}
+	for _, arg := range os.Args[1:] {
+		if arg == "--dock-autohide" {
+			return true
+		}
+	}
+	return false
 }
 
 func NewDock(disp *display.Display, output *display.Output, niri *NiriService, icons *IconResolver) (*Dock, error) {
@@ -86,13 +101,21 @@ func NewDock(disp *display.Display, output *display.Output, niri *NiriService, i
 		return nil, err
 	}
 
+	autoHide := defaultDockAutoHide()
+	initExcl := int32(dockExclusiveZone)
+	initReveal := 1.0
+	if autoHide {
+		initExcl = int32(dockBottomMargin)
+		initReveal = 0.0
+	}
+
 	layer, err := shell.NewLayer(surf, disp.LayerShell(), shell.LayerConfig{
 		Layer:         shell.LayerPositionTop,
 		Name:          "cheese-dock",
 		Anchor:        shell.AnchorBottom | shell.AnchorLeft | shell.AnchorRight,
 		Width:         0,
 		Height:        dockSurfaceHeight,
-		ExclusiveZone: int32(dockExclusiveZone),
+		ExclusiveZone: initExcl,
 		Output:        output.WlOutput(),
 	})
 	if err != nil {
@@ -111,19 +134,21 @@ func NewDock(disp *display.Display, output *display.Output, niri *NiriService, i
 	}
 
 	d := &Dock{
-		disp:        disp,
-		output:      output,
-		niri:        niri,
-		icons:       icons,
-		face:        loadBarFont(output),
-		surface:     surf,
-		layer:       layer,
-		frame:       frame,
-		hoveredIdx:  -1,
-		hasExclZone: true,
-		dirtyCh:     make(chan struct{}, 1),
-		stop:        make(chan struct{}),
-		startTime:   time.Now().UnixMilli(),
+		disp:            disp,
+		output:          output,
+		niri:            niri,
+		icons:           icons,
+		face:            loadBarFont(output),
+		surface:         surf,
+		layer:           layer,
+		frame:           frame,
+		hoveredIdx:      -1,
+		autoHide:        autoHide,
+		reveal:          initReveal,
+		currentExclZone: initExcl,
+		dirtyCh:         make(chan struct{}, 1),
+		stop:            make(chan struct{}),
+		startTime:       time.Now().UnixMilli(),
 	}
 
 	frame.SetRender(func(width, height int, frameTime uint32, pixels []byte) {
@@ -142,6 +167,28 @@ func NewDock(disp *display.Display, output *display.Output, niri *NiriService, i
 	go d.renderLoop()
 	d.markDirty()
 	return d, nil
+}
+
+func (d *Dock) SetAutoHide(enabled bool) {
+	d.mu.Lock()
+	d.autoHide = enabled
+	if !enabled {
+		d.reveal = 1.0
+	}
+	d.mu.Unlock()
+	d.markDirty()
+}
+
+func (d *Dock) ToggleAutoHide() bool {
+	d.mu.Lock()
+	d.autoHide = !d.autoHide
+	enabled := d.autoHide
+	if !enabled {
+		d.reveal = 1.0
+	}
+	d.mu.Unlock()
+	d.markDirty()
+	return enabled
 }
 
 func (d *Dock) updateEntries(state NiriState) {
@@ -216,19 +263,19 @@ func (d *Dock) renderLoop() {
 			return
 		}
 		hasItems := len(d.entries) > 0
-		exclChanged := hasItems != d.hasExclZone
-		d.hasExclZone = hasItems
+		desiredExcl := int32(dockBottomMargin)
+		if hasItems && !d.autoHide {
+			desiredExcl = int32(dockExclusiveZone)
+		}
+		exclChanged := desiredExcl != d.currentExclZone
+		d.currentExclZone = desiredExcl
 		fr := d.frame
 		ly := d.layer
 		sf := d.surface
 		d.mu.Unlock()
 
 		if exclChanged && ly != nil {
-			if hasItems {
-				_ = ly.SetExclusiveZone(int32(dockExclusiveZone))
-			} else {
-				_ = ly.SetExclusiveZone(0)
-			}
+			_ = ly.SetExclusiveZone(desiredExcl)
 			if sf != nil {
 				_ = sf.Commit()
 			}
@@ -242,7 +289,7 @@ func (d *Dock) renderLoop() {
 }
 
 // stepAnimation computes target sizes using the macOS dock magnification formula
-// from frontendfyi/macos-dock-animation-with-css and interpolates curSizes smoothly.
+// from frontendfyi/macos-dock-animation-with-css and interpolates curSizes & reveal smoothly.
 func (d *Dock) stepAnimation() bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
@@ -259,12 +306,29 @@ func (d *Dock) stepAnimation() bool {
 		}
 	}
 
+	animating := false
+
+	// 1. Auto-hide slide reveal animation
+	revealTarget := 1.0
+	if d.autoHide && !d.hover.inside {
+		revealTarget = 0.0
+	}
+	revDelta := revealTarget - d.reveal
+	if math.Abs(revDelta) > 0.01 {
+		d.reveal += revDelta * 0.28
+		animating = true
+	} else if d.reveal != revealTarget {
+		d.reveal = revealTarget
+		animating = true
+	}
+
+	// 2. Icon hover magnification animation
 	hoveredIdx := -1
 	cursorDistance := 0.5
-	if d.hover.inside {
+	if d.hover.inside && d.reveal > 0.3 {
 		for _, slot := range d.slots {
 			if d.hover.x >= slot.rect.Min.X && d.hover.x < slot.rect.Max.X &&
-				d.hover.y >= d.pillRect.Min.Y-24 && d.hover.y <= d.pillRect.Max.Y {
+				d.hover.y >= d.pillRect.Min.Y-24 && d.hover.y <= d.pillRect.Max.Y+8 {
 				hoveredIdx = slot.index
 				slotW := float64(slot.rect.Dx())
 				if slotW > 0 {
@@ -282,12 +346,10 @@ func (d *Dock) stepAnimation() bool {
 	}
 	d.hoveredIdx = hoveredIdx
 
-	// scaleValue(cursorDistance, [0, 1], [-dockMaxOffsetPx, +dockMaxOffsetPx])
 	offsetPixels := (cursorDistance*2.0 - 1.0) * dockMaxOffsetPx
 	offsetLeft := -offsetPixels
 	offsetRight := offsetPixels
 
-	animating := false
 	for i := 0; i < n; i++ {
 		target := dockBaseIconSize
 		if hoveredIdx >= 0 {
@@ -308,7 +370,6 @@ func (d *Dock) stepAnimation() bool {
 
 		delta := target - d.curSizes[i]
 		if math.Abs(delta) > 0.12 {
-			// Smooth cubic-bezier(0.25, 1, 0.5, 1) 100ms ease-out step at 60fps
 			d.curSizes[i] += delta * 0.32
 			animating = true
 		} else if d.curSizes[i] != target {
@@ -345,6 +406,8 @@ func (d *Dock) draw(width, height int, pixels []byte) {
 	sizes := make([]float64, len(d.curSizes))
 	copy(sizes, d.curSizes)
 	hoveredIdx := d.hoveredIdx
+	autoHide := d.autoHide
+	reveal := d.reveal
 	d.mu.Unlock()
 
 	if len(entries) == 0 {
@@ -368,7 +431,28 @@ func (d *Dock) draw(width, height int, pixels []byte) {
 	}
 	pillWidth := totalItemsWidth + 2*dockPadX
 	pillX := (width - pillWidth) / 2
-	pillBottom := height - dockBottomMargin
+
+	// When hidden in auto-hide mode, render nothing and leave a thin 2px trigger strip at the bottom screen edge
+	if autoHide && reveal <= 0.01 {
+		writeARGB8888(pixels, canvas)
+		triggerLeft := pillX - 32
+		if triggerLeft < 0 {
+			triggerLeft = 0
+		}
+		triggerRight := pillX + pillWidth + 32
+		if triggerRight > width {
+			triggerRight = width
+		}
+		triggerRect := image.Rect(triggerLeft, height-2, triggerRight, height)
+		d.mu.Lock()
+		d.pillRect = image.Rect(pillX, height-dockBottomMargin-dockShelfHeight, pillX+pillWidth, height-dockBottomMargin)
+		d.mu.Unlock()
+		d.updateInputRegion(triggerRect)
+		return
+	}
+
+	slideOffset := int(math.Round((1.0 - reveal) * float64(dockShelfHeight+dockBottomMargin+4)))
+	pillBottom := height - dockBottomMargin + slideOffset
 	pillTop := pillBottom - dockShelfHeight
 	pillRect := image.Rect(pillX, pillTop, pillX+pillWidth, pillBottom)
 
@@ -377,8 +461,6 @@ func (d *Dock) draw(width, height int, pixels []byte) {
 
 	slots := make([]dockSlotHit, 0, len(entries))
 	x := pillX + dockPadX
-	// Base icon bottom baseline sits dockPadBottom (12px) above the bottom of the dock shelf,
-	// leaving dockPadTop (10px) above the resting icon.
 	iconBottomY := pillBottom - dockPadBottom
 
 	var tooltipTitle string
@@ -389,7 +471,6 @@ func (d *Dock) draw(width, height int, pixels []byte) {
 		iconSize := int(math.Round(sizes[i]))
 		slotW := iconSize + 2*dockItemPadX
 		iconX := x + dockItemPadX
-		// Icons grow upward from iconBottomY (matching margin-top: -delta in index.css)
 		iconY := iconBottomY - iconSize
 		iconRect := image.Rect(iconX, iconY, iconX+iconSize, iconY+iconSize)
 
@@ -400,7 +481,6 @@ func (d *Dock) draw(width, height int, pixels []byte) {
 		}
 
 		// Active / focused window indicator dot snapped to exact pixel center (i+0.5, j+0.5)
-		// so it doesn't land on a 2x2 pixel boundary and blur across 4x4 pixels on 1x DPI displays.
 		dotCenterX := math.Floor(float64(x)+float64(slotW)/2.0) + 0.5
 		dotCenterY := math.Floor(float64(pillBottom)-float64(dockPadBottom)/2.0) + 0.5
 		if entry.window.IsFocused {
@@ -428,8 +508,10 @@ func (d *Dock) draw(width, height int, pixels []byte) {
 		x += slotW
 		if entry.groupEnd {
 			sepX := x + dockGroupGap/2
-			sepRect := image.Rect(sepX, pillTop+12, sepX+1, pillBottom-12)
-			draw.Draw(canvas, sepRect, image.NewUniform(color.RGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xff}), image.Point{}, draw.Over)
+			sepRect := image.Rect(sepX, pillTop+12, sepX+1, pillBottom-12).Intersect(canvas.Bounds())
+			if !sepRect.Empty() {
+				draw.Draw(canvas, sepRect, image.NewUniform(color.RGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xff}), image.Point{}, draw.Over)
+			}
 			x += dockGroupGap
 		}
 	}
@@ -464,7 +546,6 @@ func (d *Dock) draw(width, height int, pixels []byte) {
 
 	writeARGB8888(pixels, canvas)
 
-	// Expand input region slightly upward when hovered so moving across magnified icons stays inside input region
 	inputTop := pillTop
 	if hoveredIdx >= 0 {
 		inputTop = pillTop - 22
@@ -472,7 +553,11 @@ func (d *Dock) draw(width, height int, pixels []byte) {
 			inputTop = 0
 		}
 	}
-	inputRect := image.Rect(pillRect.Min.X, inputTop, pillRect.Max.X, pillRect.Max.Y)
+	inputBottom := pillRect.Max.Y
+	if autoHide || inputBottom > height {
+		inputBottom = height
+	}
+	inputRect := image.Rect(pillRect.Min.X, inputTop, pillRect.Max.X, inputBottom)
 
 	d.mu.Lock()
 	d.slots = slots
@@ -498,7 +583,7 @@ func drawSmoothRoundedRect(dst *image.RGBA, rect image.Rectangle, radius float64
 		r = hy
 	}
 	if r <= 0 {
-		draw.Draw(dst, rect, image.NewUniform(col), image.Point{}, op)
+		draw.Draw(dst, rect.Intersect(dst.Bounds()), image.NewUniform(col), image.Point{}, op)
 		return
 	}
 
@@ -507,17 +592,34 @@ func drawSmoothRoundedRect(dst *image.RGBA, rect image.Rectangle, radius float64
 	innerHx := hx - r
 	innerHy := hy - r
 	src := color.NRGBAModel.Convert(col).(color.NRGBA)
+	b := dst.Bounds()
 
-	for y := rect.Min.Y; y < rect.Max.Y; y++ {
+	minY := rect.Min.Y
+	if minY < b.Min.Y {
+		minY = b.Min.Y
+	}
+	maxY := rect.Max.Y
+	if maxY > b.Max.Y {
+		maxY = b.Max.Y
+	}
+	minX := rect.Min.X
+	if minX < b.Min.X {
+		minX = b.Min.X
+	}
+	maxX := rect.Max.X
+	if maxX > b.Max.X {
+		maxX = b.Max.X
+	}
+
+	for y := minY; y < maxY; y++ {
 		py := float64(y) + 0.5
 		qy := math.Abs(py-cy) - innerHy
-		for x := rect.Min.X; x < rect.Max.X; x++ {
+		for x := minX; x < maxX; x++ {
 			px := float64(x) + 0.5
 			qx := math.Abs(px-cx) - innerHx
 
 			var dist float64
 			if qx <= 0 && qy <= 0 {
-				// Strictly inside the non-corner region
 				dist = math.Max(qx, qy) - r
 			} else {
 				outX := math.Max(qx, 0)

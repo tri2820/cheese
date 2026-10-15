@@ -254,6 +254,30 @@ func (a *App) HandleCommand(cmd string) {
 		}
 		return
 	}
+	if cmd == "dock-autohide" || strings.HasPrefix(cmd, "dock-autohide ") {
+		arg := strings.TrimSpace(strings.TrimPrefix(cmd, "dock-autohide"))
+		a.mu.Lock()
+		bars := make([]*Bar, 0, len(a.bars))
+		for _, bar := range a.bars {
+			bars = append(bars, bar)
+		}
+		a.mu.Unlock()
+
+		for _, bar := range bars {
+			if bar.dock == nil {
+				continue
+			}
+			switch strings.ToLower(arg) {
+			case "on", "1", "true":
+				bar.dock.SetAutoHide(true)
+			case "off", "0", "false":
+				bar.dock.SetAutoHide(false)
+			default:
+				bar.dock.ToggleAutoHide()
+			}
+		}
+		return
+	}
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
