@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -14,14 +15,15 @@ import (
 )
 
 const (
-	i2cSlaveIoctl  = 0x0703
-	ddcSlaveAddr   = 0x37
-	vcpPowerMode   = 0xD6
-	ddcPollPeriod  = 2 * time.Second
-	ddcFailThresh  = 2
+	i2cSlaveIoctl = 0x0703
+	ddcSlaveAddr  = 0x37
+	vcpPowerMode  = 0xD6
+	ddcPollPeriod = 2 * time.Second
+	ddcFailThresh = 2
 )
 
 type ddcOutputState struct {
+	initialized   bool
 	everSucceeded bool
 	failCount     int
 	poweredOff    bool
@@ -84,83 +86,102 @@ func (m *DDCMonitor) loop() {
 	}
 }
 
+func discoverConnectedExternalOutputs() map[string]string {
+	result := make(map[string]string)
+	matches, err := filepath.Glob("/sys/class/drm/card*-*/ddc")
+	if err != nil {
+		return result
+	}
+	for _, ddcLink := range matches {
+		connDir := filepath.Dir(ddcLink)
+		base := filepath.Base(connDir) // e.g. "card1-HDMI-A-1"
+		idx := strings.IndexByte(base, '-')
+		if idx < 0 || idx+1 >= len(base) {
+			continue
+		}
+		outName := base[idx+1:]
+		if strings.HasPrefix(outName, "eDP") {
+			continue
+		}
+		statusBytes, err := os.ReadFile(filepath.Join(connDir, "status"))
+		if err != nil || strings.TrimSpace(string(statusBytes)) != "connected" {
+			continue
+		}
+		target, err := os.Readlink(ddcLink)
+		if err != nil {
+			continue
+		}
+		busName := filepath.Base(target)
+		if !strings.HasPrefix(busName, "i2c-") {
+			continue
+		}
+		devPath := "/dev/" + busName
+		if _, err := os.Stat(devPath); err != nil {
+			continue
+		}
+		result[outName] = devPath
+	}
+	return result
+}
+
 func (m *DDCMonitor) pollOnce() {
-	outputs := m.disp.ReadyOutputs()
+	extOutputs := discoverConnectedExternalOutputs()
 	changed := false
 
-	for _, out := range outputs {
-		if out == nil || out.Name == "" || strings.HasPrefix(out.Name, "eDP") {
-			continue
-		}
-		devPath := findI2CDeviceForOutput(out.Name)
-		if devPath == "" {
-			continue
-		}
+	type niriToggle struct {
+		name string
+		off  bool
+	}
+	var toggles []niriToggle
 
+	for outName, devPath := range extOutputs {
 		powerMode, err := queryDDCPowerMode(devPath)
 
 		m.mu.Lock()
-		st, ok := m.states[out.Name]
+		st, ok := m.states[outName]
 		if !ok {
 			st = &ddcOutputState{}
-			m.states[out.Name] = st
+			m.states[outName] = st
 		}
+		wasInit := st.initialized
 		prevOff := st.poweredOff
 
 		if err == nil {
+			st.initialized = true
 			st.everSucceeded = true
 			st.failCount = 0
 			// MCCS VCP 0xD6: 0x01 = DPM On; 0x02..0x05 = Standby/Suspend/Off
 			st.poweredOff = powerMode != 0x01
-		} else if st.everSucceeded && isDRMConnected(out.Name) {
+		} else if st.everSucceeded {
 			st.failCount++
 			if st.failCount >= ddcFailThresh {
 				st.poweredOff = true
 			}
 		}
 
-		if st.poweredOff != prevOff {
-			log.Printf("DDCMonitor: output %s power state changed (poweredOff=%v, mode=0x%02x, err=%v)", out.Name, st.poweredOff, powerMode, err)
+		if (st.initialized && !wasInit && st.poweredOff) || (wasInit && st.poweredOff != prevOff) {
+			log.Printf("DDCMonitor: output %s power state changed (poweredOff=%v, mode=0x%02x, err=%v)", outName, st.poweredOff, powerMode, err)
 			changed = true
+			toggles = append(toggles, niriToggle{name: outName, off: st.poweredOff})
 		}
 		m.mu.Unlock()
+	}
+
+	for _, t := range toggles {
+		stateArg := "on"
+		if t.off {
+			stateArg = "off"
+		}
+		if err := exec.Command("niri", "msg", "output", t.name, stateArg).Run(); err != nil {
+			log.Printf("DDCMonitor: failed to run niri msg output %s %s: %v", t.name, stateArg, err)
+		} else {
+			log.Printf("DDCMonitor: set niri output %s %s", t.name, stateArg)
+		}
 	}
 
 	if changed && m.onChange != nil {
 		m.onChange()
 	}
-}
-
-func findI2CDeviceForOutput(outputName string) string {
-	matches, err := filepath.Glob(fmt.Sprintf("/sys/class/drm/card*-%s/ddc", outputName))
-	if err != nil || len(matches) == 0 {
-		return ""
-	}
-	target, err := os.Readlink(matches[0])
-	if err != nil {
-		return ""
-	}
-	busName := filepath.Base(target)
-	if !strings.HasPrefix(busName, "i2c-") {
-		return ""
-	}
-	devPath := "/dev/" + busName
-	if _, err := os.Stat(devPath); err != nil {
-		return ""
-	}
-	return devPath
-}
-
-func isDRMConnected(outputName string) bool {
-	matches, err := filepath.Glob(fmt.Sprintf("/sys/class/drm/card*-%s/status", outputName))
-	if err != nil || len(matches) == 0 {
-		return false
-	}
-	data, err := os.ReadFile(matches[0])
-	if err != nil {
-		return false
-	}
-	return strings.TrimSpace(string(data)) == "connected"
 }
 
 func queryDDCPowerMode(devPath string) (byte, error) {
