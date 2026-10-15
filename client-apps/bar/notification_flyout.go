@@ -19,11 +19,10 @@ import (
 )
 
 const (
-	flyoutWidth        = 340
-	flyoutMaxHeight    = 380
+	flyoutWidth        = 320
 	flyoutHeaderHeight = 36
-	flyoutCardPad      = 10
-	flyoutCardGap      = 8
+	flyoutCardHeight   = 62
+	flyoutCardGap      = 6
 	flyoutCornerRadius = 8
 )
 
@@ -106,12 +105,15 @@ func (f *NotificationFlyout) Open(anchorX int32) {
 		leftMargin = barSidePad
 	}
 
+	items := f.service.List()
+	calcHeight := f.computeHeight(len(items))
+
 	layer, err := shell.NewLayer(surf, f.disp.LayerShell(), shell.LayerConfig{
 		Layer:         shell.LayerPositionTop,
 		Name:          "cheese-notification-flyout",
 		Anchor:        shell.AnchorTop | shell.AnchorLeft,
 		Width:         flyoutWidth,
-		Height:        flyoutMaxHeight,
+		Height:        uint32(calcHeight),
 		ExclusiveZone: 0,
 		Output:        f.output.WlOutput(),
 	})
@@ -190,9 +192,19 @@ func (f *NotificationFlyout) Open(anchorX int32) {
 
 	f.mu.Unlock()
 
-	// Initial render
 	f.markDirty()
 	f.service.MarkAllRead()
+}
+
+func (f *NotificationFlyout) computeHeight(count int) int {
+	if count == 0 {
+		return flyoutHeaderHeight + 48
+	}
+	h := flyoutHeaderHeight + 12 + count*(flyoutCardHeight+flyoutCardGap) + 8
+	if h > 380 {
+		return 380
+	}
+	return h
 }
 
 func (f *NotificationFlyout) markDirty() {
@@ -255,7 +267,7 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 	draw.Draw(img, img.Bounds(), image.Transparent, image.Point{}, draw.Src)
 
 	containerRect := image.Rect(0, 0, width, height)
-	drawRoundedRect(img, containerRect, flyoutCornerRadius, color.RGBA{R: 0x18, G: 0x18, B: 0x18, A: 0xf8}, draw.Over)
+	drawRoundedRect(img, containerRect, flyoutCornerRadius, color.RGBA{R: 0x18, G: 0x18, B: 0x18, A: 0xfa}, draw.Over)
 
 	hits := make([]flyoutHit, 0, 10)
 
@@ -269,16 +281,16 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 
 	if len(items) > 0 {
 		clearText := "Clear All"
-		clearX := width - 85
-		clearBtnRect := image.Rect(clearX, 6, width-10, 30)
+		clearX := width - 82
+		clearBtnRect := image.Rect(clearX, 6, width-8, 30)
 		drawRoundedRect(img, clearBtnRect, 4, color.RGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xff}, draw.Over)
-		f.drawText(img, clearX+10, 22, clearText, color.RGBA{R: 0xcc, G: 0xcc, B: 0xcc, A: 0xff})
+		f.drawText(img, clearX+8, 21, clearText, color.RGBA{R: 0xcc, G: 0xcc, B: 0xcc, A: 0xff})
 		hits = append(hits, flyoutHit{rect: clearBtnRect, action: "clear_all"})
 	}
 
-	y := flyoutHeaderHeight + 10
+	y := flyoutHeaderHeight + 8
 	if len(items) == 0 {
-		f.drawText(img, width/2-55, height/2, "No notifications", color.RGBA{R: 0x77, G: 0x77, B: 0x77, A: 0xff})
+		f.drawText(img, width/2-55, flyoutHeaderHeight+28, "No notifications", color.RGBA{R: 0x77, G: 0x77, B: 0x77, A: 0xff})
 		f.mu.Lock()
 		f.hits = hits
 		f.mu.Unlock()
@@ -286,12 +298,11 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 	}
 
 	for _, n := range items {
-		cardHeight := 58
-		if y+cardHeight > height-10 {
+		if y+flyoutCardHeight > height-6 {
 			break
 		}
 
-		cardRect := image.Rect(10, y, width-10, y+cardHeight)
+		cardRect := image.Rect(8, y, width-8, y+flyoutCardHeight)
 		drawRoundedRect(img, cardRect, 6, color.RGBA{R: 0x24, G: 0x24, B: 0x24, A: 0xff}, draw.Over)
 
 		appName := n.AppName
@@ -299,22 +310,22 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 			appName = "System"
 		}
 		timeStr := n.CreatedAt.Format("15:04")
-		f.drawText(img, 18, y+16, fmt.Sprintf("%s • %s", appName, timeStr), color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff})
+		f.drawText(img, 14, y+16, fmt.Sprintf("%s • %s", appName, timeStr), color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff})
 
-		dismissRect := image.Rect(width-30, y+4, width-10, y+24)
-		f.drawText(img, width-24, y+18, "x", color.RGBA{R: 0x99, G: 0x99, B: 0x99, A: 0xff})
+		dismissRect := image.Rect(width-28, y+4, width-8, y+24)
+		f.drawText(img, width-22, y+17, "x", color.RGBA{R: 0x99, G: 0x99, B: 0x99, A: 0xff})
 		hits = append(hits, flyoutHit{rect: dismissRect, action: "dismiss", notifID: n.ID})
 
-		summary := truncateString(n.Summary, 34)
-		f.drawText(img, 18, y+32, summary, color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
+		summary := truncateString(n.Summary, 32)
+		f.drawText(img, 14, y+34, summary, color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
 
-		body := truncateString(n.Body, 42)
+		body := truncateString(n.Body, 38)
 		if body != "" {
-			f.drawText(img, 18, y+46, body, color.RGBA{R: 0xaa, G: 0xaa, B: 0xaa, A: 0xff})
+			f.drawText(img, 14, y+50, body, color.RGBA{R: 0xaa, G: 0xaa, B: 0xaa, A: 0xff})
 		}
 
 		hits = append(hits, flyoutHit{rect: cardRect, action: "dismiss", notifID: n.ID})
-		y += cardHeight + flyoutCardGap
+		y += flyoutCardHeight + flyoutCardGap
 	}
 
 	f.mu.Lock()
@@ -400,17 +411,4 @@ func truncateString(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-3] + "..."
-}
-
-func drawOutline(dst draw.Image, rect image.Rectangle, radius int, col color.Color) {
-	top := image.Rect(rect.Min.X, rect.Min.Y, rect.Max.X, rect.Min.Y+1)
-	bottom := image.Rect(rect.Min.X, rect.Max.Y-1, rect.Max.X, rect.Max.Y)
-	left := image.Rect(rect.Min.X, rect.Min.Y, rect.Min.X+1, rect.Max.Y)
-	right := image.Rect(rect.Max.X-1, rect.Min.Y, rect.Max.X, rect.Max.Y)
-
-	u := image.NewUniform(col)
-	draw.Draw(dst, top, u, image.Point{}, draw.Over)
-	draw.Draw(dst, bottom, u, image.Point{}, draw.Over)
-	draw.Draw(dst, left, u, image.Point{}, draw.Over)
-	draw.Draw(dst, right, u, image.Point{}, draw.Over)
 }
