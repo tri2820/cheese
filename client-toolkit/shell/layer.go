@@ -58,6 +58,12 @@ type LayerConfig struct {
 	// ExclusiveZone reserves space for the surface (0 = don't reserve, -1 = remove exclusive zone)
 	ExclusiveZone int32
 
+	// Margins from anchor edges
+	MarginTop    int32
+	MarginRight  int32
+	MarginBottom int32
+	MarginLeft   int32
+
 	// Output is the wl_output to display on (nil = compositor chooses one, typically the most recently interacted output)
 	Output *client.WlOutput
 }
@@ -97,6 +103,11 @@ func NewLayer(surf *surface.Surface, layerShell *wlr_layer_shell_unstable_v1.Zwl
 	}
 	if err := l.SetExclusiveZone(config.ExclusiveZone); err != nil {
 		return nil, err
+	}
+	if config.MarginTop != 0 || config.MarginRight != 0 || config.MarginBottom != 0 || config.MarginLeft != 0 {
+		if err := l.layerSurface.SetMargin(config.MarginTop, config.MarginRight, config.MarginBottom, config.MarginLeft); err != nil {
+			return nil, err
+		}
 	}
 
 	// Commit to trigger configure event

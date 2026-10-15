@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"image/draw"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,10 +21,12 @@ import (
 
 const (
 	flyoutWidth        = 340
-	flyoutHeaderHeight = 28
-	flyoutCardHeight   = 56
+	flyoutMaxHeight    = 420
+	flyoutHeaderHeight = 30
+	flyoutOuterPad     = 8
+	flyoutCardPadX     = 10
+	flyoutCardPadY     = 8
 	flyoutCardGap      = 6
-	flyoutCornerRadius = 8
 )
 
 type flyoutPointerState struct {
@@ -38,23 +41,32 @@ type flyoutHit struct {
 	notifID uint32
 }
 
+type cardLayout struct {
+	notif        Notification
+	headerText   string
+	summaryLines []string
+	bodyLines    []string
+	height       int
+}
+
 type NotificationFlyout struct {
-	disp      *display.Display
-	output    *display.Output
-	service   *NotificationService
-	icons     *IconResolver
-	face      font.Face
-	mu        sync.Mutex
-	isOpen    bool
-	surface   *surface.Surface
-	layer     *shell.LayerSurface
-	frame     *shm.Frame
-	closeSub  func()
-	hits      []flyoutHit
-	hover     flyoutPointerState
-	startTime int64
-	dirtyCh   chan struct{}
-	stop      chan struct{}
+	disp          *display.Display
+	output        *display.Output
+	service       *NotificationService
+	icons         *IconResolver
+	face          font.Face
+	mu            sync.Mutex
+	isOpen        bool
+	surface       *surface.Surface
+	layer         *shell.LayerSurface
+	frame         *shm.Frame
+	closeSub      func()
+	hits          []flyoutHit
+	hover         flyoutPointerState
+	startTime     int64
+	dirtyCh       chan struct{}
+	stop          chan struct{}
+	currentHeight int
 }
 
 func NewNotificationFlyout(disp *display.Display, output *display.Output, service *NotificationService, icons *IconResolver) *NotificationFlyout {
@@ -100,32 +112,33 @@ func (f *NotificationFlyout) Open(anchorX int32) {
 		return
 	}
 
-	leftMargin := int32(barSidePad)
+	leftMargin := anchorX
+	if leftMargin < barSidePad {
+		leftMargin = barSidePad
+	}
+	// ExclusiveZone: -1 anchors to raw output top (y=0).
+	// Bar occupies y = barTopMargin (6) .. barTopMargin + barHeight (34).
+	// Placing flyout at barTopMargin + barHeight + moduleGap (38) leaves a 4px gap below the bar.
+	topMargin := int32(barTopMargin + barHeight + moduleGap)
 
 	items := f.service.List()
-	calcHeight := f.computeHeight(items)
+	_, calcHeight := f.layoutCards(items, flyoutWidth)
 
 	layer, err := shell.NewLayer(surf, f.disp.LayerShell(), shell.LayerConfig{
-		Layer:         shell.LayerPositionTop,
+		Layer:         shell.LayerPositionOverlay,
 		Name:          "cheese-notification-flyout",
 		Anchor:        shell.AnchorTop | shell.AnchorLeft,
 		Width:         flyoutWidth,
 		Height:        uint32(calcHeight),
-		ExclusiveZone: 0,
+		ExclusiveZone: -1,
+		MarginTop:     topMargin,
+		MarginLeft:    leftMargin,
 		Output:        f.output.WlOutput(),
 	})
 	if err != nil {
 		f.mu.Unlock()
 		_ = surf.Close()
 		log.Printf("NotificationFlyout: Failed to create layer surface: %v", err)
-		return
-	}
-
-	topMargin := int32(barHeight)
-	if err := layer.SetMargin(topMargin, 0, 0, leftMargin); err != nil {
-		f.mu.Unlock()
-		_ = layer.Close()
-		_ = surf.Close()
 		return
 	}
 
@@ -144,6 +157,7 @@ func (f *NotificationFlyout) Open(anchorX int32) {
 	f.layer = layer
 	f.frame = frame
 	f.isOpen = true
+	f.currentHeight = calcHeight
 	f.dirtyCh = make(chan struct{}, 1)
 	f.stop = make(chan struct{})
 
@@ -173,9 +187,22 @@ func (f *NotificationFlyout) Open(anchorX int32) {
 			if !pending {
 				continue
 			}
+
+			items := f.service.List()
+			_, desiredHeight := f.layoutCards(items, flyoutWidth)
+
 			f.mu.Lock()
 			fr := f.frame
+			ly := f.layer
+			sf := f.surface
+			curH := f.currentHeight
+			if ly != nil && sf != nil && desiredHeight != curH {
+				f.currentHeight = desiredHeight
+				_ = ly.SetSize(flyoutWidth, uint32(desiredHeight))
+				_ = sf.Commit()
+			}
 			f.mu.Unlock()
+
 			if fr != nil && fr.Ready() {
 				fr.ManualRender(uint32(time.Now().UnixMilli() - f.startTime))
 				pending = false
@@ -193,23 +220,75 @@ func (f *NotificationFlyout) Open(anchorX int32) {
 	f.service.MarkAllRead()
 }
 
-func (f *NotificationFlyout) computeHeight(items []Notification) int {
+func (f *NotificationFlyout) lineMetrics() (ascent, descent, lineHeight int) {
+	m := f.face.Metrics()
+	ascent = m.Ascent.Ceil()
+	descent = m.Descent.Ceil()
+	lineHeight = ascent + descent + 3
+	if lineHeight < 15 {
+		lineHeight = 15
+	}
+	return ascent, descent, lineHeight
+}
+
+func (f *NotificationFlyout) layoutCards(items []Notification, width int) ([]cardLayout, int) {
 	if len(items) == 0 {
-		return flyoutHeaderHeight + 36
+		return nil, flyoutHeaderHeight + 44
 	}
-	h := flyoutHeaderHeight + 8
+
+	_, _, lineHeight := f.lineMetrics()
+	cardWidth := width - 2*flyoutOuterPad
+	innerTextWidth := cardWidth - 2*flyoutCardPadX
+	headerMaxWidth := innerTextWidth - 22 // leave room for 'x' button
+
+	layouts := make([]cardLayout, 0, len(items))
+	totalHeight := flyoutHeaderHeight + 4
+
 	for _, n := range items {
-		if n.Body != "" {
-			h += 58 + flyoutCardGap
-		} else {
-			h += 42 + flyoutCardGap
+		appName := n.AppName
+		if appName == "" {
+			appName = "System"
 		}
+		timeStr := n.CreatedAt.Format("15:04")
+		headerRaw := fmt.Sprintf("%s • %s", appName, timeStr)
+		headerText := truncateToWidth(f.face, headerRaw, headerMaxWidth)
+
+		summary := n.Summary
+		if summary == "" {
+			summary = "(No title)"
+		}
+		summaryLines := wrapTextLines(f.face, summary, innerTextWidth, 2)
+
+		var bodyLines []string
+		if n.Body != "" {
+			bodyLines = wrapTextLines(f.face, n.Body, innerTextWidth, 3)
+		}
+
+		linesCount := 1 + len(summaryLines) + len(bodyLines)
+		cardH := 2*flyoutCardPadY + linesCount*lineHeight + 2
+		if len(bodyLines) > 0 {
+			cardH += 2
+		}
+
+		if totalHeight+cardH+flyoutOuterPad > flyoutMaxHeight && len(layouts) > 0 {
+			break
+		}
+
+		layouts = append(layouts, cardLayout{
+			notif:        n,
+			headerText:   headerText,
+			summaryLines: summaryLines,
+			bodyLines:    bodyLines,
+			height:       cardH,
+		})
+		totalHeight += cardH + flyoutCardGap
 	}
-	h += 6
-	if h > 380 {
-		return 380
+
+	totalHeight = totalHeight - flyoutCardGap + flyoutOuterPad
+	if totalHeight > flyoutMaxHeight {
+		totalHeight = flyoutMaxHeight
 	}
-	return h
+	return layouts, totalHeight
 }
 
 func (f *NotificationFlyout) markDirty() {
@@ -263,78 +342,92 @@ func (f *NotificationFlyout) Close() {
 }
 
 func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
-	img := &image.RGBA{
-		Pix:    pixels,
-		Stride: width * 4,
-		Rect:   image.Rect(0, 0, width, height),
-	}
+	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
+	draw.Draw(canvas, canvas.Rect, image.NewUniform(color.RGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x00}), image.Point{}, draw.Src)
 
-	draw.Draw(img, img.Bounds(), image.Transparent, image.Point{}, draw.Src)
-
+	// Container background matching bar modules (#181818, radius 6, draw.Src for clean anti-aliased edges)
 	containerRect := image.Rect(0, 0, width, height)
-	drawRoundedRect(img, containerRect, flyoutCornerRadius, color.RGBA{R: 0x18, G: 0x18, B: 0x18, A: 0xfa}, draw.Over)
+	drawRoundedRect(canvas, containerRect, moduleCornerRadius, color.RGBA{R: 0x18, G: 0x18, B: 0x18, A: 0xff}, draw.Src)
 
-	hits := make([]flyoutHit, 0, 10)
-
+	hits := make([]flyoutHit, 0, 12)
 	items := f.service.List()
+	cards, _ := f.layoutCards(items, width)
+	ascent, _, lineHeight := f.lineMetrics()
 
-	// Header title
+	// Header row
+	headerRect := image.Rect(0, 0, width, flyoutHeaderHeight)
 	title := fmt.Sprintf("Notifications (%d)", len(items))
-	f.drawText(img, 12, 19, title, color.RGBA{R: 0xee, G: 0xee, B: 0xee, A: 0xff})
+	f.drawText(canvas, flyoutOuterPad+4, textBaseline(f.face, headerRect), title, color.RGBA{R: 0xee, G: 0xee, B: 0xee, A: 0xff})
 
 	if len(items) > 0 {
-		clearText := "Clear All"
-		clearX := width - 92
-		clearBtnRect := image.Rect(clearX, 4, width-8, 24)
-		drawRoundedRect(img, clearBtnRect, 4, color.RGBA{R: 0x2d, G: 0x2d, B: 0x2d, A: 0xff}, draw.Over)
-		f.drawText(img, clearX+8, 18, clearText, color.RGBA{R: 0xaa, G: 0xaa, B: 0xaa, A: 0xff})
+		clearText := "Clear"
+		textW := font.MeasureString(f.face, clearText).Ceil()
+		btnW := textW + 14
+		btnH := 20
+		btnX := width - flyoutOuterPad - btnW
+		btnY := (flyoutHeaderHeight - btnH) / 2
+		clearBtnRect := image.Rect(btnX, btnY, btnX+btnW, btnY+btnH)
+		drawRoundedRect(canvas, clearBtnRect, 4, color.RGBA{R: 0x2a, G: 0x2a, B: 0x2a, A: 0xff}, draw.Over)
+		f.drawText(canvas, btnX+7, textBaseline(f.face, clearBtnRect), clearText, color.RGBA{R: 0xcc, G: 0xcc, B: 0xcc, A: 0xff})
 		hits = append(hits, flyoutHit{rect: clearBtnRect, action: "clear_all"})
 	}
 
-	y := flyoutHeaderHeight + 2
-	if len(items) == 0 {
-		f.drawText(img, width/2-55, flyoutHeaderHeight+20, "No notifications", color.RGBA{R: 0x77, G: 0x77, B: 0x77, A: 0xff})
+	if len(cards) == 0 {
+		emptyText := "No notifications"
+		emptyW := font.MeasureString(f.face, emptyText).Ceil()
+		emptyRect := image.Rect(0, flyoutHeaderHeight, width, height)
+		f.drawText(canvas, (width-emptyW)/2, textBaseline(f.face, emptyRect), emptyText, color.RGBA{R: 0x77, G: 0x77, B: 0x77, A: 0xff})
+		writeARGB8888(pixels, canvas)
 		f.mu.Lock()
 		f.hits = hits
 		f.mu.Unlock()
 		return
 	}
 
-	for _, n := range items {
-		cardHeight := 42
-		if n.Body != "" {
-			cardHeight = 58
-		}
-
-		if y+cardHeight > height-4 {
+	y := flyoutHeaderHeight + 2
+	for _, c := range cards {
+		if y+c.height > height-4 {
 			break
 		}
 
-		cardRect := image.Rect(6, y, width-6, y+cardHeight)
-		drawRoundedRect(img, cardRect, 6, color.RGBA{R: 0x24, G: 0x24, B: 0x24, A: 0xff}, draw.Over)
+		cardRect := image.Rect(flyoutOuterPad, y, width-flyoutOuterPad, y+c.height)
+		drawRoundedRect(canvas, cardRect, moduleCornerRadius, color.RGBA{R: 0x22, G: 0x22, B: 0x22, A: 0xff}, draw.Over)
 
-		appName := n.AppName
-		if appName == "" {
-			appName = "System"
+		textX := cardRect.Min.X + flyoutCardPadX
+		curY := cardRect.Min.Y + flyoutCardPadY + ascent
+
+		// 1. Header line (AppName • Time)
+		f.drawText(canvas, textX, curY, c.headerText, color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff})
+
+		// Dismiss '×' button
+		dismissText := "×"
+		dismissW := font.MeasureString(f.face, dismissText).Ceil()
+		dismissRect := image.Rect(cardRect.Max.X-22, cardRect.Min.Y+4, cardRect.Max.X-4, cardRect.Min.Y+22)
+		f.drawText(canvas, dismissRect.Min.X+(dismissRect.Dx()-dismissW)/2, curY, dismissText, color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff})
+		hits = append(hits, flyoutHit{rect: dismissRect, action: "dismiss", notifID: c.notif.ID})
+
+		curY += lineHeight + 1
+
+		// 2. Summary lines
+		for _, line := range c.summaryLines {
+			f.drawText(canvas, textX, curY, line, color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
+			curY += lineHeight
 		}
-		timeStr := n.CreatedAt.Format("15:04")
-		f.drawText(img, 12, y+14, fmt.Sprintf("%s • %s", appName, timeStr), color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff})
 
-		dismissRect := image.Rect(width-26, y+2, width-6, y+20)
-		f.drawText(img, width-18, y+14, "x", color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff})
-		hits = append(hits, flyoutHit{rect: dismissRect, action: "dismiss", notifID: n.ID})
-
-		summary := truncateString(n.Summary, 36)
-		f.drawText(img, 12, y+30, summary, color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
-
-		if n.Body != "" {
-			body := truncateString(n.Body, 42)
-			f.drawText(img, 12, y+46, body, color.RGBA{R: 0xaa, G: 0xaa, B: 0xaa, A: 0xff})
+		// 3. Body lines
+		if len(c.bodyLines) > 0 {
+			curY += 1
+			for _, line := range c.bodyLines {
+				f.drawText(canvas, textX, curY, line, color.RGBA{R: 0xb0, G: 0xb0, B: 0xb0, A: 0xff})
+				curY += lineHeight
+			}
 		}
 
-		hits = append(hits, flyoutHit{rect: cardRect, action: "dismiss", notifID: n.ID})
-		y += cardHeight + flyoutCardGap
+		hits = append(hits, flyoutHit{rect: cardRect, action: "dismiss", notifID: c.notif.ID})
+		y += c.height + flyoutCardGap
 	}
+
+	writeARGB8888(pixels, canvas)
 
 	f.mu.Lock()
 	f.hits = hits
@@ -414,9 +507,99 @@ func (f *NotificationFlyout) HandlePointerButton(ev client.WlPointerButtonEvent)
 	return true
 }
 
-func truncateString(s string, maxLen int) string {
-	if len(s) <= maxLen {
+func truncateToWidth(face font.Face, s string, maxWidth int) string {
+	s = strings.TrimSpace(strings.ReplaceAll(s, "\n", " "))
+	if maxWidth <= 0 || s == "" {
+		return ""
+	}
+	if font.MeasureString(face, s).Ceil() <= maxWidth {
 		return s
 	}
-	return s[:maxLen-3] + "..."
+	ellipsis := "..."
+	ellipsisW := font.MeasureString(face, ellipsis).Ceil()
+	targetW := maxWidth - ellipsisW
+	if targetW <= 0 {
+		return ellipsis
+	}
+
+	runes := []rune(s)
+	for i := len(runes) - 1; i > 0; i-- {
+		candidate := strings.TrimSpace(string(runes[:i]))
+		if font.MeasureString(face, candidate).Ceil() <= targetW {
+			return candidate + ellipsis
+		}
+	}
+	return ellipsis
+}
+
+func wrapTextLines(face font.Face, text string, maxWidth int, maxLines int) []string {
+	if maxWidth <= 0 || maxLines <= 0 {
+		return nil
+	}
+	paragraphs := strings.Split(text, "\n")
+	var lines []string
+
+	for _, para := range paragraphs {
+		words := strings.Fields(para)
+		if len(words) == 0 {
+			continue
+		}
+		current := ""
+		for _, word := range words {
+			// If a single word is wider than maxWidth, split it by runes
+			if font.MeasureString(face, word).Ceil() > maxWidth {
+				if current != "" {
+					lines = append(lines, current)
+					current = ""
+				}
+				for _, part := range splitLongWord(face, word, maxWidth) {
+					if current == "" {
+						current = part
+					} else {
+						lines = append(lines, current)
+						current = part
+					}
+				}
+				continue
+			}
+
+			candidate := word
+			if current != "" {
+				candidate = current + " " + word
+			}
+			if font.MeasureString(face, candidate).Ceil() <= maxWidth {
+				current = candidate
+			} else {
+				lines = append(lines, current)
+				current = word
+			}
+		}
+		if current != "" {
+			lines = append(lines, current)
+		}
+	}
+
+	if len(lines) > maxLines {
+		remaining := strings.Join(lines[maxLines-1:], " ")
+		lines = lines[:maxLines]
+		lines[maxLines-1] = truncateToWidth(face, remaining, maxWidth)
+	}
+	return lines
+}
+
+func splitLongWord(face font.Face, word string, maxWidth int) []string {
+	var parts []string
+	var cur strings.Builder
+	for _, r := range word {
+		cand := cur.String() + string(r)
+		if cur.Len() > 0 && font.MeasureString(face, cand).Ceil() > maxWidth {
+			parts = append(parts, cur.String())
+			cur.Reset()
+		}
+		cur.WriteRune(r)
+	}
+	if cur.Len() > 0 {
+		parts = append(parts, cur.String())
+	}
+	return parts
 }

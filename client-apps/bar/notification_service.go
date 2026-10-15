@@ -1,7 +1,9 @@
 package main
 
 import (
+	"html"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -116,24 +118,66 @@ func (s *NotificationService) notifySubscribers() {
 	}()
 }
 
-func (s *NotificationService) AddNotification(appName, summary, body, appIcon string, urgency byte) uint32 {
-	id := atomic.AddUint32(&s.nextID, 1)
+func cleanNotificationMarkup(input string) string {
+	if input == "" {
+		return ""
+	}
+	s := strings.ReplaceAll(input, "<br>", "\n")
+	s = strings.ReplaceAll(s, "<br/>", "\n")
+	s = strings.ReplaceAll(s, "<br />", "\n")
+
+	// Strip simple HTML tags (<b>, <i>, <u>, <a>, etc.)
+	var b strings.Builder
+	b.Grow(len(s))
+	inTag := false
+	for _, r := range s {
+		if r == '<' {
+			inTag = true
+			continue
+		}
+		if r == '>' && inTag {
+			inTag = false
+			continue
+		}
+		if !inTag {
+			b.WriteRune(r)
+		}
+	}
+	return strings.TrimSpace(html.UnescapeString(b.String()))
+}
+
+func (s *NotificationService) AddNotification(replacesID uint32, appName, summary, body, appIcon string, urgency byte) uint32 {
+	id := replacesID
+	if id == 0 {
+		id = atomic.AddUint32(&s.nextID, 1)
+	}
 
 	n := Notification{
 		ID:        id,
-		AppName:   appName,
-		Summary:   summary,
-		Body:      body,
+		AppName:   strings.TrimSpace(appName),
+		Summary:   cleanNotificationMarkup(summary),
+		Body:      cleanNotificationMarkup(body),
 		AppIcon:   appIcon,
 		CreatedAt: time.Now(),
 		Urgency:   urgency,
 	}
 
 	s.mu.Lock()
-	// Prepend newest first
-	s.notifications = append([]Notification{n}, s.notifications...)
-	if len(s.notifications) > maxStoredNotifications {
-		s.notifications = s.notifications[:maxStoredNotifications]
+	replaced := false
+	if replacesID != 0 {
+		for i := range s.notifications {
+			if s.notifications[i].ID == replacesID {
+				s.notifications[i] = n
+				replaced = true
+				break
+			}
+		}
+	}
+	if !replaced {
+		s.notifications = append([]Notification{n}, s.notifications...)
+		if len(s.notifications) > maxStoredNotifications {
+			s.notifications = s.notifications[:maxStoredNotifications]
+		}
 	}
 	s.hasUnread = true
 	s.mu.Unlock()
@@ -195,24 +239,23 @@ func (s *NotificationService) ClearAll() {
 	s.notifySubscribers()
 }
 
-// notificationDBusServer exports the org.freedesktop.Notifications methods.
 type notificationDBusServer struct {
 	service *NotificationService
 }
 
 func (d *notificationDBusServer) GetCapabilities() ([]string, *dbus.Error) {
-	return []string{"body", "actions", "icon-static"}, nil
+	return []string{"body", "body-markup", "actions", "icon-static"}, nil
 }
 
 func (d *notificationDBusServer) Notify(appName string, replacesID uint32, appIcon string, summary string, body string, actions []string, hints map[string]dbus.Variant, expireTimeout int32) (uint32, *dbus.Error) {
-	urgency := byte(1) // Normal by default
+	urgency := byte(1)
 	if u, ok := hints["urgency"]; ok {
 		if val, ok := u.Value().(byte); ok {
 			urgency = val
 		}
 	}
 
-	id := d.service.AddNotification(appName, summary, body, appIcon, urgency)
+	id := d.service.AddNotification(replacesID, appName, summary, body, appIcon, urgency)
 	return id, nil
 }
 
