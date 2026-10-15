@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"fmt"
 	"image"
 	"image/color"
 	"image/draw"
@@ -216,6 +217,16 @@ func (a *App) HandleCommand(cmd string) {
 		}
 		return
 	}
+	if strings.HasPrefix(cmd, "notif-scroll ") {
+		var delta float64
+		_, _ = fmt.Sscanf(strings.TrimPrefix(cmd, "notif-scroll "), "%f", &delta)
+		for _, bar := range a.bars {
+			if bar.flyout != nil {
+				bar.flyout.ScrollBy(delta)
+			}
+		}
+		return
+	}
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -315,6 +326,18 @@ func (a *App) BindPointer(s *seat.Seat, manager *cursor_shape_v1.WpCursorShapeMa
 
 		for _, bar := range bars {
 			bar.HandlePointerButton(ev)
+		}
+	})
+	pointer.OnAxis(func(ev client.WlPointerAxisEvent) {
+		a.mu.Lock()
+		bars := make([]*Bar, 0, len(a.bars))
+		for _, bar := range a.bars {
+			bars = append(bars, bar)
+		}
+		a.mu.Unlock()
+
+		for _, bar := range bars {
+			bar.HandlePointerAxis(ev)
 		}
 	})
 }
@@ -734,6 +757,12 @@ func (b *Bar) HandlePointerButton(ev client.WlPointerButtonEvent) {
 		}
 		clickable.OnClick(ev.Button)
 		return
+	}
+}
+
+func (b *Bar) HandlePointerAxis(ev client.WlPointerAxisEvent) {
+	if b.flyout != nil {
+		b.flyout.HandlePointerAxis(ev)
 	}
 }
 
