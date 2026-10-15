@@ -19,9 +19,9 @@ import (
 )
 
 const (
-	flyoutWidth        = 320
-	flyoutHeaderHeight = 36
-	flyoutCardHeight   = 62
+	flyoutWidth        = 340
+	flyoutHeaderHeight = 28
+	flyoutCardHeight   = 56
 	flyoutCardGap      = 6
 	flyoutCornerRadius = 8
 )
@@ -100,13 +100,10 @@ func (f *NotificationFlyout) Open(anchorX int32) {
 		return
 	}
 
-	leftMargin := anchorX
-	if leftMargin < barSidePad {
-		leftMargin = barSidePad
-	}
+	leftMargin := int32(barSidePad)
 
 	items := f.service.List()
-	calcHeight := f.computeHeight(len(items))
+	calcHeight := f.computeHeight(items)
 
 	layer, err := shell.NewLayer(surf, f.disp.LayerShell(), shell.LayerConfig{
 		Layer:         shell.LayerPositionTop,
@@ -124,7 +121,7 @@ func (f *NotificationFlyout) Open(anchorX int32) {
 		return
 	}
 
-	topMargin := int32(barHeight + barTopMargin + 2)
+	topMargin := int32(barHeight)
 	if err := layer.SetMargin(topMargin, 0, 0, leftMargin); err != nil {
 		f.mu.Unlock()
 		_ = layer.Close()
@@ -196,11 +193,19 @@ func (f *NotificationFlyout) Open(anchorX int32) {
 	f.service.MarkAllRead()
 }
 
-func (f *NotificationFlyout) computeHeight(count int) int {
-	if count == 0 {
-		return flyoutHeaderHeight + 48
+func (f *NotificationFlyout) computeHeight(items []Notification) int {
+	if len(items) == 0 {
+		return flyoutHeaderHeight + 36
 	}
-	h := flyoutHeaderHeight + 12 + count*(flyoutCardHeight+flyoutCardGap) + 8
+	h := flyoutHeaderHeight + 8
+	for _, n := range items {
+		if n.Body != "" {
+			h += 58 + flyoutCardGap
+		} else {
+			h += 42 + flyoutCardGap
+		}
+	}
+	h += 6
 	if h > 380 {
 		return 380
 	}
@@ -271,26 +276,24 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 
 	hits := make([]flyoutHit, 0, 10)
 
-	// Header
-	headerRect := image.Rect(0, 0, width, flyoutHeaderHeight)
-	drawRoundedRect(img, headerRect, flyoutCornerRadius, color.RGBA{R: 0x22, G: 0x22, B: 0x22, A: 0xff}, draw.Over)
-
 	items := f.service.List()
+
+	// Header title
 	title := fmt.Sprintf("Notifications (%d)", len(items))
-	f.drawText(img, 12, 22, title, color.RGBA{R: 0xee, G: 0xee, B: 0xee, A: 0xff})
+	f.drawText(img, 12, 19, title, color.RGBA{R: 0xee, G: 0xee, B: 0xee, A: 0xff})
 
 	if len(items) > 0 {
 		clearText := "Clear All"
-		clearX := width - 82
-		clearBtnRect := image.Rect(clearX, 6, width-8, 30)
-		drawRoundedRect(img, clearBtnRect, 4, color.RGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xff}, draw.Over)
-		f.drawText(img, clearX+8, 21, clearText, color.RGBA{R: 0xcc, G: 0xcc, B: 0xcc, A: 0xff})
+		clearX := width - 92
+		clearBtnRect := image.Rect(clearX, 4, width-8, 24)
+		drawRoundedRect(img, clearBtnRect, 4, color.RGBA{R: 0x2d, G: 0x2d, B: 0x2d, A: 0xff}, draw.Over)
+		f.drawText(img, clearX+8, 18, clearText, color.RGBA{R: 0xaa, G: 0xaa, B: 0xaa, A: 0xff})
 		hits = append(hits, flyoutHit{rect: clearBtnRect, action: "clear_all"})
 	}
 
-	y := flyoutHeaderHeight + 8
+	y := flyoutHeaderHeight + 2
 	if len(items) == 0 {
-		f.drawText(img, width/2-55, flyoutHeaderHeight+28, "No notifications", color.RGBA{R: 0x77, G: 0x77, B: 0x77, A: 0xff})
+		f.drawText(img, width/2-55, flyoutHeaderHeight+20, "No notifications", color.RGBA{R: 0x77, G: 0x77, B: 0x77, A: 0xff})
 		f.mu.Lock()
 		f.hits = hits
 		f.mu.Unlock()
@@ -298,11 +301,16 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 	}
 
 	for _, n := range items {
-		if y+flyoutCardHeight > height-6 {
+		cardHeight := 42
+		if n.Body != "" {
+			cardHeight = 58
+		}
+
+		if y+cardHeight > height-4 {
 			break
 		}
 
-		cardRect := image.Rect(8, y, width-8, y+flyoutCardHeight)
+		cardRect := image.Rect(6, y, width-6, y+cardHeight)
 		drawRoundedRect(img, cardRect, 6, color.RGBA{R: 0x24, G: 0x24, B: 0x24, A: 0xff}, draw.Over)
 
 		appName := n.AppName
@@ -310,22 +318,22 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 			appName = "System"
 		}
 		timeStr := n.CreatedAt.Format("15:04")
-		f.drawText(img, 14, y+16, fmt.Sprintf("%s • %s", appName, timeStr), color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff})
+		f.drawText(img, 12, y+14, fmt.Sprintf("%s • %s", appName, timeStr), color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff})
 
-		dismissRect := image.Rect(width-28, y+4, width-8, y+24)
-		f.drawText(img, width-22, y+17, "x", color.RGBA{R: 0x99, G: 0x99, B: 0x99, A: 0xff})
+		dismissRect := image.Rect(width-26, y+2, width-6, y+20)
+		f.drawText(img, width-18, y+14, "x", color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff})
 		hits = append(hits, flyoutHit{rect: dismissRect, action: "dismiss", notifID: n.ID})
 
-		summary := truncateString(n.Summary, 32)
-		f.drawText(img, 14, y+34, summary, color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
+		summary := truncateString(n.Summary, 36)
+		f.drawText(img, 12, y+30, summary, color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
 
-		body := truncateString(n.Body, 38)
-		if body != "" {
-			f.drawText(img, 14, y+50, body, color.RGBA{R: 0xaa, G: 0xaa, B: 0xaa, A: 0xff})
+		if n.Body != "" {
+			body := truncateString(n.Body, 42)
+			f.drawText(img, 12, y+46, body, color.RGBA{R: 0xaa, G: 0xaa, B: 0xaa, A: 0xff})
 		}
 
 		hits = append(hits, flyoutHit{rect: cardRect, action: "dismiss", notifID: n.ID})
-		y += flyoutCardHeight + flyoutCardGap
+		y += cardHeight + flyoutCardGap
 	}
 
 	f.mu.Lock()
