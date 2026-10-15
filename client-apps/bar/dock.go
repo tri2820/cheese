@@ -23,18 +23,22 @@ import (
 )
 
 const (
-	dockSurfaceHeight = 108
-	dockShelfHeight   = 50
+	dockSurfaceHeight = 112
+	dockBaseIconSize  = 36.0
+	dockPeakIconSize  = 54.0 // 1.5x base (90/60 in macos-dock-animation-with-css)
+	dockNeighbor1Size = 48.0 // 1.333x base (80/60)
+	dockNeighbor2Size = 42.0 // 1.167x base (70/60)
+	dockMaxOffsetPx   = 3.0  // 5/60 * base
+	dockPadTop        = 8
+	dockPadBottom     = 10
+	dockShelfHeight   = int(dockBaseIconSize) + dockPadTop + dockPadBottom // 54px
 	dockBottomMargin  = 6
-	dockShelfRadius   = 16
-	dockPadX          = 10
-	dockItemPadX      = 4
+	dockWindowGap     = 6
+	dockExclusiveZone = dockBottomMargin + dockShelfHeight + dockWindowGap // 66px
+	dockShelfRadius   = 12.0
+	dockPadX          = 12
+	dockItemPadX      = 6
 	dockGroupGap      = 12
-	dockBaseIconSize  = 38.0
-	dockPeakIconSize  = 57.0 // 1.5x base (90/60 in macos-dock-animation-with-css)
-	dockNeighbor1Size = 50.7 // 1.333x base (80/60)
-	dockNeighbor2Size = 44.3 // 1.167x base (70/60)
-	dockMaxOffsetPx   = 3.5  // 5/60 * base
 	dockSourceIconPx  = 64
 )
 
@@ -88,7 +92,7 @@ func NewDock(disp *display.Display, output *display.Output, niri *NiriService, i
 		Anchor:        shell.AnchorBottom | shell.AnchorLeft | shell.AnchorRight,
 		Width:         0,
 		Height:        dockSurfaceHeight,
-		ExclusiveZone: 0,
+		ExclusiveZone: int32(dockExclusiveZone),
 		Output:        output.WlOutput(),
 	})
 	if err != nil {
@@ -107,18 +111,19 @@ func NewDock(disp *display.Display, output *display.Output, niri *NiriService, i
 	}
 
 	d := &Dock{
-		disp:       disp,
-		output:     output,
-		niri:       niri,
-		icons:      icons,
-		face:       loadBarFont(output),
-		surface:    surf,
-		layer:      layer,
-		frame:      frame,
-		hoveredIdx: -1,
-		dirtyCh:    make(chan struct{}, 1),
-		stop:       make(chan struct{}),
-		startTime:  time.Now().UnixMilli(),
+		disp:        disp,
+		output:      output,
+		niri:        niri,
+		icons:       icons,
+		face:        loadBarFont(output),
+		surface:     surf,
+		layer:       layer,
+		frame:       frame,
+		hoveredIdx:  -1,
+		hasExclZone: true,
+		dirtyCh:     make(chan struct{}, 1),
+		stop:        make(chan struct{}),
+		startTime:   time.Now().UnixMilli(),
 	}
 
 	frame.SetRender(func(width, height int, frameTime uint32, pixels []byte) {
@@ -215,13 +220,17 @@ func (d *Dock) renderLoop() {
 		d.hasExclZone = hasItems
 		fr := d.frame
 		ly := d.layer
+		sf := d.surface
 		d.mu.Unlock()
 
 		if exclChanged && ly != nil {
 			if hasItems {
-				_ = ly.SetExclusiveZone(int32(dockShelfHeight + dockBottomMargin))
+				_ = ly.SetExclusiveZone(int32(dockExclusiveZone))
 			} else {
 				_ = ly.SetExclusiveZone(0)
+			}
+			if sf != nil {
+				_ = sf.Commit()
 			}
 		}
 
@@ -363,15 +372,14 @@ func (d *Dock) draw(width, height int, pixels []byte) {
 	pillTop := pillBottom - dockShelfHeight
 	pillRect := image.Rect(pillX, pillTop, pillX+pillWidth, pillBottom)
 
-	// Draw macOS-style dock shelf background (#181818 with subtle top/inner border highlight)
-	drawRoundedRect(canvas, pillRect, dockShelfRadius, color.RGBA{R: 0x2a, G: 0x2a, B: 0x2a, A: 0xff}, draw.Src)
-	innerPill := image.Rect(pillRect.Min.X+1, pillRect.Min.Y+1, pillRect.Max.X-1, pillRect.Max.Y-1)
-	drawRoundedRect(canvas, innerPill, dockShelfRadius-1, color.RGBA{R: 0x18, G: 0x18, B: 0x18, A: 0xff}, draw.Src)
+	// Draw borderless dock shelf background (#181818) with continuous SDF anti-aliasing
+	drawSmoothRoundedRect(canvas, pillRect, dockShelfRadius, color.RGBA{R: 0x18, G: 0x18, B: 0x18, A: 0xff}, draw.Src)
 
 	slots := make([]dockSlotHit, 0, len(entries))
 	x := pillX + dockPadX
-	// Base icon bottom baseline sits 8px above the bottom of the dock shelf
-	iconBottomY := pillBottom - 8
+	// Base icon bottom baseline sits dockPadBottom (12px) above the bottom of the dock shelf,
+	// leaving dockPadTop (10px) above the resting icon.
+	iconBottomY := pillBottom - dockPadBottom
 
 	var tooltipTitle string
 	var tooltipCenterX int
@@ -388,12 +396,12 @@ func (d *Dock) draw(width, height int, pixels []byte) {
 		if entry.icon != nil {
 			xdraw.CatmullRom.Scale(canvas, iconRect, entry.icon, entry.icon.Bounds(), xdraw.Over, nil)
 		} else {
-			drawRoundedRect(canvas, iconRect, 8, color.RGBA{R: 0x44, G: 0x44, B: 0x44, A: 0xff}, draw.Over)
+			drawSmoothRoundedRect(canvas, iconRect, 8, color.RGBA{R: 0x44, G: 0x44, B: 0x44, A: 0xff}, draw.Over)
 		}
 
-		// Active / focused window indicator dot beneath the icon
+		// Active / focused window indicator dot centered in the bottom padding
 		dotCenterX := float64(x) + float64(slotW)/2.0
-		dotCenterY := float64(pillBottom - 4)
+		dotCenterY := float64(pillBottom) - float64(dockPadBottom)/2.0
 		if entry.window.IsFocused {
 			drawSmoothCircle(canvas, dotCenterX, dotCenterY, 2.2, color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
 		} else {
@@ -418,10 +426,9 @@ func (d *Dock) draw(width, height int, pixels []byte) {
 
 		x += slotW
 		if entry.groupEnd {
-			// Draw subtle macOS dock separator line between workspace groups
 			sepX := x + dockGroupGap/2
-			sepRect := image.Rect(sepX, pillTop+10, sepX+1, pillBottom-10)
-			draw.Draw(canvas, sepRect, image.NewUniform(color.RGBA{R: 0x3a, G: 0x3a, B: 0x3a, A: 0xff}), image.Point{}, draw.Over)
+			sepRect := image.Rect(sepX, pillTop+12, sepX+1, pillBottom-12)
+			draw.Draw(canvas, sepRect, image.NewUniform(color.RGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xff}), image.Point{}, draw.Over)
 			x += dockGroupGap
 		}
 	}
@@ -444,7 +451,7 @@ func (d *Dock) draw(width, height int, pixels []byte) {
 			tipY = 2
 		}
 		tipRect := image.Rect(tipX, tipY, tipX+tipW, tipY+tipH)
-		drawRoundedRect(canvas, tipRect, 6, color.RGBA{R: 0x18, G: 0x18, B: 0x18, A: 0xf2}, draw.Over)
+		drawSmoothRoundedRect(canvas, tipRect, 6.0, color.RGBA{R: 0x18, G: 0x18, B: 0x18, A: 0xf2}, draw.Over)
 		drawer := font.Drawer{
 			Dst:  canvas,
 			Src:  image.NewUniform(color.RGBA{R: 0xee, G: 0xee, B: 0xee, A: 0xff}),
@@ -472,6 +479,61 @@ func (d *Dock) draw(width, height int, pixels []byte) {
 	d.mu.Unlock()
 
 	d.updateInputRegion(inputRect)
+}
+
+// drawSmoothRoundedRect renders a rounded rectangle using continuous analytic SDF coverage
+// (256 sub-pixel alpha levels) for smooth, non-rasterized corners.
+func drawSmoothRoundedRect(dst *image.RGBA, rect image.Rectangle, radius float64, col color.RGBA, op draw.Op) {
+	if rect.Empty() {
+		return
+	}
+	hx := float64(rect.Dx()) / 2.0
+	hy := float64(rect.Dy()) / 2.0
+	r := radius
+	if r > hx {
+		r = hx
+	}
+	if r > hy {
+		r = hy
+	}
+	if r <= 0 {
+		draw.Draw(dst, rect, image.NewUniform(col), image.Point{}, op)
+		return
+	}
+
+	cx := float64(rect.Min.X) + hx
+	cy := float64(rect.Min.Y) + hy
+	innerHx := hx - r
+	innerHy := hy - r
+	src := color.NRGBAModel.Convert(col).(color.NRGBA)
+
+	for y := rect.Min.Y; y < rect.Max.Y; y++ {
+		py := float64(y) + 0.5
+		qy := math.Abs(py-cy) - innerHy
+		for x := rect.Min.X; x < rect.Max.X; x++ {
+			px := float64(x) + 0.5
+			qx := math.Abs(px-cx) - innerHx
+
+			var dist float64
+			if qx <= 0 && qy <= 0 {
+				// Strictly inside the non-corner region
+				dist = math.Max(qx, qy) - r
+			} else {
+				outX := math.Max(qx, 0)
+				outY := math.Max(qy, 0)
+				dist = math.Hypot(outX, outY) - r
+			}
+
+			coverage := 0.5 - dist
+			if coverage <= 0 {
+				continue
+			}
+			if coverage > 1 {
+				coverage = 1
+			}
+			drawRoundedRectPixel(dst, x, y, src, coverage, op)
+		}
+	}
 }
 
 func (d *Dock) HandlePointerEnter(ev client.WlPointerEnterEvent) {
