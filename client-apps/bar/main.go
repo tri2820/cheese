@@ -208,6 +208,14 @@ func (a *App) HandleCommand(cmd string) {
 		a.requestShutdown()
 		return
 	}
+	if cmd == "notif-toggle" {
+		for _, bar := range a.bars {
+			if bar.flyout != nil {
+				bar.flyout.Toggle(20)
+			}
+		}
+		return
+	}
 
 	a.mu.Lock()
 	defer a.mu.Unlock()

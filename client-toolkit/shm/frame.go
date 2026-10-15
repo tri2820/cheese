@@ -163,7 +163,7 @@ func (f *Frame) render(time uint32) {
 
 	pixels, err := f.swapchain.Acquire()
 	if err != nil {
-		if !errors.Is(err, ErrNoFreeBuffer) {
+		if !errors.Is(err, ErrNoFreeBuffer) && !errors.Is(err, ErrBufferAlreadyAcquired) {
 			f.emitError(fmt.Errorf("acquire swapchain buffer: %w", err))
 		}
 		return

@@ -96,7 +96,9 @@ func (c *Context) Dispatch() error {
 
 	sender, ok := c.objects[senderID]
 	if !ok {
-		return fmt.Errorf("ctx.Dispatch: unable to find sender (senderID=%d)", senderID)
+		// In Wayland, events for recently destroyed objects can still be in flight.
+		// Ignore them rather than terminating the connection.
+		return nil
 	}
 
 	dispatcher, ok := sender.(Dispatcher)
