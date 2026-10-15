@@ -18,6 +18,7 @@ import (
 	"github.com/tri2820/cheese/client-toolkit/shm"
 	"github.com/tri2820/cheese/client-toolkit/surface"
 	"github.com/tri2820/cheese/protocols/client"
+	"github.com/tri2820/cheese/protocols/cursor_shape_v1"
 	xdraw "golang.org/x/image/draw"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
@@ -639,7 +640,29 @@ func drawSmoothRoundedRect(dst *image.RGBA, rect image.Rectangle, radius float64
 	}
 }
 
-func (d *Dock) HandlePointerEnter(ev client.WlPointerEnterEvent) {
+func (d *Dock) updateCursorShapeLocked(cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
+	if cursor == nil || !d.hover.inside || d.hover.serial == 0 {
+		return
+	}
+	pt := image.Pt(d.hover.x, d.hover.y)
+	clickable := false
+	for _, slot := range d.slots {
+		if pt.X >= slot.rect.Min.X && pt.X < slot.rect.Max.X && pt.Y >= slot.rect.Min.Y && pt.Y <= slot.rect.Max.Y {
+			clickable = true
+			break
+		}
+	}
+	shape := cursor_shape_v1.WpCursorShapeDeviceV1ShapeDefault
+	if clickable {
+		shape = cursor_shape_v1.WpCursorShapeDeviceV1ShapePointer
+	}
+	if shape != d.hover.shape {
+		_ = cursor.SetShape(d.hover.serial, shape)
+		d.hover.shape = shape
+	}
+}
+
+func (d *Dock) HandlePointerEnter(ev client.WlPointerEnterEvent, cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
 	d.mu.Lock()
 	if d.closed || d.surface == nil || ev.Surface != d.surface.WlSurface() {
 		d.mu.Unlock()
@@ -648,23 +671,30 @@ func (d *Dock) HandlePointerEnter(ev client.WlPointerEnterEvent) {
 	d.hover.inside = true
 	d.hover.x = int(ev.SurfaceX)
 	d.hover.y = int(ev.SurfaceY)
+	d.hover.serial = ev.Serial
+	d.hover.shape = 0
+	d.updateCursorShapeLocked(cursor)
 	d.mu.Unlock()
 	d.markDirty()
 }
 
-func (d *Dock) HandlePointerLeave(ev client.WlPointerLeaveEvent) {
+func (d *Dock) HandlePointerLeave(ev client.WlPointerLeaveEvent, cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
 	d.mu.Lock()
 	if d.closed || d.surface == nil || ev.Surface != d.surface.WlSurface() {
 		d.mu.Unlock()
 		return
 	}
 	d.hover.inside = false
+	d.hover.shape = 0
 	d.hoveredIdx = -1
 	d.mu.Unlock()
+	if cursor != nil {
+		_ = cursor.SetShape(ev.Serial, cursor_shape_v1.WpCursorShapeDeviceV1ShapeDefault)
+	}
 	d.markDirty()
 }
 
-func (d *Dock) HandlePointerMotion(ev client.WlPointerMotionEvent) {
+func (d *Dock) HandlePointerMotion(ev client.WlPointerMotionEvent, cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
 	d.mu.Lock()
 	if d.closed || !d.hover.inside {
 		d.mu.Unlock()
@@ -672,6 +702,7 @@ func (d *Dock) HandlePointerMotion(ev client.WlPointerMotionEvent) {
 	}
 	d.hover.x = int(ev.SurfaceX)
 	d.hover.y = int(ev.SurfaceY)
+	d.updateCursorShapeLocked(cursor)
 	d.mu.Unlock()
 	d.markDirty()
 }

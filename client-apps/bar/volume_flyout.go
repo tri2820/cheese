@@ -15,6 +15,7 @@ import (
 	"github.com/tri2820/cheese/client-toolkit/shm"
 	"github.com/tri2820/cheese/client-toolkit/surface"
 	"github.com/tri2820/cheese/protocols/client"
+	"github.com/tri2820/cheese/protocols/cursor_shape_v1"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )
@@ -474,7 +475,23 @@ func (f *VolumeFlyout) setVolumeFromX(x int) {
 	_ = f.audio.SetSinkVolume(pct)
 }
 
-func (f *VolumeFlyout) HandlePointerEnter(ev client.WlPointerEnterEvent) {
+func (f *VolumeFlyout) updateCursorShapeLocked(cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
+	if cursor == nil || !f.hover.inside || f.hover.serial == 0 {
+		return
+	}
+	x := f.hover.x
+	clickable := f.dragging || (x >= 6 && x <= volMuteRectMaxX) || (x >= volTrackMinX-8 && x <= volTrackMaxX+8)
+	shape := cursor_shape_v1.WpCursorShapeDeviceV1ShapeDefault
+	if clickable {
+		shape = cursor_shape_v1.WpCursorShapeDeviceV1ShapePointer
+	}
+	if shape != f.hover.shape {
+		_ = cursor.SetShape(f.hover.serial, shape)
+		f.hover.shape = shape
+	}
+}
+
+func (f *VolumeFlyout) HandlePointerEnter(ev client.WlPointerEnterEvent, cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if !f.isOpen {
@@ -482,6 +499,9 @@ func (f *VolumeFlyout) HandlePointerEnter(ev client.WlPointerEnterEvent) {
 	}
 	if f.backdropSurf != nil && ev.Surface == f.backdropSurf.WlSurface() {
 		f.backdropHover = true
+		if cursor != nil {
+			_ = cursor.SetShape(ev.Serial, cursor_shape_v1.WpCursorShapeDeviceV1ShapeDefault)
+		}
 		return
 	}
 	if f.surface == nil || ev.Surface != f.surface.WlSurface() {
@@ -490,9 +510,12 @@ func (f *VolumeFlyout) HandlePointerEnter(ev client.WlPointerEnterEvent) {
 	f.hover.inside = true
 	f.hover.x = int(ev.SurfaceX)
 	f.hover.y = int(ev.SurfaceY)
+	f.hover.serial = ev.Serial
+	f.hover.shape = 0
+	f.updateCursorShapeLocked(cursor)
 }
 
-func (f *VolumeFlyout) HandlePointerLeave(ev client.WlPointerLeaveEvent) {
+func (f *VolumeFlyout) HandlePointerLeave(ev client.WlPointerLeaveEvent, cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if !f.isOpen {
@@ -506,10 +529,14 @@ func (f *VolumeFlyout) HandlePointerLeave(ev client.WlPointerLeaveEvent) {
 		return
 	}
 	f.hover.inside = false
+	f.hover.shape = 0
 	f.dragging = false
+	if cursor != nil {
+		_ = cursor.SetShape(ev.Serial, cursor_shape_v1.WpCursorShapeDeviceV1ShapeDefault)
+	}
 }
 
-func (f *VolumeFlyout) HandlePointerMotion(ev client.WlPointerMotionEvent) {
+func (f *VolumeFlyout) HandlePointerMotion(ev client.WlPointerMotionEvent, cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
 	f.mu.Lock()
 	if !f.isOpen || !f.hover.inside {
 		f.mu.Unlock()
@@ -519,6 +546,7 @@ func (f *VolumeFlyout) HandlePointerMotion(ev client.WlPointerMotionEvent) {
 	f.hover.y = int(ev.SurfaceY)
 	dragging := f.dragging
 	x := f.hover.x
+	f.updateCursorShapeLocked(cursor)
 	f.mu.Unlock()
 
 	if dragging {

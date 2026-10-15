@@ -16,6 +16,7 @@ import (
 	"github.com/tri2820/cheese/client-toolkit/shm"
 	"github.com/tri2820/cheese/client-toolkit/surface"
 	"github.com/tri2820/cheese/protocols/client"
+	"github.com/tri2820/cheese/protocols/cursor_shape_v1"
 	"golang.org/x/image/font"
 	"golang.org/x/image/math/fixed"
 )
@@ -37,6 +38,8 @@ type flyoutPointerState struct {
 	inside bool
 	x      int
 	y      int
+	serial uint32
+	shape  cursor_shape_v1.WpCursorShapeDeviceV1Shape
 }
 
 type flyoutHit struct {
@@ -630,8 +633,10 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 		headerX := textX
 		if c.notif.Unread {
 			dotX := math.Floor(float64(textX)+3.0) + 0.5
-			dotY := math.Floor(float64(curY)-float64(ascent)/2.0+1.0) + 0.5
-			drawSmoothCircle(vpCanvas, dotX, dotY, 3.2, color.RGBA{R: 0x3b, G: 0x82, B: 0xf6, A: 0xff})
+			glyphBounds, _ := font.BoundString(f.face, "A0")
+			glyphCenterOffset := float64(glyphBounds.Min.Y+glyphBounds.Max.Y) / 128.0
+			dotY := math.Floor(float64(curY)+glyphCenterOffset+1.0) + 0.5
+			drawSmoothCircle(vpCanvas, dotX, dotY, 3.0, color.RGBA{R: 0x3b, G: 0x82, B: 0xf6, A: 0xff})
 			headerX += flyoutUnreadDotWidth
 		}
 		f.drawText(vpCanvas, headerX, curY, c.headerText, color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff})
@@ -743,7 +748,34 @@ func (f *NotificationFlyout) drawText(dst draw.Image, x, y int, text string, col
 	drawer.DrawString(text)
 }
 
-func (f *NotificationFlyout) HandlePointerEnter(ev client.WlPointerEnterEvent) {
+func (f *NotificationFlyout) updateCursorShapeLocked(cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
+	if cursor == nil || !f.hover.inside || f.hover.serial == 0 {
+		return
+	}
+	pt := image.Pt(f.hover.x, f.hover.y)
+	clickable := f.draggingScrollbar
+	if !clickable && f.scrollMax > 0 && !f.scrollHitRect.Empty() && pt.In(f.scrollHitRect) {
+		clickable = true
+	}
+	if !clickable {
+		for _, hit := range f.hits {
+			if pt.In(hit.rect) {
+				clickable = true
+				break
+			}
+		}
+	}
+	shape := cursor_shape_v1.WpCursorShapeDeviceV1ShapeDefault
+	if clickable {
+		shape = cursor_shape_v1.WpCursorShapeDeviceV1ShapePointer
+	}
+	if shape != f.hover.shape {
+		_ = cursor.SetShape(f.hover.serial, shape)
+		f.hover.shape = shape
+	}
+}
+
+func (f *NotificationFlyout) HandlePointerEnter(ev client.WlPointerEnterEvent, cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
 	f.mu.Lock()
 	if !f.isOpen {
 		f.mu.Unlock()
@@ -752,6 +784,9 @@ func (f *NotificationFlyout) HandlePointerEnter(ev client.WlPointerEnterEvent) {
 	if f.backdropSurf != nil && ev.Surface == f.backdropSurf.WlSurface() {
 		f.backdropHover = true
 		f.mu.Unlock()
+		if cursor != nil {
+			_ = cursor.SetShape(ev.Serial, cursor_shape_v1.WpCursorShapeDeviceV1ShapeDefault)
+		}
 		return
 	}
 	if f.surface == nil || ev.Surface != f.surface.WlSurface() {
@@ -761,11 +796,14 @@ func (f *NotificationFlyout) HandlePointerEnter(ev client.WlPointerEnterEvent) {
 	f.hover.inside = true
 	f.hover.x = int(ev.SurfaceX)
 	f.hover.y = int(ev.SurfaceY)
+	f.hover.serial = ev.Serial
+	f.hover.shape = 0
+	f.updateCursorShapeLocked(cursor)
 	f.mu.Unlock()
 	f.markDirty()
 }
 
-func (f *NotificationFlyout) HandlePointerLeave(ev client.WlPointerLeaveEvent) {
+func (f *NotificationFlyout) HandlePointerLeave(ev client.WlPointerLeaveEvent, cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
 	f.mu.Lock()
 	if !f.isOpen {
 		f.mu.Unlock()
@@ -781,12 +819,16 @@ func (f *NotificationFlyout) HandlePointerLeave(ev client.WlPointerLeaveEvent) {
 		return
 	}
 	f.hover.inside = false
+	f.hover.shape = 0
 	f.draggingScrollbar = false
 	f.mu.Unlock()
+	if cursor != nil {
+		_ = cursor.SetShape(ev.Serial, cursor_shape_v1.WpCursorShapeDeviceV1ShapeDefault)
+	}
 	f.markDirty()
 }
 
-func (f *NotificationFlyout) HandlePointerMotion(ev client.WlPointerMotionEvent) {
+func (f *NotificationFlyout) HandlePointerMotion(ev client.WlPointerMotionEvent, cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
 	f.mu.Lock()
 	if !f.isOpen || !f.hover.inside {
 		f.mu.Unlock()
@@ -805,6 +847,7 @@ func (f *NotificationFlyout) HandlePointerMotion(ev client.WlPointerMotionEvent)
 		}
 		f.scrollOffset = next
 	}
+	f.updateCursorShapeLocked(cursor)
 	f.mu.Unlock()
 	f.markDirty()
 }

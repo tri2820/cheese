@@ -836,13 +836,13 @@ func (b *Bar) drawRight(dst draw.Image, rect image.Rectangle, mods []Module, hit
 
 func (b *Bar) HandlePointerEnter(ev client.WlPointerEnterEvent, cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
 	if b.flyout != nil {
-		b.flyout.HandlePointerEnter(ev)
+		b.flyout.HandlePointerEnter(ev, cursor)
 	}
 	if b.volFlyout != nil {
-		b.volFlyout.HandlePointerEnter(ev)
+		b.volFlyout.HandlePointerEnter(ev, cursor)
 	}
 	if b.dock != nil {
-		b.dock.HandlePointerEnter(ev)
+		b.dock.HandlePointerEnter(ev, cursor)
 	}
 
 	if b.surface == nil || ev.Surface != b.surface.WlSurface() {
@@ -864,13 +864,13 @@ func (b *Bar) HandlePointerEnter(ev client.WlPointerEnterEvent, cursor *cursor_s
 
 func (b *Bar) HandlePointerLeave(ev client.WlPointerLeaveEvent, cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
 	if b.flyout != nil {
-		b.flyout.HandlePointerLeave(ev)
+		b.flyout.HandlePointerLeave(ev, cursor)
 	}
 	if b.volFlyout != nil {
-		b.volFlyout.HandlePointerLeave(ev)
+		b.volFlyout.HandlePointerLeave(ev, cursor)
 	}
 	if b.dock != nil {
-		b.dock.HandlePointerLeave(ev)
+		b.dock.HandlePointerLeave(ev, cursor)
 	}
 
 	if b.surface == nil || ev.Surface != b.surface.WlSurface() {
@@ -891,13 +891,13 @@ func (b *Bar) HandlePointerLeave(ev client.WlPointerLeaveEvent, cursor *cursor_s
 
 func (b *Bar) HandlePointerMotion(ev client.WlPointerMotionEvent, cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
 	if b.flyout != nil {
-		b.flyout.HandlePointerMotion(ev)
+		b.flyout.HandlePointerMotion(ev, cursor)
 	}
 	if b.volFlyout != nil {
-		b.volFlyout.HandlePointerMotion(ev)
+		b.volFlyout.HandlePointerMotion(ev, cursor)
 	}
 	if b.dock != nil {
-		b.dock.HandlePointerMotion(ev)
+		b.dock.HandlePointerMotion(ev, cursor)
 	}
 
 	b.drawMu.Lock()
