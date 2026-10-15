@@ -15,7 +15,6 @@ import (
 	"github.com/tri2820/cheese/client-toolkit/surface"
 	"github.com/tri2820/cheese/protocols/client"
 	"golang.org/x/image/font"
-	"golang.org/x/image/font/basicfont"
 	"golang.org/x/image/math/fixed"
 )
 
@@ -65,7 +64,7 @@ func NewNotificationFlyout(disp *display.Display, output *display.Output, servic
 		output:    output,
 		service:   service,
 		icons:     icons,
-		face:      basicfont.Face7x13,
+		face:      loadBarFont(output),
 		startTime: time.Now().UnixMilli(),
 	}
 }
@@ -102,7 +101,7 @@ func (f *NotificationFlyout) Open(anchorX int32) {
 		return
 	}
 
-	leftMargin := anchorX - 20
+	leftMargin := anchorX
 	if leftMargin < barSidePad {
 		leftMargin = barSidePad
 	}
@@ -123,7 +122,7 @@ func (f *NotificationFlyout) Open(anchorX int32) {
 		return
 	}
 
-	topMargin := int32(barHeight + barTopMargin + 6)
+	topMargin := int32(barHeight + barTopMargin + 2)
 	if err := layer.SetMargin(topMargin, 0, 0, leftMargin); err != nil {
 		f.mu.Unlock()
 		_ = layer.Close()
@@ -256,8 +255,7 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 	draw.Draw(img, img.Bounds(), image.Transparent, image.Point{}, draw.Src)
 
 	containerRect := image.Rect(0, 0, width, height)
-	drawRoundedRect(img, containerRect, flyoutCornerRadius, color.RGBA{R: 0x18, G: 0x18, B: 0x18, A: 0xf4}, draw.Over)
-	drawOutline(img, containerRect, flyoutCornerRadius, color.RGBA{R: 0x36, G: 0x36, B: 0x36, A: 0xff})
+	drawRoundedRect(img, containerRect, flyoutCornerRadius, color.RGBA{R: 0x18, G: 0x18, B: 0x18, A: 0xf8}, draw.Over)
 
 	hits := make([]flyoutHit, 0, 10)
 
