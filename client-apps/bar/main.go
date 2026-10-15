@@ -81,30 +81,32 @@ func main() {
 }
 
 type App struct {
-	mu           sync.Mutex
-	bars         map[*client.WlOutput]*Bar
-	listener     net.Listener
-	socketPath   string
-	audio        *AudioService
-	network      *NetworkService
-	bluetooth    *BluetoothService
-	niri         *NiriService
-	icons        *IconResolver
-	shutdown     func()
-	shutdownOnce sync.Once
-	shuttingDown bool
-	closed       bool
+	mu            sync.Mutex
+	bars          map[*client.WlOutput]*Bar
+	listener      net.Listener
+	socketPath    string
+	audio         *AudioService
+	network       *NetworkService
+	bluetooth     *BluetoothService
+	niri          *NiriService
+	icons         *IconResolver
+	notifications *NotificationService
+	shutdown      func()
+	shutdownOnce  sync.Once
+	shuttingDown  bool
+	closed        bool
 }
 
 func NewApp(shutdown func()) *App {
 	return &App{
-		bars:      make(map[*client.WlOutput]*Bar),
-		audio:     NewAudioService(),
-		network:   NewNetworkService(),
-		bluetooth: NewBluetoothService(),
-		niri:      NewNiriService(),
-		icons:     NewIconResolver(),
-		shutdown:  shutdown,
+		bars:          make(map[*client.WlOutput]*Bar),
+		audio:         NewAudioService(),
+		network:       NewNetworkService(),
+		bluetooth:     NewBluetoothService(),
+		niri:          NewNiriService(),
+		icons:         NewIconResolver(),
+		notifications: NewNotificationService(),
+		shutdown:      shutdown,
 	}
 }
 
@@ -135,6 +137,8 @@ func (a *App) Close() {
 	a.bluetooth = nil
 	niri := a.niri
 	a.niri = nil
+	notifications := a.notifications
+	a.notifications = nil
 	a.mu.Unlock()
 
 	if listener != nil {
@@ -157,6 +161,9 @@ func (a *App) Close() {
 	}
 	if niri != nil {
 		niri.Close()
+	}
+	if notifications != nil {
+		notifications.Close()
 	}
 }
 
@@ -292,7 +299,7 @@ func (a *App) AddBar(disp *display.Display, output *display.Output) {
 		return
 	}
 
-	bar, err := NewBar(disp, output, a.audio, a.network, a.bluetooth, a.niri, a.icons)
+	bar, err := NewBar(disp, output, a.audio, a.network, a.bluetooth, a.niri, a.icons, a.notifications)
 	if err != nil {
 		log.Printf("Failed to create bar for %s: %v", output.Name, err)
 		return
@@ -322,6 +329,7 @@ type Bar struct {
 	layer         *shell.LayerSurface
 	frame         *shm.Frame
 	face          font.Face
+	flyout        *NotificationFlyout
 	leftModules   []Module
 	centerModules []Module
 	rightModules  []Module
@@ -352,7 +360,7 @@ type pointerState struct {
 	rect   image.Rectangle
 }
 
-func NewBar(disp *display.Display, output *display.Output, audio *AudioService, network *NetworkService, bluetooth *BluetoothService, niri *NiriService, icons *IconResolver) (*Bar, error) {
+func NewBar(disp *display.Display, output *display.Output, audio *AudioService, network *NetworkService, bluetooth *BluetoothService, niri *NiriService, icons *IconResolver, notifications *NotificationService) (*Bar, error) {
 	surf, err := surface.New(disp.Compositor())
 	if err != nil {
 		return nil, err
@@ -399,7 +407,11 @@ func NewBar(disp *display.Display, output *display.Output, audio *AudioService, 
 		startTime: time.Now().UnixMilli(),
 	}
 
+	flyout := NewNotificationFlyout(disp, output, notifications, icons)
+	b.flyout = flyout
+
 	b.leftModules = []Module{
+		NewNotificationModule(notifications, flyout),
 		NewTaskbarModule(output.Name, niri, icons),
 	}
 	b.centerModules = []Module{
@@ -479,6 +491,10 @@ func (b *Bar) Close() {
 	}
 	b.closed = true
 	close(b.stop)
+
+	if b.flyout != nil {
+		b.flyout.Close()
+	}
 
 	for _, mod := range append([]Module{}, b.leftModules...) {
 		mod.Close()
@@ -597,6 +613,10 @@ func (b *Bar) drawRight(dst draw.Image, rect image.Rectangle, mods []Module, hit
 }
 
 func (b *Bar) HandlePointerEnter(ev client.WlPointerEnterEvent, cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
+	if b.flyout != nil {
+		b.flyout.HandlePointerEnter(ev)
+	}
+
 	if ev.Surface != b.surface.WlSurface() {
 		return
 	}
@@ -615,6 +635,10 @@ func (b *Bar) HandlePointerEnter(ev client.WlPointerEnterEvent, cursor *cursor_s
 }
 
 func (b *Bar) HandlePointerLeave(ev client.WlPointerLeaveEvent, cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
+	if b.flyout != nil {
+		b.flyout.HandlePointerLeave(ev)
+	}
+
 	if ev.Surface != b.surface.WlSurface() {
 		return
 	}
@@ -632,6 +656,10 @@ func (b *Bar) HandlePointerLeave(ev client.WlPointerLeaveEvent, cursor *cursor_s
 }
 
 func (b *Bar) HandlePointerMotion(ev client.WlPointerMotionEvent, cursor *cursor_shape_v1.WpCursorShapeDeviceV1) {
+	if b.flyout != nil {
+		b.flyout.HandlePointerMotion(ev)
+	}
+
 	b.drawMu.Lock()
 	if !b.hover.inside {
 		b.drawMu.Unlock()
@@ -648,6 +676,10 @@ func (b *Bar) HandlePointerMotion(ev client.WlPointerMotionEvent, cursor *cursor
 }
 
 func (b *Bar) HandlePointerButton(ev client.WlPointerButtonEvent) {
+	if b.flyout != nil && b.flyout.HandlePointerButton(ev) {
+		return
+	}
+
 	if ev.State != client.WlPointerButtonStatePressed {
 		return
 	}
