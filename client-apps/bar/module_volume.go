@@ -38,6 +38,10 @@ func (m *VolumeModule) Close() {
 	}
 }
 
+func (m *VolumeModule) HoverRect(rect image.Rectangle, _ image.Point) (image.Rectangle, bool) {
+	return rect, true
+}
+
 func (m *VolumeModule) OnClickAt(button uint32, rect image.Rectangle, _ image.Point) bool {
 	if button == 0x110 {
 		if m.flyout != nil {
@@ -52,12 +56,6 @@ func (m *VolumeModule) OnClickAt(button uint32, rect image.Rectangle, _ image.Po
 		return true
 	}
 	return false
-}
-
-func (m *VolumeModule) OnClick(button uint32) {
-	if button == 0x110 && m.flyout != nil {
-		m.flyout.Toggle(image.Rect(0, 0, 100, barHeight))
-	}
 }
 
 func volumeIcon(level int, muted bool) string {

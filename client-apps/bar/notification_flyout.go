@@ -58,11 +58,16 @@ type NotificationFlyout struct {
 	service       *NotificationService
 	icons         *IconResolver
 	face          font.Face
+	onCloseAll    func()
 	mu            sync.Mutex
 	isOpen        bool
 	surface       *surface.Surface
 	layer         *shell.LayerSurface
 	frame         *shm.Frame
+	backdropSurf  *surface.Surface
+	backdropLayer *shell.LayerSurface
+	backdropFrame *shm.Frame
+	backdropHover bool
 	closeSub      func()
 	newSub        func()
 	hits          []flyoutHit
@@ -74,14 +79,15 @@ type NotificationFlyout struct {
 	scrollOffset  float64
 }
 
-func NewNotificationFlyout(disp *display.Display, output *display.Output, service *NotificationService, icons *IconResolver) *NotificationFlyout {
+func NewNotificationFlyout(disp *display.Display, output *display.Output, service *NotificationService, icons *IconResolver, onCloseAll func()) *NotificationFlyout {
 	f := &NotificationFlyout{
-		disp:      disp,
-		output:    output,
-		service:   service,
-		icons:     icons,
-		face:      loadBarFont(output),
-		startTime: time.Now().UnixMilli(),
+		disp:       disp,
+		output:     output,
+		service:    service,
+		icons:      icons,
+		face:       loadBarFont(output),
+		onCloseAll: onCloseAll,
+		startTime:  time.Now().UnixMilli(),
 	}
 
 	// Automatically open the notification list whenever a new notification arrives
@@ -118,7 +124,11 @@ func (f *NotificationFlyout) Toggle(anchorX int32) {
 	f.mu.Unlock()
 
 	if open {
-		f.Close()
+		if f.onCloseAll != nil {
+			f.onCloseAll()
+		} else {
+			f.Close()
+		}
 	} else {
 		f.Open(anchorX)
 	}
@@ -133,9 +143,47 @@ func (f *NotificationFlyout) Open(anchorX int32) {
 		return
 	}
 
+	// 1. Transparent click-outside backdrop on LayerPositionTop
+	bdSurf, err := surface.New(f.disp.Compositor())
+	if err != nil {
+		f.mu.Unlock()
+		return
+	}
+	bdLayer, err := shell.NewLayer(bdSurf, f.disp.LayerShell(), shell.LayerConfig{
+		Layer:         shell.LayerPositionTop,
+		Name:          "cheese-notif-backdrop",
+		Anchor:        shell.AnchorTop | shell.AnchorBottom | shell.AnchorLeft | shell.AnchorRight,
+		Width:         0,
+		Height:        0,
+		ExclusiveZone: -1,
+		MarginTop:     int32(barTopMargin + barHeight),
+		Output:        f.output.WlOutput(),
+	})
+	if err != nil {
+		f.mu.Unlock()
+		_ = bdSurf.Close()
+		return
+	}
+	bdFrame, err := shm.NewFrame(f.disp.Shm(), bdLayer, f.disp, shm.FrameConfig{
+		Format:  client.WlShmFormatArgb8888,
+		Buffers: 1,
+	})
+	if err != nil {
+		f.mu.Unlock()
+		_ = bdLayer.Close()
+		_ = bdSurf.Close()
+		return
+	}
+	bdFrame.SetRender(func(width, height int, frameTime uint32, pixels []byte) {})
+	bdFrame.SetManualMode(true)
+
+	// 2. Notification flyout on LayerPositionOverlay
 	surf, err := surface.New(f.disp.Compositor())
 	if err != nil {
 		f.mu.Unlock()
+		_ = bdFrame.Close()
+		_ = bdLayer.Close()
+		_ = bdSurf.Close()
 		log.Printf("NotificationFlyout: Failed to create surface: %v", err)
 		return
 	}
@@ -163,6 +211,9 @@ func (f *NotificationFlyout) Open(anchorX int32) {
 	if err != nil {
 		f.mu.Unlock()
 		_ = surf.Close()
+		_ = bdFrame.Close()
+		_ = bdLayer.Close()
+		_ = bdSurf.Close()
 		log.Printf("NotificationFlyout: Failed to create layer surface: %v", err)
 		return
 	}
@@ -175,9 +226,16 @@ func (f *NotificationFlyout) Open(anchorX int32) {
 		f.mu.Unlock()
 		_ = layer.Close()
 		_ = surf.Close()
+		_ = bdFrame.Close()
+		_ = bdLayer.Close()
+		_ = bdSurf.Close()
 		return
 	}
 
+	f.backdropSurf = bdSurf
+	f.backdropLayer = bdLayer
+	f.backdropFrame = bdFrame
+	f.backdropHover = false
 	f.surface = surf
 	f.layer = layer
 	f.frame = frame
@@ -195,13 +253,17 @@ func (f *NotificationFlyout) Open(anchorX int32) {
 	layer.OnClose(func() {
 		f.Close()
 	})
+	bdLayer.OnClose(func() {
+		f.Close()
+	})
 
 	stopCh := f.stop
 	dirtyCh := f.dirtyCh
 	go func() {
 		ticker := time.NewTicker(16 * time.Millisecond)
 		defer ticker.Stop()
-		pending := false
+		pending := true
+		bdMapped := false
 		for {
 			select {
 			case <-dirtyCh:
@@ -210,6 +272,16 @@ func (f *NotificationFlyout) Open(anchorX int32) {
 			case <-stopCh:
 				return
 			}
+
+			f.mu.Lock()
+			bdf := f.backdropFrame
+			f.mu.Unlock()
+
+			if !bdMapped && bdf != nil && bdf.Ready() {
+				bdf.ManualRender(0)
+				bdMapped = true
+			}
+
 			if !pending {
 				continue
 			}
@@ -361,6 +433,13 @@ func (f *NotificationFlyout) Close() {
 	f.layer = nil
 	surf := f.surface
 	f.surface = nil
+	bdFrame := f.backdropFrame
+	f.backdropFrame = nil
+	bdLayer := f.backdropLayer
+	f.backdropLayer = nil
+	bdSurf := f.backdropSurf
+	f.backdropSurf = nil
+	f.backdropHover = false
 	f.hover = flyoutPointerState{}
 	f.scrollOffset = 0
 	f.mu.Unlock()
@@ -379,6 +458,15 @@ func (f *NotificationFlyout) Close() {
 	}
 	if surf != nil {
 		_ = surf.Close()
+	}
+	if bdFrame != nil {
+		_ = bdFrame.Close()
+	}
+	if bdLayer != nil {
+		_ = bdLayer.Close()
+	}
+	if bdSurf != nil {
+		_ = bdSurf.Close()
 	}
 }
 
@@ -447,7 +535,6 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 	scrollY := int(math.Round(f.scrollOffset))
 	f.mu.Unlock()
 
-	// Render cards into a clipped viewport buffer so scrolling never overlaps header or bottom border
 	vpCanvas := image.NewRGBA(image.Rect(0, 0, width, viewportHeight))
 	y := -scrollY
 
@@ -474,16 +561,13 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 
 		curY := cardRect.Min.Y + flyoutCardPadY + ascent
 
-		// 1. Header line (AppName • Time)
 		f.drawText(vpCanvas, textX, curY, c.headerText, color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff})
 
-		// Dismiss '×' button
 		dismissText := "×"
 		dismissW := font.MeasureString(f.face, dismissText).Ceil()
 		dismissRect := image.Rect(cardRect.Max.X-22, cardRect.Min.Y+4, cardRect.Max.X-4, cardRect.Min.Y+22)
 		f.drawText(vpCanvas, dismissRect.Min.X+(dismissRect.Dx()-dismissW)/2, curY, dismissText, color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff})
 
-		// Translate hit rects to surface coordinates and intersect with viewport
 		surfDismissRect := dismissRect.Add(image.Pt(0, viewportTop)).Intersect(viewportRect)
 		if !surfDismissRect.Empty() {
 			hits = append(hits, flyoutHit{rect: surfDismissRect, action: "dismiss", notifID: c.notif.ID})
@@ -491,13 +575,11 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 
 		curY += lineHeight + 1
 
-		// 2. Summary lines
 		for _, line := range c.summaryLines {
 			f.drawText(vpCanvas, textX, curY, line, color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
 			curY += lineHeight
 		}
 
-		// 3. Body lines
 		if len(c.bodyLines) > 0 {
 			curY += 1
 			for _, line := range c.bodyLines {
@@ -515,7 +597,6 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 
 	draw.Draw(canvas, viewportRect, vpCanvas, image.Point{}, draw.Over)
 
-	// Draw scrollbar indicator if content overflows viewport
 	if maxScroll > 0 && contentHeight > 0 {
 		thumbH := int(math.Round(float64(viewportHeight) * float64(viewportHeight) / float64(contentHeight)))
 		if thumbH < 24 {
@@ -553,7 +634,14 @@ func (f *NotificationFlyout) drawText(dst draw.Image, x, y int, text string, col
 func (f *NotificationFlyout) HandlePointerEnter(ev client.WlPointerEnterEvent) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if !f.isOpen || f.surface == nil || ev.Surface != f.surface.WlSurface() {
+	if !f.isOpen {
+		return
+	}
+	if f.backdropSurf != nil && ev.Surface == f.backdropSurf.WlSurface() {
+		f.backdropHover = true
+		return
+	}
+	if f.surface == nil || ev.Surface != f.surface.WlSurface() {
 		return
 	}
 	f.hover.inside = true
@@ -564,7 +652,14 @@ func (f *NotificationFlyout) HandlePointerEnter(ev client.WlPointerEnterEvent) {
 func (f *NotificationFlyout) HandlePointerLeave(ev client.WlPointerLeaveEvent) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if !f.isOpen || f.surface == nil || ev.Surface != f.surface.WlSurface() {
+	if !f.isOpen {
+		return
+	}
+	if f.backdropSurf != nil && ev.Surface == f.backdropSurf.WlSurface() {
+		f.backdropHover = false
+		return
+	}
+	if f.surface == nil || ev.Surface != f.surface.WlSurface() {
 		return
 	}
 	f.hover.inside = false
@@ -625,7 +720,22 @@ func (f *NotificationFlyout) HandlePointerAxis(ev client.WlPointerAxisEvent) {
 
 func (f *NotificationFlyout) HandlePointerButton(ev client.WlPointerButtonEvent) bool {
 	f.mu.Lock()
-	if !f.isOpen || !f.hover.inside {
+	if !f.isOpen {
+		f.mu.Unlock()
+		return false
+	}
+	if f.backdropHover {
+		f.mu.Unlock()
+		if ev.State == client.WlPointerButtonStatePressed {
+			if f.onCloseAll != nil {
+				f.onCloseAll()
+			} else {
+				f.Close()
+			}
+		}
+		return true
+	}
+	if !f.hover.inside {
 		f.mu.Unlock()
 		return false
 	}
@@ -644,13 +754,21 @@ func (f *NotificationFlyout) HandlePointerButton(ev client.WlPointerButtonEvent)
 		if pt.In(hit.rect) {
 			if hit.action == "clear_all" {
 				f.service.ClearAll()
-				f.Close()
+				if f.onCloseAll != nil {
+					f.onCloseAll()
+				} else {
+					f.Close()
+				}
 				return true
 			}
 			if hit.action == "dismiss" {
 				f.service.Dismiss(hit.notifID)
 				if f.service.Count() == 0 {
-					f.Close()
+					if f.onCloseAll != nil {
+						f.onCloseAll()
+					} else {
+						f.Close()
+					}
 				}
 				return true
 			}

@@ -20,31 +20,36 @@ import (
 )
 
 const (
-	volFlyoutWidth   = 224
-	volFlyoutHeight  = 40
-	volTrackMinX     = 38
-	volTrackMaxX     = 166
-	volTrackHeight   = 6
-	volThumbRadius   = 6.5
-	volMuteRectMaxX  = 34
+	volFlyoutWidth  = 224
+	volFlyoutHeight = 40
+	volTrackMinX    = 38
+	volTrackMaxX    = 166
+	volTrackHeight  = 6
+	volThumbRadius  = 6.5
+	volMuteRectMaxX = 34
 )
 
 type VolumeFlyout struct {
-	disp       *display.Display
-	output     *display.Output
-	audio      *AudioService
-	face       font.Face
-	mu         sync.Mutex
-	isOpen     bool
-	surface    *surface.Surface
-	layer      *shell.LayerSurface
-	frame      *shm.Frame
-	closeSub   func()
-	hover      flyoutPointerState
-	dragging   bool
-	startTime  int64
-	dirtyCh    chan struct{}
-	stop       chan struct{}
+	disp          *display.Display
+	output        *display.Output
+	audio         *AudioService
+	face          font.Face
+	mu            sync.Mutex
+	isOpen        bool
+	barWidth      int
+	surface       *surface.Surface
+	layer         *shell.LayerSurface
+	frame         *shm.Frame
+	backdropSurf  *surface.Surface
+	backdropLayer *shell.LayerSurface
+	backdropFrame *shm.Frame
+	backdropHover bool
+	closeSub      func()
+	hover         flyoutPointerState
+	dragging      bool
+	startTime     int64
+	dirtyCh       chan struct{}
+	stop          chan struct{}
 }
 
 func NewVolumeFlyout(disp *display.Display, output *display.Output, audio *AudioService) *VolumeFlyout {
@@ -55,6 +60,12 @@ func NewVolumeFlyout(disp *display.Display, output *display.Output, audio *Audio
 		face:      loadBarFont(output),
 		startTime: time.Now().UnixMilli(),
 	}
+}
+
+func (f *VolumeFlyout) SetBarWidth(w int) {
+	f.mu.Lock()
+	f.barWidth = w
+	f.mu.Unlock()
 }
 
 func (f *VolumeFlyout) Destroy() {
@@ -87,16 +98,61 @@ func (f *VolumeFlyout) Open(moduleRect image.Rectangle) {
 		return
 	}
 
+	// 1. Transparent click-outside backdrop on LayerPositionTop (below Overlay popup, above windows/wallpaper)
+	bdSurf, err := surface.New(f.disp.Compositor())
+	if err != nil {
+		f.mu.Unlock()
+		return
+	}
+	bdLayer, err := shell.NewLayer(bdSurf, f.disp.LayerShell(), shell.LayerConfig{
+		Layer:         shell.LayerPositionTop,
+		Name:          "cheese-volume-backdrop",
+		Anchor:        shell.AnchorTop | shell.AnchorBottom | shell.AnchorLeft | shell.AnchorRight,
+		Width:         0,
+		Height:        0,
+		ExclusiveZone: -1,
+		MarginTop:     int32(barTopMargin + barHeight),
+		Output:        f.output.WlOutput(),
+	})
+	if err != nil {
+		f.mu.Unlock()
+		_ = bdSurf.Close()
+		return
+	}
+	bdFrame, err := shm.NewFrame(f.disp.Shm(), bdLayer, f.disp, shm.FrameConfig{
+		Format:  client.WlShmFormatArgb8888,
+		Buffers: 1,
+	})
+	if err != nil {
+		f.mu.Unlock()
+		_ = bdLayer.Close()
+		_ = bdSurf.Close()
+		return
+	}
+	bdFrame.SetRender(func(width, height int, frameTime uint32, pixels []byte) {
+		// Newly allocated shm pages are already 0x00000000 (transparent ARGB8888)
+	})
+	bdFrame.SetManualMode(true)
+
+	// 2. Volume slider popup on LayerPositionOverlay
 	surf, err := surface.New(f.disp.Compositor())
 	if err != nil {
 		f.mu.Unlock()
+		_ = bdFrame.Close()
+		_ = bdLayer.Close()
+		_ = bdSurf.Close()
 		log.Printf("VolumeFlyout: Failed to create surface: %v", err)
 		return
 	}
 
-	// Center horizontally under the volume module rect
 	centerX := (moduleRect.Min.X + moduleRect.Max.X) / 2
 	leftMargin := int32(centerX - volFlyoutWidth/2)
+	if f.barWidth > 0 {
+		maxLeft := int32(f.barWidth - volFlyoutWidth - barSidePad)
+		if leftMargin > maxLeft {
+			leftMargin = maxLeft
+		}
+	}
 	if leftMargin < barSidePad {
 		leftMargin = barSidePad
 	}
@@ -116,6 +172,9 @@ func (f *VolumeFlyout) Open(moduleRect image.Rectangle) {
 	if err != nil {
 		f.mu.Unlock()
 		_ = surf.Close()
+		_ = bdFrame.Close()
+		_ = bdLayer.Close()
+		_ = bdSurf.Close()
 		log.Printf("VolumeFlyout: Failed to create layer surface: %v", err)
 		return
 	}
@@ -128,9 +187,16 @@ func (f *VolumeFlyout) Open(moduleRect image.Rectangle) {
 		f.mu.Unlock()
 		_ = layer.Close()
 		_ = surf.Close()
+		_ = bdFrame.Close()
+		_ = bdLayer.Close()
+		_ = bdSurf.Close()
 		return
 	}
 
+	f.backdropSurf = bdSurf
+	f.backdropLayer = bdLayer
+	f.backdropFrame = bdFrame
+	f.backdropHover = false
 	f.surface = surf
 	f.layer = layer
 	f.frame = frame
@@ -147,13 +213,17 @@ func (f *VolumeFlyout) Open(moduleRect image.Rectangle) {
 	layer.OnClose(func() {
 		f.Close()
 	})
+	bdLayer.OnClose(func() {
+		f.Close()
+	})
 
 	stopCh := f.stop
 	dirtyCh := f.dirtyCh
 	go func() {
 		ticker := time.NewTicker(16 * time.Millisecond)
 		defer ticker.Stop()
-		pending := false
+		pending := true
+		bdMapped := false
 		for {
 			select {
 			case <-dirtyCh:
@@ -162,13 +232,20 @@ func (f *VolumeFlyout) Open(moduleRect image.Rectangle) {
 			case <-stopCh:
 				return
 			}
-			if !pending {
-				continue
-			}
 
 			f.mu.Lock()
 			fr := f.frame
+			bdf := f.backdropFrame
 			f.mu.Unlock()
+
+			if !bdMapped && bdf != nil && bdf.Ready() {
+				bdf.ManualRender(0)
+				bdMapped = true
+			}
+
+			if !pending {
+				continue
+			}
 
 			if fr != nil && fr.Ready() {
 				fr.ManualRender(uint32(time.Now().UnixMilli() - f.startTime))
@@ -225,6 +302,13 @@ func (f *VolumeFlyout) Close() {
 	f.layer = nil
 	surf := f.surface
 	f.surface = nil
+	bdFrame := f.backdropFrame
+	f.backdropFrame = nil
+	bdLayer := f.backdropLayer
+	f.backdropLayer = nil
+	bdSurf := f.backdropSurf
+	f.backdropSurf = nil
+	f.backdropHover = false
 	f.hover = flyoutPointerState{}
 	f.mu.Unlock()
 
@@ -242,6 +326,15 @@ func (f *VolumeFlyout) Close() {
 	}
 	if surf != nil {
 		_ = surf.Close()
+	}
+	if bdFrame != nil {
+		_ = bdFrame.Close()
+	}
+	if bdLayer != nil {
+		_ = bdLayer.Close()
+	}
+	if bdSurf != nil {
+		_ = bdSurf.Close()
 	}
 }
 
@@ -384,7 +477,14 @@ func (f *VolumeFlyout) setVolumeFromX(x int) {
 func (f *VolumeFlyout) HandlePointerEnter(ev client.WlPointerEnterEvent) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if !f.isOpen || f.surface == nil || ev.Surface != f.surface.WlSurface() {
+	if !f.isOpen {
+		return
+	}
+	if f.backdropSurf != nil && ev.Surface == f.backdropSurf.WlSurface() {
+		f.backdropHover = true
+		return
+	}
+	if f.surface == nil || ev.Surface != f.surface.WlSurface() {
 		return
 	}
 	f.hover.inside = true
@@ -395,7 +495,14 @@ func (f *VolumeFlyout) HandlePointerEnter(ev client.WlPointerEnterEvent) {
 func (f *VolumeFlyout) HandlePointerLeave(ev client.WlPointerLeaveEvent) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if !f.isOpen || f.surface == nil || ev.Surface != f.surface.WlSurface() {
+	if !f.isOpen {
+		return
+	}
+	if f.backdropSurf != nil && ev.Surface == f.backdropSurf.WlSurface() {
+		f.backdropHover = false
+		return
+	}
+	if f.surface == nil || ev.Surface != f.surface.WlSurface() {
 		return
 	}
 	f.hover.inside = false
@@ -421,7 +528,18 @@ func (f *VolumeFlyout) HandlePointerMotion(ev client.WlPointerMotionEvent) {
 
 func (f *VolumeFlyout) HandlePointerButton(ev client.WlPointerButtonEvent) bool {
 	f.mu.Lock()
-	if !f.isOpen || !f.hover.inside {
+	if !f.isOpen {
+		f.mu.Unlock()
+		return false
+	}
+	if f.backdropHover {
+		f.mu.Unlock()
+		if ev.State == client.WlPointerButtonStatePressed {
+			f.Close()
+		}
+		return true
+	}
+	if !f.hover.inside {
 		f.mu.Unlock()
 		return false
 	}

@@ -367,7 +367,21 @@ func (a *App) AddBar(disp *display.Display, output *display.Output) {
 		return
 	}
 
-	bar, err := NewBar(disp, output, a.audio, a.network, a.bluetooth, a.niri, a.icons, a.notifications)
+	closeAllNotifs := func() {
+		a.mu.Lock()
+		bars := make([]*Bar, 0, len(a.bars))
+		for _, b := range a.bars {
+			bars = append(bars, b)
+		}
+		a.mu.Unlock()
+		for _, b := range bars {
+			if b.flyout != nil {
+				b.flyout.Close()
+			}
+		}
+	}
+
+	bar, err := NewBar(disp, output, a.audio, a.network, a.bluetooth, a.niri, a.icons, a.notifications, closeAllNotifs)
 	if err != nil {
 		log.Printf("Failed to create bar for %s: %v", output.Name, err)
 		return
@@ -429,7 +443,7 @@ type pointerState struct {
 	rect   image.Rectangle
 }
 
-func NewBar(disp *display.Display, output *display.Output, audio *AudioService, network *NetworkService, bluetooth *BluetoothService, niri *NiriService, icons *IconResolver, notifications *NotificationService) (*Bar, error) {
+func NewBar(disp *display.Display, output *display.Output, audio *AudioService, network *NetworkService, bluetooth *BluetoothService, niri *NiriService, icons *IconResolver, notifications *NotificationService, closeAllNotifs func()) (*Bar, error) {
 	surf, err := surface.New(disp.Compositor())
 	if err != nil {
 		return nil, err
@@ -476,7 +490,7 @@ func NewBar(disp *display.Display, output *display.Output, audio *AudioService, 
 		startTime: time.Now().UnixMilli(),
 	}
 
-	flyout := NewNotificationFlyout(disp, output, notifications, icons)
+	flyout := NewNotificationFlyout(disp, output, notifications, icons, closeAllNotifs)
 	b.flyout = flyout
 	volFlyout := NewVolumeFlyout(disp, output, audio)
 	b.volFlyout = volFlyout
@@ -616,6 +630,9 @@ func (b *Bar) HandleCommand(cmd string) {
 }
 
 func (b *Bar) draw(width, height int, pixels []byte) {
+	if b.volFlyout != nil {
+		b.volFlyout.SetBarWidth(width)
+	}
 	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
 
 	draw.Draw(canvas, canvas.Rect, image.NewUniform(color.RGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x00}), image.Point{}, draw.Src)
@@ -777,6 +794,21 @@ func (b *Bar) HandlePointerButton(ev client.WlPointerButtonEvent) {
 	}
 
 	point := image.Pt(b.hover.x, b.hover.y)
+	var clickedMod Module
+	for _, hit := range b.hits {
+		if point.In(hit.rect) {
+			clickedMod = hit.mod
+			break
+		}
+	}
+
+	if _, isNotif := clickedMod.(*NotificationModule); !isNotif && b.flyout != nil && b.flyout.IsOpen() {
+		b.flyout.Close()
+	}
+	if _, isVol := clickedMod.(*VolumeModule); !isVol && b.volFlyout != nil && b.volFlyout.IsOpen() {
+		b.volFlyout.Close()
+	}
+
 	for _, hit := range b.hits {
 		if !point.In(hit.rect) {
 			continue
