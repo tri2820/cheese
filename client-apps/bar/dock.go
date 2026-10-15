@@ -399,13 +399,14 @@ func (d *Dock) draw(width, height int, pixels []byte) {
 			drawSmoothRoundedRect(canvas, iconRect, 8, color.RGBA{R: 0x44, G: 0x44, B: 0x44, A: 0xff}, draw.Over)
 		}
 
-		// Active / focused window indicator dot centered in the bottom padding
-		dotCenterX := float64(x) + float64(slotW)/2.0
-		dotCenterY := float64(pillBottom) - float64(dockPadBottom)/2.0
+		// Active / focused window indicator dot snapped to exact pixel center (i+0.5, j+0.5)
+		// so it doesn't land on a 2x2 pixel boundary and blur across 4x4 pixels on 1x DPI displays.
+		dotCenterX := math.Floor(float64(x)+float64(slotW)/2.0) + 0.5
+		dotCenterY := math.Floor(float64(pillBottom)-float64(dockPadBottom)/2.0) + 0.5
 		if entry.window.IsFocused {
-			drawSmoothCircle(canvas, dotCenterX, dotCenterY, 2.2, color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
+			drawSmoothCircle(canvas, dotCenterX, dotCenterY, 2.1, color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
 		} else {
-			drawSmoothCircle(canvas, dotCenterX, dotCenterY, 1.6, color.RGBA{R: 0x77, G: 0x77, B: 0x77, A: 0xff})
+			drawSmoothCircle(canvas, dotCenterX, dotCenterY, 1.8, color.RGBA{R: 0xa0, G: 0xa0, B: 0xa0, A: 0xff})
 		}
 
 		slotRect := image.Rect(x, iconY, x+slotW, pillBottom)
