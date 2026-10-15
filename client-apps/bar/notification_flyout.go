@@ -80,8 +80,15 @@ type NotificationFlyout struct {
 	startTime        int64
 	dirtyCh          chan struct{}
 	stop             chan struct{}
-	currentHeight    int
-	scrollOffset     float64
+	currentHeight     int
+	scrollOffset      float64
+	draggingScrollbar bool
+	dragStartMouseY   int
+	dragStartScroll   float64
+	scrollHitRect     image.Rectangle
+	scrollThumbRect   image.Rectangle
+	scrollTrackAvail  int
+	scrollMax         float64
 }
 
 func NewNotificationFlyout(disp *display.Display, output *display.Output, service *NotificationService, icons *IconResolver, onCloseAll func()) *NotificationFlyout {
@@ -599,6 +606,11 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 	vpCanvas := image.NewRGBA(image.Rect(0, 0, width, viewportHeight))
 	y := -scrollY
 
+	cardRight := width - flyoutOuterPad
+	if maxScroll > 0 {
+		cardRight = width - 11
+	}
+
 	for _, c := range cards {
 		if y+c.height <= 0 {
 			y += c.height + flyoutCardGap
@@ -608,7 +620,7 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 			break
 		}
 
-		cardRect := image.Rect(flyoutOuterPad, y, width-flyoutOuterPad, y+c.height)
+		cardRect := image.Rect(flyoutOuterPad, y, cardRight, y+c.height)
 		drawSmoothRoundedRect(vpCanvas, cardRect, float64(moduleCornerRadius), color.RGBA{R: 0x22, G: 0x22, B: 0x22, A: 0xff}, draw.Over)
 
 		textX := cardRect.Min.X + flyoutCardPadX
@@ -671,6 +683,8 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 
 	draw.Draw(canvas, viewportRect, vpCanvas, image.Point{}, draw.Over)
 
+	var scrollHitRect, scrollThumbRect image.Rectangle
+	var scrollTrackAvail int
 	if maxScroll > 0 && contentHeight > 0 {
 		thumbH := int(math.Round(float64(viewportHeight) * float64(viewportHeight) / float64(contentHeight)))
 		if thumbH < 24 {
@@ -684,14 +698,38 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 		if trackAvail > 0 {
 			thumbOffset = int(math.Round((float64(scrollY) / maxScroll) * float64(trackAvail)))
 		}
-		barRect := image.Rect(width-5, viewportTop+thumbOffset, width-2, viewportTop+thumbOffset+thumbH)
-		drawSmoothRoundedRect(canvas, barRect, 1, color.RGBA{R: 0x66, G: 0x66, B: 0x66, A: 0xff}, draw.Over)
+		scrollTrackAvail = trackAvail
+		scrollHitRect = image.Rect(width-12, viewportTop, width, viewportBottom)
+		scrollThumbRect = image.Rect(width-12, viewportTop+thumbOffset, width, viewportTop+thumbOffset+thumbH)
+
+		f.mu.Lock()
+		dragging := f.draggingScrollbar
+		f.mu.Unlock()
+		scrollHovered := dragging || (hoverInside && hoverPt.In(scrollHitRect))
+
+		if scrollHovered {
+			trackDrawRect := image.Rect(width-8, viewportTop, width-2, viewportBottom)
+			drawSmoothRoundedRect(canvas, trackDrawRect, 3.0, color.RGBA{R: 0x26, G: 0x26, B: 0x26, A: 0xff}, draw.Over)
+			thumbCol := color.RGBA{R: 0xaa, G: 0xaa, B: 0xaa, A: 0xff}
+			if dragging {
+				thumbCol = color.RGBA{R: 0xd0, G: 0xd0, B: 0xd0, A: 0xff}
+			}
+			barRect := image.Rect(width-8, viewportTop+thumbOffset, width-2, viewportTop+thumbOffset+thumbH)
+			drawSmoothRoundedRect(canvas, barRect, 3.0, thumbCol, draw.Over)
+		} else {
+			barRect := image.Rect(width-5, viewportTop+thumbOffset, width-2, viewportTop+thumbOffset+thumbH)
+			drawSmoothRoundedRect(canvas, barRect, 1.5, color.RGBA{R: 0x66, G: 0x66, B: 0x66, A: 0xff}, draw.Over)
+		}
 	}
 
 	writeARGB8888(pixels, canvas)
 
 	f.mu.Lock()
 	f.hits = hits
+	f.scrollHitRect = scrollHitRect
+	f.scrollThumbRect = scrollThumbRect
+	f.scrollTrackAvail = scrollTrackAvail
+	f.scrollMax = maxScroll
 	f.mu.Unlock()
 }
 
@@ -743,6 +781,7 @@ func (f *NotificationFlyout) HandlePointerLeave(ev client.WlPointerLeaveEvent) {
 		return
 	}
 	f.hover.inside = false
+	f.draggingScrollbar = false
 	f.mu.Unlock()
 	f.markDirty()
 }
@@ -755,6 +794,17 @@ func (f *NotificationFlyout) HandlePointerMotion(ev client.WlPointerMotionEvent)
 	}
 	f.hover.x = int(ev.SurfaceX)
 	f.hover.y = int(ev.SurfaceY)
+	if f.draggingScrollbar && f.scrollTrackAvail > 0 && f.scrollMax > 0 {
+		dy := f.hover.y - f.dragStartMouseY
+		next := f.dragStartScroll + (float64(dy)/float64(f.scrollTrackAvail))*f.scrollMax
+		if next < 0 {
+			next = 0
+		}
+		if next > f.scrollMax {
+			next = f.scrollMax
+		}
+		f.scrollOffset = next
+	}
 	f.mu.Unlock()
 	f.markDirty()
 }
@@ -841,12 +891,43 @@ func (f *NotificationFlyout) HandlePointerButton(ev client.WlPointerButtonEvent)
 		return false
 	}
 
+	if ev.Button == 0x110 && ev.State == client.WlPointerButtonStateReleased {
+		wasDragging := f.draggingScrollbar
+		f.draggingScrollbar = false
+		f.mu.Unlock()
+		if wasDragging {
+			f.markDirty()
+		}
+		return true
+	}
+
 	if ev.Button != 0x110 || ev.State != client.WlPointerButtonStatePressed {
 		f.mu.Unlock()
 		return true
 	}
 
 	pt := image.Pt(f.hover.x, f.hover.y)
+	if f.scrollMax > 0 && !f.scrollHitRect.Empty() && pt.In(f.scrollHitRect) {
+		if !pt.In(f.scrollThumbRect) && f.scrollTrackAvail > 0 {
+			thumbH := f.scrollThumbRect.Dy()
+			relY := float64(pt.Y - f.scrollHitRect.Min.Y - thumbH/2)
+			next := (relY / float64(f.scrollTrackAvail)) * f.scrollMax
+			if next < 0 {
+				next = 0
+			}
+			if next > f.scrollMax {
+				next = f.scrollMax
+			}
+			f.scrollOffset = next
+		}
+		f.draggingScrollbar = true
+		f.dragStartMouseY = pt.Y
+		f.dragStartScroll = f.scrollOffset
+		f.mu.Unlock()
+		f.markDirty()
+		return true
+	}
+
 	hitsCopy := make([]flyoutHit, len(f.hits))
 	copy(hitsCopy, f.hits)
 	f.mu.Unlock()
