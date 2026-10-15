@@ -21,14 +21,16 @@ import (
 )
 
 const (
-	flyoutWidth        = 340
-	flyoutMaxHeight    = 420
-	flyoutHeaderHeight = 30
-	flyoutOuterPad     = 8
-	flyoutCardPadX     = 10
-	flyoutCardPadY     = 8
-	flyoutCardGap      = 6
-	flyoutThumbGap     = 10
+	flyoutWidth          = 340
+	flyoutMaxHeight      = 420
+	flyoutHeaderHeight   = 30
+	flyoutOuterPad       = 8
+	flyoutCardPadX       = 10
+	flyoutCardPadY       = 8
+	flyoutCardGap        = 6
+	flyoutThumbGap       = 10
+	flyoutUnreadDotWidth = 12
+	flyoutAutoHideDelay  = 4 * time.Second
 )
 
 type flyoutPointerState struct {
@@ -53,30 +55,33 @@ type cardLayout struct {
 }
 
 type NotificationFlyout struct {
-	disp          *display.Display
-	output        *display.Output
-	service       *NotificationService
-	icons         *IconResolver
-	face          font.Face
-	onCloseAll    func()
-	mu            sync.Mutex
-	isOpen        bool
-	surface       *surface.Surface
-	layer         *shell.LayerSurface
-	frame         *shm.Frame
-	backdropSurf  *surface.Surface
-	backdropLayer *shell.LayerSurface
-	backdropFrame *shm.Frame
-	backdropHover bool
-	closeSub      func()
-	newSub        func()
-	hits          []flyoutHit
-	hover         flyoutPointerState
-	startTime     int64
-	dirtyCh       chan struct{}
-	stop          chan struct{}
-	currentHeight int
-	scrollOffset  float64
+	disp             *display.Display
+	output           *display.Output
+	service          *NotificationService
+	icons            *IconResolver
+	face             font.Face
+	onCloseAll       func()
+	mu               sync.Mutex
+	isOpen           bool
+	autoOpened       bool
+	triggeredByUser  bool
+	autoHideDeadline time.Time
+	surface          *surface.Surface
+	layer            *shell.LayerSurface
+	frame            *shm.Frame
+	backdropSurf     *surface.Surface
+	backdropLayer    *shell.LayerSurface
+	backdropFrame    *shm.Frame
+	backdropHover    bool
+	closeSub         func()
+	newSub           func()
+	hits             []flyoutHit
+	hover            flyoutPointerState
+	startTime        int64
+	dirtyCh          chan struct{}
+	stop             chan struct{}
+	currentHeight    int
+	scrollOffset     float64
 }
 
 func NewNotificationFlyout(disp *display.Display, output *display.Output, service *NotificationService, icons *IconResolver, onCloseAll func()) *NotificationFlyout {
@@ -90,12 +95,13 @@ func NewNotificationFlyout(disp *display.Display, output *display.Output, servic
 		startTime:  time.Now().UnixMilli(),
 	}
 
-	// Automatically open the notification list whenever a new notification arrives
+	// Automatically open the notification list whenever a new notification arrives,
+	// and auto-hide after flyoutAutoHideDelay without marking items as read.
 	f.newSub = service.SubscribeNew(func() {
 		f.mu.Lock()
 		f.scrollOffset = 0
 		f.mu.Unlock()
-		f.Open(int32(barSidePad))
+		f.OpenAuto(int32(barSidePad))
 	})
 
 	return f
@@ -118,28 +124,50 @@ func (f *NotificationFlyout) IsOpen() bool {
 	return f.isOpen
 }
 
+// Toggle is called when the user clicks the notification trigger on the top bar.
+// Triggering means the user has read the notifications.
 func (f *NotificationFlyout) Toggle(anchorX int32) {
 	f.mu.Lock()
 	open := f.isOpen
 	f.mu.Unlock()
 
 	if open {
+		f.service.MarkAllRead()
 		if f.onCloseAll != nil {
 			f.onCloseAll()
 		} else {
 			f.Close()
 		}
 	} else {
-		f.Open(anchorX)
+		f.OpenManual(anchorX)
 	}
 }
 
+func (f *NotificationFlyout) OpenAuto(anchorX int32) {
+	f.openInternal(anchorX, true)
+}
+
+func (f *NotificationFlyout) OpenManual(anchorX int32) {
+	f.openInternal(anchorX, false)
+}
+
 func (f *NotificationFlyout) Open(anchorX int32) {
+	f.OpenManual(anchorX)
+}
+
+func (f *NotificationFlyout) openInternal(anchorX int32, auto bool) {
 	f.mu.Lock()
 	if f.isOpen {
+		if auto {
+			if f.autoOpened {
+				f.autoHideDeadline = time.Now().Add(flyoutAutoHideDelay)
+			}
+		} else {
+			f.autoOpened = false
+			f.triggeredByUser = true
+		}
 		f.mu.Unlock()
 		f.markDirty()
-		f.service.MarkAllRead()
 		return
 	}
 
@@ -240,6 +268,11 @@ func (f *NotificationFlyout) Open(anchorX int32) {
 	f.layer = layer
 	f.frame = frame
 	f.isOpen = true
+	f.autoOpened = auto
+	f.triggeredByUser = !auto
+	if auto {
+		f.autoHideDeadline = time.Now().Add(flyoutAutoHideDelay)
+	}
 	f.currentHeight = calcHeight
 	f.scrollOffset = 0
 	f.dirtyCh = make(chan struct{}, 1)
@@ -275,7 +308,18 @@ func (f *NotificationFlyout) Open(anchorX int32) {
 
 			f.mu.Lock()
 			bdf := f.backdropFrame
+			autoOpen := f.autoOpened
+			inside := f.hover.inside
+			if autoOpen && inside {
+				f.autoHideDeadline = time.Now().Add(2 * time.Second)
+			}
+			expired := autoOpen && !inside && time.Now().After(f.autoHideDeadline)
 			f.mu.Unlock()
+
+			if expired {
+				go f.Close()
+				return
+			}
 
 			if !bdMapped && bdf != nil && bdf.Ready() {
 				bdf.ManualRender(0)
@@ -316,9 +360,7 @@ func (f *NotificationFlyout) Open(anchorX int32) {
 	})
 
 	f.mu.Unlock()
-
 	f.markDirty()
-	f.service.MarkAllRead()
 }
 
 func (f *NotificationFlyout) lineMetrics() (ascent, descent, lineHeight int) {
@@ -345,11 +387,15 @@ func (f *NotificationFlyout) layoutCards(items []Notification, width int) (layou
 
 	for _, n := range items {
 		hasThumb := n.Thumbnail != nil
-		innerTextWidth := cardWidth - 2*flyoutCardPadX
-		if hasThumb {
-			innerTextWidth -= notifThumbSize + flyoutThumbGap
+		fullInnerWidth := cardWidth - 2*flyoutCardPadX
+		headerMaxWidth := fullInnerWidth - 24
+		if n.Unread {
+			headerMaxWidth -= flyoutUnreadDotWidth
 		}
-		headerMaxWidth := innerTextWidth - 22
+		textMaxWidth := fullInnerWidth
+		if hasThumb {
+			textMaxWidth -= notifThumbSize + flyoutThumbGap
+		}
 
 		appName := n.AppName
 		if appName == "" {
@@ -363,24 +409,21 @@ func (f *NotificationFlyout) layoutCards(items []Notification, width int) (layou
 		if summary == "" {
 			summary = "(No title)"
 		}
-		summaryLines := wrapTextLines(f.face, summary, innerTextWidth, 2)
+		summaryLines := wrapTextLines(f.face, summary, textMaxWidth, 2)
 
 		var bodyLines []string
 		if n.Body != "" {
-			bodyLines = wrapTextLines(f.face, n.Body, innerTextWidth, 3)
+			bodyLines = wrapTextLines(f.face, n.Body, textMaxWidth, 3)
 		}
 
-		linesCount := 1 + len(summaryLines) + len(bodyLines)
-		cardH := 2*flyoutCardPadY + linesCount*lineHeight + 2
+		bodyBlockH := (len(summaryLines) + len(bodyLines)) * lineHeight
 		if len(bodyLines) > 0 {
-			cardH += 2
+			bodyBlockH += 2
 		}
-		if hasThumb {
-			minThumbCardH := 2*flyoutCardPadY + notifThumbSize
-			if cardH < minThumbCardH {
-				cardH = minThumbCardH
-			}
+		if hasThumb && bodyBlockH < notifThumbSize {
+			bodyBlockH = notifThumbSize
 		}
+		cardH := 2*flyoutCardPadY + lineHeight + 4 + bodyBlockH
 
 		layouts = append(layouts, cardLayout{
 			notif:        n,
@@ -422,6 +465,9 @@ func (f *NotificationFlyout) Close() {
 		return
 	}
 	f.isOpen = false
+	markRead := f.triggeredByUser
+	f.triggeredByUser = false
+	f.autoOpened = false
 	closeSub := f.closeSub
 	f.closeSub = nil
 	stopCh := f.stop
@@ -468,6 +514,10 @@ func (f *NotificationFlyout) Close() {
 	if bdSurf != nil {
 		_ = bdSurf.Close()
 	}
+
+	if markRead {
+		f.service.MarkAllRead()
+	}
 }
 
 func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
@@ -475,12 +525,17 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 	draw.Draw(canvas, canvas.Rect, image.NewUniform(color.RGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x00}), image.Point{}, draw.Src)
 
 	containerRect := image.Rect(0, 0, width, height)
-	drawRoundedRect(canvas, containerRect, moduleCornerRadius, color.RGBA{R: 0x18, G: 0x18, B: 0x18, A: 0xff}, draw.Src)
+	drawSmoothRoundedRect(canvas, containerRect, float64(moduleCornerRadius), color.RGBA{R: 0x18, G: 0x18, B: 0x18, A: 0xff}, draw.Src)
 
 	hits := make([]flyoutHit, 0, 16)
 	items := f.service.List()
 	cards, contentHeight, _ := f.layoutCards(items, width)
 	ascent, _, lineHeight := f.lineMetrics()
+
+	f.mu.Lock()
+	hoverInside := f.hover.inside
+	hoverPt := image.Pt(f.hover.x, f.hover.y)
+	f.mu.Unlock()
 
 	// Header row
 	headerRect := image.Rect(0, 0, width, flyoutHeaderHeight)
@@ -495,8 +550,14 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 		btnX := width - flyoutOuterPad - btnW
 		btnY := (flyoutHeaderHeight - btnH) / 2
 		clearBtnRect := image.Rect(btnX, btnY, btnX+btnW, btnY+btnH)
-		drawRoundedRect(canvas, clearBtnRect, 4, color.RGBA{R: 0x2a, G: 0x2a, B: 0x2a, A: 0xff}, draw.Over)
-		f.drawText(canvas, btnX+7, textBaseline(f.face, clearBtnRect), clearText, color.RGBA{R: 0xcc, G: 0xcc, B: 0xcc, A: 0xff})
+		clearBg := color.RGBA{R: 0x2a, G: 0x2a, B: 0x2a, A: 0xff}
+		clearFg := color.RGBA{R: 0xcc, G: 0xcc, B: 0xcc, A: 0xff}
+		if hoverInside && hoverPt.In(clearBtnRect) {
+			clearBg = color.RGBA{R: 0x3a, G: 0x3a, B: 0x3a, A: 0xff}
+			clearFg = color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+		}
+		drawSmoothRoundedRect(canvas, clearBtnRect, 4, clearBg, draw.Over)
+		f.drawText(canvas, btnX+7, textBaseline(f.face, clearBtnRect), clearText, clearFg)
 		hits = append(hits, flyoutHit{rect: clearBtnRect, action: "clear_all"})
 	}
 
@@ -548,40 +609,53 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 		}
 
 		cardRect := image.Rect(flyoutOuterPad, y, width-flyoutOuterPad, y+c.height)
-		drawRoundedRect(vpCanvas, cardRect, moduleCornerRadius, color.RGBA{R: 0x22, G: 0x22, B: 0x22, A: 0xff}, draw.Over)
+		drawSmoothRoundedRect(vpCanvas, cardRect, float64(moduleCornerRadius), color.RGBA{R: 0x22, G: 0x22, B: 0x22, A: 0xff}, draw.Over)
 
 		textX := cardRect.Min.X + flyoutCardPadX
-		if c.hasThumb && c.notif.Thumbnail != nil {
-			thumbX := cardRect.Min.X + flyoutCardPadX
-			thumbY := cardRect.Min.Y + (cardRect.Dy()-notifThumbSize)/2
-			thumbRect := image.Rect(thumbX, thumbY, thumbX+notifThumbSize, thumbY+notifThumbSize)
-			draw.Draw(vpCanvas, thumbRect, c.notif.Thumbnail, c.notif.Thumbnail.Bounds().Min, draw.Over)
-			textX += notifThumbSize + flyoutThumbGap
-		}
-
 		curY := cardRect.Min.Y + flyoutCardPadY + ascent
 
-		f.drawText(vpCanvas, textX, curY, c.headerText, color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff})
+		// 1. Header line with blue unread indicator dot consistently aligned on the left
+		headerX := textX
+		if c.notif.Unread {
+			dotX := math.Floor(float64(textX)+3.0) + 0.5
+			dotY := math.Floor(float64(curY)-float64(ascent)/2.0+1.0) + 0.5
+			drawSmoothCircle(vpCanvas, dotX, dotY, 3.2, color.RGBA{R: 0x3b, G: 0x82, B: 0xf6, A: 0xff})
+			headerX += flyoutUnreadDotWidth
+		}
+		f.drawText(vpCanvas, headerX, curY, c.headerText, color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff})
 
+		// Top-right close button '×' with rounded square background on hover
 		dismissText := "×"
 		dismissW := font.MeasureString(f.face, dismissText).Ceil()
-		dismissRect := image.Rect(cardRect.Max.X-22, cardRect.Min.Y+4, cardRect.Max.X-4, cardRect.Min.Y+22)
-		f.drawText(vpCanvas, dismissRect.Min.X+(dismissRect.Dx()-dismissW)/2, curY, dismissText, color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff})
-
+		dismissRect := image.Rect(cardRect.Max.X-24, cardRect.Min.Y+4, cardRect.Max.X-4, cardRect.Min.Y+24)
 		surfDismissRect := dismissRect.Add(image.Pt(0, viewportTop)).Intersect(viewportRect)
+		dismissCol := color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff}
+		if hoverInside && !surfDismissRect.Empty() && hoverPt.In(surfDismissRect) {
+			drawSmoothRoundedRect(vpCanvas, dismissRect, 4.0, color.RGBA{R: 0x38, G: 0x38, B: 0x38, A: 0xff}, draw.Over)
+			dismissCol = color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+		}
+		f.drawText(vpCanvas, dismissRect.Min.X+(dismissRect.Dx()-dismissW)/2, textBaseline(f.face, dismissRect), dismissText, dismissCol)
 		if !surfDismissRect.Empty() {
 			hits = append(hits, flyoutHit{rect: surfDismissRect, action: "dismiss", notifID: c.notif.ID})
 		}
 
-		curY += lineHeight + 1
+		// 2. Content area below header: summary/body on the left, thumbnail image on the right
+		contentTopY := cardRect.Min.Y + flyoutCardPadY + lineHeight + 4
+		if c.hasThumb && c.notif.Thumbnail != nil {
+			thumbX := cardRect.Max.X - flyoutCardPadX - notifThumbSize
+			thumbY := contentTopY
+			thumbRect := image.Rect(thumbX, thumbY, thumbX+notifThumbSize, thumbY+notifThumbSize)
+			draw.Draw(vpCanvas, thumbRect, c.notif.Thumbnail, c.notif.Thumbnail.Bounds().Min, draw.Over)
+		}
 
+		curY = contentTopY + ascent
 		for _, line := range c.summaryLines {
 			f.drawText(vpCanvas, textX, curY, line, color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
 			curY += lineHeight
 		}
 
 		if len(c.bodyLines) > 0 {
-			curY += 1
+			curY += 2
 			for _, line := range c.bodyLines {
 				f.drawText(vpCanvas, textX, curY, line, color.RGBA{R: 0xb0, G: 0xb0, B: 0xb0, A: 0xff})
 				curY += lineHeight
@@ -611,7 +685,7 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 			thumbOffset = int(math.Round((float64(scrollY) / maxScroll) * float64(trackAvail)))
 		}
 		barRect := image.Rect(width-5, viewportTop+thumbOffset, width-2, viewportTop+thumbOffset+thumbH)
-		drawRoundedRect(canvas, barRect, 1, color.RGBA{R: 0x66, G: 0x66, B: 0x66, A: 0xff}, draw.Over)
+		drawSmoothRoundedRect(canvas, barRect, 1, color.RGBA{R: 0x66, G: 0x66, B: 0x66, A: 0xff}, draw.Over)
 	}
 
 	writeARGB8888(pixels, canvas)
@@ -633,46 +707,73 @@ func (f *NotificationFlyout) drawText(dst draw.Image, x, y int, text string, col
 
 func (f *NotificationFlyout) HandlePointerEnter(ev client.WlPointerEnterEvent) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	if !f.isOpen {
+		f.mu.Unlock()
 		return
 	}
 	if f.backdropSurf != nil && ev.Surface == f.backdropSurf.WlSurface() {
 		f.backdropHover = true
+		f.mu.Unlock()
 		return
 	}
 	if f.surface == nil || ev.Surface != f.surface.WlSurface() {
+		f.mu.Unlock()
 		return
 	}
 	f.hover.inside = true
 	f.hover.x = int(ev.SurfaceX)
 	f.hover.y = int(ev.SurfaceY)
+	f.mu.Unlock()
+	f.markDirty()
 }
 
 func (f *NotificationFlyout) HandlePointerLeave(ev client.WlPointerLeaveEvent) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	if !f.isOpen {
+		f.mu.Unlock()
 		return
 	}
 	if f.backdropSurf != nil && ev.Surface == f.backdropSurf.WlSurface() {
 		f.backdropHover = false
+		f.mu.Unlock()
 		return
 	}
 	if f.surface == nil || ev.Surface != f.surface.WlSurface() {
+		f.mu.Unlock()
 		return
 	}
 	f.hover.inside = false
+	f.mu.Unlock()
+	f.markDirty()
 }
 
 func (f *NotificationFlyout) HandlePointerMotion(ev client.WlPointerMotionEvent) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	if !f.isOpen || !f.hover.inside {
+		f.mu.Unlock()
 		return
 	}
 	f.hover.x = int(ev.SurfaceX)
 	f.hover.y = int(ev.SurfaceY)
+	f.mu.Unlock()
+	f.markDirty()
+}
+
+func (f *NotificationFlyout) SimulateHover(x, y int) {
+	f.mu.Lock()
+	if !f.isOpen {
+		f.mu.Unlock()
+		return
+	}
+	if x < 0 || y < 0 {
+		f.hover.inside = false
+	} else {
+		f.hover.inside = true
+		f.hover.x = x
+		f.hover.y = y
+	}
+	f.mu.Unlock()
+	f.markDirty()
 }
 
 func (f *NotificationFlyout) ScrollBy(delta float64) {

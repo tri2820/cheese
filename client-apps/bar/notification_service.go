@@ -37,6 +37,7 @@ type Notification struct {
 	Thumbnail image.Image
 	CreatedAt time.Time
 	Urgency   byte
+	Unread    bool
 }
 
 type NotificationService struct {
@@ -205,6 +206,7 @@ func (s *NotificationService) AddNotification(replacesID uint32, appName, summar
 		Thumbnail: thumb,
 		CreatedAt: time.Now(),
 		Urgency:   urgency,
+		Unread:    true,
 	}
 
 	s.mu.Lock()
@@ -255,9 +257,18 @@ func (s *NotificationService) HasUnread() bool {
 
 func (s *NotificationService) MarkAllRead() {
 	s.mu.Lock()
+	changed := s.hasUnread
 	s.hasUnread = false
+	for i := range s.notifications {
+		if s.notifications[i].Unread {
+			s.notifications[i].Unread = false
+			changed = true
+		}
+	}
 	s.mu.Unlock()
-	s.notifySubscribers()
+	if changed {
+		s.notifySubscribers()
+	}
 }
 
 func (s *NotificationService) Dismiss(id uint32) {

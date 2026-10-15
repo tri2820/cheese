@@ -280,6 +280,16 @@ func (a *App) HandleCommand(cmd string) {
 		}
 		return
 	}
+	if strings.HasPrefix(cmd, "notif-hover ") {
+		var hx, hy int
+		_, _ = fmt.Sscanf(strings.TrimPrefix(cmd, "notif-hover "), "%d %d", &hx, &hy)
+		for _, bar := range a.bars {
+			if bar.flyout != nil {
+				bar.flyout.SimulateHover(hx, hy)
+			}
+		}
+		return
+	}
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
