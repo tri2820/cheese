@@ -63,16 +63,10 @@ func main() {
 	}
 
 	disp.OnOutput(func(output *display.Output, added bool) {
-		if added {
-			app.AddBar(disp, output)
-			return
-		}
-		app.RemoveBar(output)
+		app.SyncOutputs(disp)
 	})
 
-	for _, output := range disp.ReadyOutputs() {
-		app.AddBar(disp, output)
-	}
+	app.SyncOutputs(disp)
 
 	log.Println("client bar running")
 
@@ -401,12 +395,44 @@ func (a *App) BindPointer(s *seat.Seat, manager *cursor_shape_v1.WpCursorShapeMa
 	})
 }
 
-func (a *App) AddBar(disp *display.Display, output *display.Output) {
-	a.mu.Lock()
-	defer a.mu.Unlock()
+func pickPrimaryOutput(outputs []*display.Output) *display.Output {
+	var best *display.Output
+	var bestArea int64 = -1
+	for _, o := range outputs {
+		if o == nil {
+			continue
+		}
+		area := int64(o.ModeWidth) * int64(o.ModeHeight)
+		if best == nil || area > bestArea || (area == bestArea && !strings.HasPrefix(o.Name, "eDP") && strings.HasPrefix(best.Name, "eDP")) {
+			best = o
+			bestArea = area
+		}
+	}
+	return best
+}
 
-	if _, ok := a.bars[output.WlOutput()]; ok {
-		return
+func (a *App) SyncOutputs(disp *display.Display) {
+	ready := disp.ReadyOutputs()
+	primary := pickPrimaryOutput(ready)
+	readySet := make(map[*client.WlOutput]*display.Output, len(ready))
+	for _, o := range ready {
+		readySet[o.WlOutput()] = o
+	}
+
+	a.mu.Lock()
+	var toClose []*Bar
+	for wlOut, bar := range a.bars {
+		out, stillReady := readySet[wlOut]
+		wantTopBar := stillReady && primary != nil && out.WlOutput() == primary.WlOutput()
+		if !stillReady || bar.showTopBar != wantTopBar {
+			toClose = append(toClose, bar)
+			delete(a.bars, wlOut)
+		}
+	}
+	a.mu.Unlock()
+
+	for _, bar := range toClose {
+		bar.Close()
 	}
 
 	closeAllNotifs := func() {
@@ -423,32 +449,26 @@ func (a *App) AddBar(disp *display.Display, output *display.Output) {
 		}
 	}
 
-	bar, err := NewBar(disp, output, a.audio, a.network, a.bluetooth, a.niri, a.icons, a.notifications, closeAllNotifs)
-	if err != nil {
-		log.Printf("Failed to create bar for %s: %v", output.Name, err)
-		return
-	}
-
-	a.bars[output.WlOutput()] = bar
-	log.Printf("Added bar for output: %s", output.Name)
-}
-
-func (a *App) RemoveBar(output *display.Output) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-
-	bar, ok := a.bars[output.WlOutput()]
-	if !ok {
-		return
+	for _, output := range ready {
+		if _, exists := a.bars[output.WlOutput()]; exists {
+			continue
+		}
+		wantTopBar := primary != nil && output.WlOutput() == primary.WlOutput()
+		bar, err := NewBar(disp, output, wantTopBar, a.audio, a.network, a.bluetooth, a.niri, a.icons, a.notifications, closeAllNotifs)
+		if err != nil {
+			log.Printf("Failed to create bar for %s: %v", output.Name, err)
+			continue
+		}
+		a.bars[output.WlOutput()] = bar
+		log.Printf("Configured output %s (topBar=%v)", output.Name, wantTopBar)
 	}
-
-	bar.Close()
-	delete(a.bars, output.WlOutput())
-	log.Printf("Removed bar for output: %s", output.Name)
 }
 
 type Bar struct {
 	output        *display.Output
+	showTopBar    bool
 	surface       *surface.Surface
 	layer         *shell.LayerSurface
 	frame         *shm.Frame
@@ -486,9 +506,32 @@ type pointerState struct {
 	rect   image.Rectangle
 }
 
-func NewBar(disp *display.Display, output *display.Output, audio *AudioService, network *NetworkService, bluetooth *BluetoothService, niri *NiriService, icons *IconResolver, notifications *NotificationService, closeAllNotifs func()) (*Bar, error) {
+func NewBar(disp *display.Display, output *display.Output, showTopBar bool, audio *AudioService, network *NetworkService, bluetooth *BluetoothService, niri *NiriService, icons *IconResolver, notifications *NotificationService, closeAllNotifs func()) (*Bar, error) {
+	b := &Bar{
+		output:     output,
+		showTopBar: showTopBar,
+		face:       loadBarFont(output),
+		stop:       make(chan struct{}),
+		dirtyCh:    make(chan struct{}, 1),
+		startTime:  time.Now().UnixMilli(),
+	}
+
+	dock, err := NewDock(disp, output, niri, icons)
+	if err != nil {
+		log.Printf("Failed to create dock for %s: %v", output.Name, err)
+	} else {
+		b.dock = dock
+	}
+
+	if !showTopBar {
+		return b, nil
+	}
+
 	surf, err := surface.New(disp.Compositor())
 	if err != nil {
+		if b.dock != nil {
+			b.dock.Close()
+		}
 		return nil, err
 	}
 
@@ -498,11 +541,15 @@ func NewBar(disp *display.Display, output *display.Output, audio *AudioService, 
 		Anchor:        shell.AnchorTop | shell.AnchorLeft | shell.AnchorRight,
 		Width:         0,
 		Height:        barHeight,
-		ExclusiveZone: barHeight + barTopMargin,
+		ExclusiveZone: barHeight,
+		MarginTop:     barTopMargin,
 		Output:        output.WlOutput(),
 	})
 	if err != nil {
 		_ = surf.Close()
+		if b.dock != nil {
+			b.dock.Close()
+		}
 		return nil, err
 	}
 
@@ -513,36 +560,20 @@ func NewBar(disp *display.Display, output *display.Output, audio *AudioService, 
 	if err != nil {
 		_ = layer.Close()
 		_ = surf.Close()
-		return nil, err
-	}
-	if err := layer.SetMargin(barTopMargin, 0, 0, 0); err != nil {
-		_ = frame.Close()
-		_ = layer.Close()
-		_ = surf.Close()
+		if b.dock != nil {
+			b.dock.Close()
+		}
 		return nil, err
 	}
 
-	b := &Bar{
-		output:    output,
-		surface:   surf,
-		layer:     layer,
-		frame:     frame,
-		face:      loadBarFont(output),
-		stop:      make(chan struct{}),
-		dirtyCh:   make(chan struct{}, 1),
-		startTime: time.Now().UnixMilli(),
-	}
+	b.surface = surf
+	b.layer = layer
+	b.frame = frame
 
 	flyout := NewNotificationFlyout(disp, output, notifications, icons, closeAllNotifs)
 	b.flyout = flyout
 	volFlyout := NewVolumeFlyout(disp, output, audio)
 	b.volFlyout = volFlyout
-	dock, err := NewDock(disp, output, niri, icons)
-	if err != nil {
-		log.Printf("Failed to create dock for %s: %v", output.Name, err)
-	} else {
-		b.dock = dock
-	}
 
 	b.leftModules = []Module{
 		NewNotificationModule(notifications, flyout),
@@ -771,7 +802,7 @@ func (b *Bar) HandlePointerEnter(ev client.WlPointerEnterEvent, cursor *cursor_s
 		b.dock.HandlePointerEnter(ev)
 	}
 
-	if ev.Surface != b.surface.WlSurface() {
+	if b.surface == nil || ev.Surface != b.surface.WlSurface() {
 		return
 	}
 
@@ -799,7 +830,7 @@ func (b *Bar) HandlePointerLeave(ev client.WlPointerLeaveEvent, cursor *cursor_s
 		b.dock.HandlePointerLeave(ev)
 	}
 
-	if ev.Surface != b.surface.WlSurface() {
+	if b.surface == nil || ev.Surface != b.surface.WlSurface() {
 		return
 	}
 

@@ -35,7 +35,8 @@ const (
 	dockShelfHeight   = int(dockBaseIconSize) + dockPadTop + dockPadBottom // 54px
 	dockBottomMargin  = 6
 	dockWindowGap     = 6
-	dockExclusiveZone = dockBottomMargin + dockShelfHeight + dockWindowGap // 66px
+	// Niri outer gap is 6px (gaps 16 + struts -10), so ExclusiveZone reserves the dock height + bottom margin (60px) when visible, or 0 when auto-hidden.
+	dockExclusiveZone = dockBottomMargin + dockShelfHeight // 60px
 	dockShelfRadius   = 12.0
 	dockPadX          = 12
 	dockItemPadX      = 6
@@ -105,7 +106,7 @@ func NewDock(disp *display.Display, output *display.Output, niri *NiriService, i
 	initExcl := int32(dockExclusiveZone)
 	initReveal := 1.0
 	if autoHide {
-		initExcl = int32(dockBottomMargin)
+		initExcl = 0
 		initReveal = 0.0
 	}
 
@@ -263,7 +264,7 @@ func (d *Dock) renderLoop() {
 			return
 		}
 		hasItems := len(d.entries) > 0
-		desiredExcl := int32(dockBottomMargin)
+		desiredExcl := int32(0)
 		if hasItems && !d.autoHide {
 			desiredExcl = int32(dockExclusiveZone)
 		}
