@@ -521,7 +521,7 @@ func (b *Bar) Close() {
 	close(b.stop)
 
 	if b.flyout != nil {
-		b.flyout.Close()
+		b.flyout.Destroy()
 	}
 
 	for _, mod := range append([]Module{}, b.leftModules...) {

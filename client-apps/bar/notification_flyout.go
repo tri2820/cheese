@@ -27,6 +27,7 @@ const (
 	flyoutCardPadX     = 10
 	flyoutCardPadY     = 8
 	flyoutCardGap      = 6
+	flyoutThumbGap     = 10
 )
 
 type flyoutPointerState struct {
@@ -47,6 +48,7 @@ type cardLayout struct {
 	summaryLines []string
 	bodyLines    []string
 	height       int
+	hasThumb     bool
 }
 
 type NotificationFlyout struct {
@@ -61,6 +63,7 @@ type NotificationFlyout struct {
 	layer         *shell.LayerSurface
 	frame         *shm.Frame
 	closeSub      func()
+	newSub        func()
 	hits          []flyoutHit
 	hover         flyoutPointerState
 	startTime     int64
@@ -70,7 +73,7 @@ type NotificationFlyout struct {
 }
 
 func NewNotificationFlyout(disp *display.Display, output *display.Output, service *NotificationService, icons *IconResolver) *NotificationFlyout {
-	return &NotificationFlyout{
+	f := &NotificationFlyout{
 		disp:      disp,
 		output:    output,
 		service:   service,
@@ -78,6 +81,24 @@ func NewNotificationFlyout(disp *display.Display, output *display.Output, servic
 		face:      loadBarFont(output),
 		startTime: time.Now().UnixMilli(),
 	}
+
+	// Automatically open the notification list whenever a new notification arrives
+	f.newSub = service.SubscribeNew(func() {
+		f.Open(int32(barSidePad))
+	})
+
+	return f
+}
+
+func (f *NotificationFlyout) Destroy() {
+	f.mu.Lock()
+	newSub := f.newSub
+	f.newSub = nil
+	f.mu.Unlock()
+	if newSub != nil {
+		newSub()
+	}
+	f.Close()
 }
 
 func (f *NotificationFlyout) IsOpen() bool {
@@ -102,6 +123,8 @@ func (f *NotificationFlyout) Open(anchorX int32) {
 	f.mu.Lock()
 	if f.isOpen {
 		f.mu.Unlock()
+		f.markDirty()
+		f.service.MarkAllRead()
 		return
 	}
 
@@ -200,6 +223,9 @@ func (f *NotificationFlyout) Open(anchorX int32) {
 				f.currentHeight = desiredHeight
 				_ = ly.SetSize(flyoutWidth, uint32(desiredHeight))
 				_ = sf.Commit()
+				pending = false
+				f.mu.Unlock()
+				continue
 			}
 			f.mu.Unlock()
 
@@ -238,13 +264,18 @@ func (f *NotificationFlyout) layoutCards(items []Notification, width int) ([]car
 
 	_, _, lineHeight := f.lineMetrics()
 	cardWidth := width - 2*flyoutOuterPad
-	innerTextWidth := cardWidth - 2*flyoutCardPadX
-	headerMaxWidth := innerTextWidth - 22 // leave room for 'x' button
 
 	layouts := make([]cardLayout, 0, len(items))
 	totalHeight := flyoutHeaderHeight + 4
 
 	for _, n := range items {
+		hasThumb := n.Thumbnail != nil
+		innerTextWidth := cardWidth - 2*flyoutCardPadX
+		if hasThumb {
+			innerTextWidth -= notifThumbSize + flyoutThumbGap
+		}
+		headerMaxWidth := innerTextWidth - 22
+
 		appName := n.AppName
 		if appName == "" {
 			appName = "System"
@@ -269,6 +300,12 @@ func (f *NotificationFlyout) layoutCards(items []Notification, width int) ([]car
 		if len(bodyLines) > 0 {
 			cardH += 2
 		}
+		if hasThumb {
+			minThumbCardH := 2*flyoutCardPadY + notifThumbSize
+			if cardH < minThumbCardH {
+				cardH = minThumbCardH
+			}
+		}
 
 		if totalHeight+cardH+flyoutOuterPad > flyoutMaxHeight && len(layouts) > 0 {
 			break
@@ -280,6 +317,7 @@ func (f *NotificationFlyout) layoutCards(items []Notification, width int) ([]car
 			summaryLines: summaryLines,
 			bodyLines:    bodyLines,
 			height:       cardH,
+			hasThumb:     hasThumb,
 		})
 		totalHeight += cardH + flyoutCardGap
 	}
@@ -345,7 +383,6 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
 	draw.Draw(canvas, canvas.Rect, image.NewUniform(color.RGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x00}), image.Point{}, draw.Src)
 
-	// Container background matching bar modules (#181818, radius 6, draw.Src for clean anti-aliased edges)
 	containerRect := image.Rect(0, 0, width, height)
 	drawRoundedRect(canvas, containerRect, moduleCornerRadius, color.RGBA{R: 0x18, G: 0x18, B: 0x18, A: 0xff}, draw.Src)
 
@@ -394,6 +431,14 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 		drawRoundedRect(canvas, cardRect, moduleCornerRadius, color.RGBA{R: 0x22, G: 0x22, B: 0x22, A: 0xff}, draw.Over)
 
 		textX := cardRect.Min.X + flyoutCardPadX
+		if c.hasThumb && c.notif.Thumbnail != nil {
+			thumbX := cardRect.Min.X + flyoutCardPadX
+			thumbY := cardRect.Min.Y + (cardRect.Dy()-notifThumbSize)/2
+			thumbRect := image.Rect(thumbX, thumbY, thumbX+notifThumbSize, thumbY+notifThumbSize)
+			draw.Draw(canvas, thumbRect, c.notif.Thumbnail, c.notif.Thumbnail.Bounds().Min, draw.Over)
+			textX += notifThumbSize + flyoutThumbGap
+		}
+
 		curY := cardRect.Min.Y + flyoutCardPadY + ascent
 
 		// 1. Header line (AppName • Time)
@@ -495,10 +540,14 @@ func (f *NotificationFlyout) HandlePointerButton(ev client.WlPointerButtonEvent)
 		if pt.In(hit.rect) {
 			if hit.action == "clear_all" {
 				f.service.ClearAll()
+				f.Close()
 				return true
 			}
 			if hit.action == "dismiss" {
 				f.service.Dismiss(hit.notifID)
+				if f.service.Count() == 0 {
+					f.Close()
+				}
 				return true
 			}
 		}
@@ -546,7 +595,6 @@ func wrapTextLines(face font.Face, text string, maxWidth int, maxLines int) []st
 		}
 		current := ""
 		for _, word := range words {
-			// If a single word is wider than maxWidth, split it by runes
 			if font.MeasureString(face, word).Ceil() > maxWidth {
 				if current != "" {
 					lines = append(lines, current)

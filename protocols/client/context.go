@@ -94,8 +94,8 @@ func (c *Context) Dispatch() error {
 		return fmt.Errorf("ctx.Dispatch: unable to read msg: %w", err)
 	}
 
-	sender, ok := c.objects[senderID]
-	if !ok {
+	sender := c.GetProxy(senderID)
+	if sender == nil {
 		// In Wayland, events for recently destroyed objects can still be in flight.
 		// Ignore them rather than terminating the connection.
 		return nil
