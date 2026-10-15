@@ -263,29 +263,49 @@ func (a *App) BindPointer(s *seat.Seat, manager *cursor_shape_v1.WpCursorShapeMa
 	}
 	pointer.OnEnter(func(ev client.WlPointerEnterEvent) {
 		a.mu.Lock()
-		defer a.mu.Unlock()
+		bars := make([]*Bar, 0, len(a.bars))
 		for _, bar := range a.bars {
+			bars = append(bars, bar)
+		}
+		a.mu.Unlock()
+
+		for _, bar := range bars {
 			bar.HandlePointerEnter(ev, cursorDevice)
 		}
 	})
 	pointer.OnLeave(func(ev client.WlPointerLeaveEvent) {
 		a.mu.Lock()
-		defer a.mu.Unlock()
+		bars := make([]*Bar, 0, len(a.bars))
 		for _, bar := range a.bars {
+			bars = append(bars, bar)
+		}
+		a.mu.Unlock()
+
+		for _, bar := range bars {
 			bar.HandlePointerLeave(ev, cursorDevice)
 		}
 	})
 	pointer.OnMotion(func(ev client.WlPointerMotionEvent) {
 		a.mu.Lock()
-		defer a.mu.Unlock()
+		bars := make([]*Bar, 0, len(a.bars))
 		for _, bar := range a.bars {
+			bars = append(bars, bar)
+		}
+		a.mu.Unlock()
+
+		for _, bar := range bars {
 			bar.HandlePointerMotion(ev, cursorDevice)
 		}
 	})
 	pointer.OnButton(func(ev client.WlPointerButtonEvent) {
 		a.mu.Lock()
-		defer a.mu.Unlock()
+		bars := make([]*Bar, 0, len(a.bars))
 		for _, bar := range a.bars {
+			bars = append(bars, bar)
+		}
+		a.mu.Unlock()
+
+		for _, bar := range bars {
 			bar.HandlePointerButton(ev)
 		}
 	})

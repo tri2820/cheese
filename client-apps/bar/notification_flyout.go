@@ -21,7 +21,7 @@ import (
 
 const (
 	flyoutWidth        = 340
-	flyoutMaxHeight    = 420
+	flyoutMaxHeight    = 380
 	flyoutHeaderHeight = 36
 	flyoutCardPad      = 10
 	flyoutCardGap      = 8
@@ -34,42 +34,40 @@ type flyoutPointerState struct {
 	y      int
 }
 
-type NotificationFlyout struct {
-	disp        *display.Display
-	output      *display.Output
-	service     *NotificationService
-	icons       *IconResolver
-	face        font.Face
-	mu          sync.Mutex
-	isOpen      bool
-	surface     *surface.Surface
-	layer       *shell.LayerSurface
-	frame       *shm.Frame
-	closeSub    func()
-	hits        []flyoutHit
-	hover       flyoutPointerState
-	hoverIndex  int
-	startTime   int64
-}
-
 type flyoutHit struct {
 	rect    image.Rectangle
 	action  string
 	notifID uint32
 }
 
-func NewNotificationFlyout(disp *display.Display, output *display.Output, service *NotificationService, icons *IconResolver) *NotificationFlyout {
-	f := &NotificationFlyout{
-		disp:       disp,
-		output:     output,
-		service:    service,
-		icons:      icons,
-		face:       basicfont.Face7x13,
-		hoverIndex: -1,
-		startTime:  time.Now().UnixMilli(),
-	}
+type NotificationFlyout struct {
+	disp      *display.Display
+	output    *display.Output
+	service   *NotificationService
+	icons     *IconResolver
+	face      font.Face
+	mu        sync.Mutex
+	isOpen    bool
+	surface   *surface.Surface
+	layer     *shell.LayerSurface
+	frame     *shm.Frame
+	closeSub  func()
+	hits      []flyoutHit
+	hover     flyoutPointerState
+	startTime int64
+	dirtyCh   chan struct{}
+	stop      chan struct{}
+}
 
-	return f
+func NewNotificationFlyout(disp *display.Display, output *display.Output, service *NotificationService, icons *IconResolver) *NotificationFlyout {
+	return &NotificationFlyout{
+		disp:      disp,
+		output:    output,
+		service:   service,
+		icons:     icons,
+		face:      basicfont.Face7x13,
+		startTime: time.Now().UnixMilli(),
+	}
 }
 
 func (f *NotificationFlyout) IsOpen() bool {
@@ -80,27 +78,30 @@ func (f *NotificationFlyout) IsOpen() bool {
 
 func (f *NotificationFlyout) Toggle(anchorX int32) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
+	open := f.isOpen
+	f.mu.Unlock()
 
-	if f.isOpen {
-		f.closeLocked()
+	if open {
+		f.Close()
 	} else {
-		f.openLocked(anchorX)
+		f.Open(anchorX)
 	}
 }
 
-func (f *NotificationFlyout) openLocked(anchorX int32) {
+func (f *NotificationFlyout) Open(anchorX int32) {
+	f.mu.Lock()
 	if f.isOpen {
+		f.mu.Unlock()
 		return
 	}
 
 	surf, err := surface.New(f.disp.Compositor())
 	if err != nil {
+		f.mu.Unlock()
 		log.Printf("NotificationFlyout: Failed to create surface: %v", err)
 		return
 	}
 
-	// Position right below the bar, aligned near the module
 	leftMargin := anchorX - 20
 	if leftMargin < barSidePad {
 		leftMargin = barSidePad
@@ -112,10 +113,11 @@ func (f *NotificationFlyout) openLocked(anchorX int32) {
 		Anchor:        shell.AnchorTop | shell.AnchorLeft,
 		Width:         flyoutWidth,
 		Height:        flyoutMaxHeight,
-		ExclusiveZone: 0, // Float over windows
+		ExclusiveZone: 0,
 		Output:        f.output.WlOutput(),
 	})
 	if err != nil {
+		f.mu.Unlock()
 		_ = surf.Close()
 		log.Printf("NotificationFlyout: Failed to create layer surface: %v", err)
 		return
@@ -123,6 +125,7 @@ func (f *NotificationFlyout) openLocked(anchorX int32) {
 
 	topMargin := int32(barHeight + barTopMargin + 6)
 	if err := layer.SetMargin(topMargin, 0, 0, leftMargin); err != nil {
+		f.mu.Unlock()
 		_ = layer.Close()
 		_ = surf.Close()
 		return
@@ -133,6 +136,7 @@ func (f *NotificationFlyout) openLocked(anchorX int32) {
 		Buffers: 2,
 	})
 	if err != nil {
+		f.mu.Unlock()
 		_ = layer.Close()
 		_ = surf.Close()
 		return
@@ -142,6 +146,8 @@ func (f *NotificationFlyout) openLocked(anchorX int32) {
 	f.layer = layer
 	f.frame = frame
 	f.isOpen = true
+	f.dirtyCh = make(chan struct{}, 1)
+	f.stop = make(chan struct{})
 
 	frame.SetRender(func(width, height int, frameTime uint32, pixels []byte) {
 		f.draw(width, height, pixels)
@@ -149,54 +155,94 @@ func (f *NotificationFlyout) openLocked(anchorX int32) {
 	frame.SetManualMode(true)
 
 	layer.OnClose(func() {
-		f.mu.Lock()
-		f.closeLocked()
-		f.mu.Unlock()
+		f.Close()
 	})
+
+	stopCh := f.stop
+	dirtyCh := f.dirtyCh
+	go func() {
+		ticker := time.NewTicker(16 * time.Millisecond)
+		defer ticker.Stop()
+		pending := false
+		for {
+			select {
+			case <-dirtyCh:
+				pending = true
+			case <-ticker.C:
+			case <-stopCh:
+				return
+			}
+			if !pending {
+				continue
+			}
+			f.mu.Lock()
+			fr := f.frame
+			f.mu.Unlock()
+			if fr != nil && fr.Ready() {
+				fr.ManualRender(uint32(time.Now().UnixMilli() - f.startTime))
+				pending = false
+			}
+		}
+	}()
 
 	f.closeSub = f.service.Subscribe(func() {
-		f.render()
+		f.markDirty()
 	})
 
+	f.mu.Unlock()
+
+	// Initial render
+	f.markDirty()
 	f.service.MarkAllRead()
-	f.render()
+}
+
+func (f *NotificationFlyout) markDirty() {
+	f.mu.Lock()
+	ch := f.dirtyCh
+	f.mu.Unlock()
+	if ch != nil {
+		select {
+		case ch <- struct{}{}:
+		default:
+		}
+	}
 }
 
 func (f *NotificationFlyout) Close() {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.closeLocked()
-}
-
-func (f *NotificationFlyout) closeLocked() {
 	if !f.isOpen {
+		f.mu.Unlock()
 		return
 	}
 	f.isOpen = false
-	if f.closeSub != nil {
-		f.closeSub()
-		f.closeSub = nil
-	}
-	if f.frame != nil {
-		_ = f.frame.Close()
-		f.frame = nil
-	}
-	if f.layer != nil {
-		_ = f.layer.Close()
-		f.layer = nil
-	}
-	if f.surface != nil {
-		_ = f.surface.Close()
-		f.surface = nil
-	}
-}
+	closeSub := f.closeSub
+	f.closeSub = nil
+	stopCh := f.stop
+	f.stop = nil
+	f.dirtyCh = nil
+	frame := f.frame
+	f.frame = nil
+	layer := f.layer
+	f.layer = nil
+	surf := f.surface
+	f.surface = nil
+	f.hover = flyoutPointerState{}
+	f.mu.Unlock()
 
-func (f *NotificationFlyout) render() {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	if f.frame != nil && f.frame.Ready() {
-		f.frame.ManualRender(uint32(time.Now().UnixMilli() - f.startTime))
+	if stopCh != nil {
+		close(stopCh)
+	}
+	if closeSub != nil {
+		closeSub()
+	}
+	if frame != nil {
+		_ = frame.Close()
+	}
+	if layer != nil {
+		_ = layer.Close()
+	}
+	if surf != nil {
+		_ = surf.Close()
 	}
 }
 
@@ -207,40 +253,37 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 		Rect:   image.Rect(0, 0, width, height),
 	}
 
-	// Transparent base
 	draw.Draw(img, img.Bounds(), image.Transparent, image.Point{}, draw.Src)
 
-	// Container background
 	containerRect := image.Rect(0, 0, width, height)
-	drawRoundedRect(img, containerRect, flyoutCornerRadius, color.RGBA{R: 0x16, G: 0x16, B: 0x16, A: 0xf6}, draw.Over)
-	// Outer border
-	drawOutline(img, containerRect, flyoutCornerRadius, color.RGBA{R: 0x30, G: 0x30, B: 0x30, A: 0xff})
+	drawRoundedRect(img, containerRect, flyoutCornerRadius, color.RGBA{R: 0x18, G: 0x18, B: 0x18, A: 0xf4}, draw.Over)
+	drawOutline(img, containerRect, flyoutCornerRadius, color.RGBA{R: 0x36, G: 0x36, B: 0x36, A: 0xff})
 
-	f.hits = f.hits[:0]
+	hits := make([]flyoutHit, 0, 10)
 
 	// Header
 	headerRect := image.Rect(0, 0, width, flyoutHeaderHeight)
-	drawRoundedRect(img, headerRect, flyoutCornerRadius, color.RGBA{R: 0x20, G: 0x20, B: 0x20, A: 0xff}, draw.Over)
+	drawRoundedRect(img, headerRect, flyoutCornerRadius, color.RGBA{R: 0x22, G: 0x22, B: 0x22, A: 0xff}, draw.Over)
 
-	// Header Title
 	items := f.service.List()
 	title := fmt.Sprintf("Notifications (%d)", len(items))
 	f.drawText(img, 12, 22, title, color.RGBA{R: 0xee, G: 0xee, B: 0xee, A: 0xff})
 
-	// Clear All Button (Header Right)
 	if len(items) > 0 {
 		clearText := "Clear All"
 		clearX := width - 85
 		clearBtnRect := image.Rect(clearX, 6, width-10, 30)
 		drawRoundedRect(img, clearBtnRect, 4, color.RGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xff}, draw.Over)
 		f.drawText(img, clearX+10, 22, clearText, color.RGBA{R: 0xcc, G: 0xcc, B: 0xcc, A: 0xff})
-		f.hits = append(f.hits, flyoutHit{rect: clearBtnRect, action: "clear_all"})
+		hits = append(hits, flyoutHit{rect: clearBtnRect, action: "clear_all"})
 	}
 
-	// Content
 	y := flyoutHeaderHeight + 10
 	if len(items) == 0 {
-		f.drawText(img, width/2-60, height/2, "No notifications", color.RGBA{R: 0x77, G: 0x77, B: 0x77, A: 0xff})
+		f.drawText(img, width/2-55, height/2, "No notifications", color.RGBA{R: 0x77, G: 0x77, B: 0x77, A: 0xff})
+		f.mu.Lock()
+		f.hits = hits
+		f.mu.Unlock()
 		return
 	}
 
@@ -253,7 +296,6 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 		cardRect := image.Rect(10, y, width-10, y+cardHeight)
 		drawRoundedRect(img, cardRect, 6, color.RGBA{R: 0x24, G: 0x24, B: 0x24, A: 0xff}, draw.Over)
 
-		// Header row: AppName + time
 		appName := n.AppName
 		if appName == "" {
 			appName = "System"
@@ -261,26 +303,25 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 		timeStr := n.CreatedAt.Format("15:04")
 		f.drawText(img, 18, y+16, fmt.Sprintf("%s • %s", appName, timeStr), color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff})
 
-		// Dismiss [x] button on card
-		dismissRect := image.Rect(width-32, y+4, width-12, y+24)
-		f.drawText(img, width-26, y+18, "x", color.RGBA{R: 0x99, G: 0x99, B: 0x99, A: 0xff})
-		f.hits = append(f.hits, flyoutHit{rect: dismissRect, action: "dismiss", notifID: n.ID})
+		dismissRect := image.Rect(width-30, y+4, width-10, y+24)
+		f.drawText(img, width-24, y+18, "x", color.RGBA{R: 0x99, G: 0x99, B: 0x99, A: 0xff})
+		hits = append(hits, flyoutHit{rect: dismissRect, action: "dismiss", notifID: n.ID})
 
-		// Summary / Title
 		summary := truncateString(n.Summary, 34)
 		f.drawText(img, 18, y+32, summary, color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
 
-		// Body
 		body := truncateString(n.Body, 42)
 		if body != "" {
 			f.drawText(img, 18, y+46, body, color.RGBA{R: 0xaa, G: 0xaa, B: 0xaa, A: 0xff})
 		}
 
-		// Clicking the card itself also dismisses
-		f.hits = append(f.hits, flyoutHit{rect: cardRect, action: "dismiss", notifID: n.ID})
-
+		hits = append(hits, flyoutHit{rect: cardRect, action: "dismiss", notifID: n.ID})
 		y += cardHeight + flyoutCardGap
 	}
+
+	f.mu.Lock()
+	f.hits = hits
+	f.mu.Unlock()
 }
 
 func (f *NotificationFlyout) drawText(dst draw.Image, x, y int, text string, col color.Color) {
@@ -325,18 +366,22 @@ func (f *NotificationFlyout) HandlePointerMotion(ev client.WlPointerMotionEvent)
 
 func (f *NotificationFlyout) HandlePointerButton(ev client.WlPointerButtonEvent) bool {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-
 	if !f.isOpen || !f.hover.inside {
+		f.mu.Unlock()
 		return false
 	}
 
 	if ev.Button != 0x110 || ev.State != client.WlPointerButtonStatePressed {
+		f.mu.Unlock()
 		return true
 	}
 
 	pt := image.Pt(f.hover.x, f.hover.y)
-	for _, hit := range f.hits {
+	hitsCopy := make([]flyoutHit, len(f.hits))
+	copy(hitsCopy, f.hits)
+	f.mu.Unlock()
+
+	for _, hit := range hitsCopy {
 		if pt.In(hit.rect) {
 			if hit.action == "clear_all" {
 				f.service.ClearAll()
@@ -360,7 +405,6 @@ func truncateString(s string, maxLen int) string {
 }
 
 func drawOutline(dst draw.Image, rect image.Rectangle, radius int, col color.Color) {
-	// Simple border drawing on inner edges
 	top := image.Rect(rect.Min.X, rect.Min.Y, rect.Max.X, rect.Min.Y+1)
 	bottom := image.Rect(rect.Min.X, rect.Max.Y-1, rect.Max.X, rect.Max.Y)
 	left := image.Rect(rect.Min.X, rect.Min.Y, rect.Min.X+1, rect.Max.Y)

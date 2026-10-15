@@ -107,11 +107,13 @@ func (s *NotificationService) notifySubscribers() {
 	}
 	s.mu.RUnlock()
 
-	for _, fn := range subs {
-		if fn != nil {
-			fn()
+	go func() {
+		for _, fn := range subs {
+			if fn != nil {
+				fn()
+			}
 		}
-	}
+	}()
 }
 
 func (s *NotificationService) AddNotification(appName, summary, body, appIcon string, urgency byte) uint32 {
