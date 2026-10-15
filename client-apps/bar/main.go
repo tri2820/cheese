@@ -278,6 +278,14 @@ func (a *App) HandleCommand(cmd string) {
 		}
 		return
 	}
+	if strings.HasPrefix(cmd, "bar-hover ") {
+		var idx int
+		_, _ = fmt.Sscanf(strings.TrimPrefix(cmd, "bar-hover "), "%d", &idx)
+		for _, bar := range a.bars {
+			bar.SimulateHoverModule(idx)
+		}
+		return
+	}
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -711,6 +719,9 @@ func (b *Bar) drawCentered(dst draw.Image, rect image.Rectangle, mods []Module, 
 		if !moduleDrawsOwnBackground(mod) {
 			drawModuleBackground(dst, moduleRect)
 		}
+		if b.isModuleActive(mod) {
+			drawActiveBackground(dst, moduleRect)
+		}
 		if hoverRect, ok := b.currentHoverRect(mod, moduleRect); ok {
 			drawHoverBackground(dst, hoverRect)
 		}
@@ -732,6 +743,9 @@ func (b *Bar) drawRight(dst draw.Image, rect image.Rectangle, mods []Module, hit
 		moduleRect := image.Rect(x, rect.Min.Y, x+w, rect.Max.Y)
 		if !moduleDrawsOwnBackground(mod) {
 			drawModuleBackground(dst, moduleRect)
+		}
+		if b.isModuleActive(mod) {
+			drawActiveBackground(dst, moduleRect)
 		}
 		if hoverRect, ok := b.currentHoverRect(mod, moduleRect); ok {
 			drawHoverBackground(dst, hoverRect)
@@ -1002,11 +1016,54 @@ func textBaseline(face font.Face, rect image.Rectangle) int {
 }
 
 func drawHoverBackground(dst draw.Image, rect image.Rectangle) {
-	drawRoundedRect(dst, rect, moduleCornerRadius, color.RGBA{R: 0x20, G: 0x20, B: 0x20, A: 0xff}, draw.Over)
+	if rgba, ok := dst.(*image.RGBA); ok {
+		drawSmoothRoundedRect(rgba, rect, float64(moduleCornerRadius), color.RGBA{R: 0x36, G: 0x36, B: 0x36, A: 0xff}, draw.Src)
+		return
+	}
+	drawRoundedRect(dst, rect, moduleCornerRadius, color.RGBA{R: 0x36, G: 0x36, B: 0x36, A: 0xff}, draw.Src)
+}
+
+func drawActiveBackground(dst draw.Image, rect image.Rectangle) {
+	if rgba, ok := dst.(*image.RGBA); ok {
+		drawSmoothRoundedRect(rgba, rect, float64(moduleCornerRadius), color.RGBA{R: 0x2a, G: 0x2a, B: 0x2a, A: 0xff}, draw.Src)
+		return
+	}
+	drawRoundedRect(dst, rect, moduleCornerRadius, color.RGBA{R: 0x2a, G: 0x2a, B: 0x2a, A: 0xff}, draw.Src)
 }
 
 func drawModuleBackground(dst draw.Image, rect image.Rectangle) {
+	if rgba, ok := dst.(*image.RGBA); ok {
+		drawSmoothRoundedRect(rgba, rect, float64(moduleCornerRadius), color.RGBA{R: 0x18, G: 0x18, B: 0x18, A: 0xff}, draw.Src)
+		return
+	}
 	drawRoundedRect(dst, rect, moduleCornerRadius, color.RGBA{R: 0x18, G: 0x18, B: 0x18, A: 0xff}, draw.Src)
+}
+
+func (b *Bar) isModuleActive(mod Module) bool {
+	if _, ok := mod.(*NotificationModule); ok && b.flyout != nil {
+		return b.flyout.IsOpen()
+	}
+	if _, ok := mod.(*VolumeModule); ok && b.volFlyout != nil {
+		return b.volFlyout.IsOpen()
+	}
+	return false
+}
+
+func (b *Bar) SimulateHoverModule(idx int) {
+	b.drawMu.Lock()
+	if idx < 0 || idx >= len(b.hits) {
+		b.hover = pointerState{}
+		b.drawMu.Unlock()
+		b.markDirty()
+		return
+	}
+	hit := b.hits[idx]
+	b.hover.inside = true
+	b.hover.x = (hit.rect.Min.X + hit.rect.Max.X) / 2
+	b.hover.y = (hit.rect.Min.Y + hit.rect.Max.Y) / 2
+	b.updateHoveredModuleLocked()
+	b.drawMu.Unlock()
+	b.markDirty()
 }
 
 func drawRoundedRect(dst draw.Image, rect image.Rectangle, radius int, col color.Color, op draw.Op) {
@@ -1154,6 +1211,9 @@ func (b *Bar) drawLeft(dst draw.Image, rect image.Rectangle, mods []Module, hits
 		moduleRect := image.Rect(x, rect.Min.Y, x+w, rect.Max.Y)
 		if !moduleDrawsOwnBackground(mod) {
 			drawModuleBackground(dst, moduleRect)
+		}
+		if b.isModuleActive(mod) {
+			drawActiveBackground(dst, moduleRect)
 		}
 		if hoverRect, ok := b.currentHoverRect(mod, moduleRect); ok {
 			drawHoverBackground(dst, hoverRect)
