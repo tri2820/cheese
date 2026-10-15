@@ -244,6 +244,16 @@ func (a *App) HandleCommand(cmd string) {
 		}
 		return
 	}
+	if strings.HasPrefix(cmd, "dock-hover ") {
+		var idx int
+		_, _ = fmt.Sscanf(strings.TrimPrefix(cmd, "dock-hover "), "%d", &idx)
+		for _, bar := range a.bars {
+			if bar.dock != nil {
+				bar.dock.SimulateHover(idx)
+			}
+		}
+		return
+	}
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -413,6 +423,7 @@ type Bar struct {
 	face          font.Face
 	flyout        *NotificationFlyout
 	volFlyout     *VolumeFlyout
+	dock          *Dock
 	leftModules   []Module
 	centerModules []Module
 	rightModules  []Module
@@ -494,10 +505,15 @@ func NewBar(disp *display.Display, output *display.Output, audio *AudioService, 
 	b.flyout = flyout
 	volFlyout := NewVolumeFlyout(disp, output, audio)
 	b.volFlyout = volFlyout
+	dock, err := NewDock(disp, output, niri, icons)
+	if err != nil {
+		log.Printf("Failed to create dock for %s: %v", output.Name, err)
+	} else {
+		b.dock = dock
+	}
 
 	b.leftModules = []Module{
 		NewNotificationModule(notifications, flyout),
-		NewTaskbarModule(output.Name, niri, icons),
 	}
 	b.centerModules = []Module{
 		NewClockModule(),
@@ -582,6 +598,9 @@ func (b *Bar) Close() {
 	}
 	if b.volFlyout != nil {
 		b.volFlyout.Destroy()
+	}
+	if b.dock != nil {
+		b.dock.Close()
 	}
 
 	for _, mod := range append([]Module{}, b.leftModules...) {
@@ -710,6 +729,9 @@ func (b *Bar) HandlePointerEnter(ev client.WlPointerEnterEvent, cursor *cursor_s
 	if b.volFlyout != nil {
 		b.volFlyout.HandlePointerEnter(ev)
 	}
+	if b.dock != nil {
+		b.dock.HandlePointerEnter(ev)
+	}
 
 	if ev.Surface != b.surface.WlSurface() {
 		return
@@ -735,6 +757,9 @@ func (b *Bar) HandlePointerLeave(ev client.WlPointerLeaveEvent, cursor *cursor_s
 	if b.volFlyout != nil {
 		b.volFlyout.HandlePointerLeave(ev)
 	}
+	if b.dock != nil {
+		b.dock.HandlePointerLeave(ev)
+	}
 
 	if ev.Surface != b.surface.WlSurface() {
 		return
@@ -759,6 +784,9 @@ func (b *Bar) HandlePointerMotion(ev client.WlPointerMotionEvent, cursor *cursor
 	if b.volFlyout != nil {
 		b.volFlyout.HandlePointerMotion(ev)
 	}
+	if b.dock != nil {
+		b.dock.HandlePointerMotion(ev)
+	}
 
 	b.drawMu.Lock()
 	if !b.hover.inside {
@@ -780,6 +808,17 @@ func (b *Bar) HandlePointerButton(ev client.WlPointerButtonEvent) {
 		return
 	}
 	if b.volFlyout != nil && b.volFlyout.HandlePointerButton(ev) {
+		return
+	}
+	if b.dock != nil && b.dock.HandlePointerButton(ev) {
+		if ev.State == client.WlPointerButtonStatePressed {
+			if b.flyout != nil && b.flyout.IsOpen() {
+				b.flyout.Close()
+			}
+			if b.volFlyout != nil && b.volFlyout.IsOpen() {
+				b.volFlyout.Close()
+			}
+		}
 		return
 	}
 
