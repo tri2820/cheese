@@ -524,6 +524,39 @@ func NewBar(disp *display.Display, output *display.Output, showTopBar bool, audi
 	}
 
 	if !showTopBar {
+		surf, err := surface.New(disp.Compositor())
+		if err == nil {
+			layer, err := shell.NewLayer(surf, disp.LayerShell(), shell.LayerConfig{
+				Layer:         shell.LayerPositionTop,
+				Name:          "cheese-top-spacer",
+				Anchor:        shell.AnchorTop | shell.AnchorLeft | shell.AnchorRight,
+				Width:         0,
+				Height:        1,
+				ExclusiveZone: barTopMargin,
+				Output:        output.WlOutput(),
+			})
+			if err == nil {
+				frame, err := shm.NewFrame(disp.Shm(), layer, disp, shm.FrameConfig{
+					Format:  client.WlShmFormatArgb8888,
+					Buffers: 1,
+				})
+				if err == nil {
+					frame.SetRender(func(w, h int, t uint32, pixels []byte) {
+						if reg, err := disp.Compositor().CreateRegion(); err == nil {
+							_ = surf.WlSurface().SetInputRegion(reg)
+							_ = reg.Destroy()
+						}
+						atomic.AddUint64(&b.renders, 1)
+					})
+					frame.SetManualMode(true)
+					b.surface = surf
+					b.layer = layer
+					b.frame = frame
+					go b.renderLoop()
+					b.markDirty()
+				}
+			}
+		}
 		return b, nil
 	}
 
@@ -541,7 +574,7 @@ func NewBar(disp *display.Display, output *display.Output, showTopBar bool, audi
 		Anchor:        shell.AnchorTop | shell.AnchorLeft | shell.AnchorRight,
 		Width:         0,
 		Height:        barHeight,
-		ExclusiveZone: barHeight,
+		ExclusiveZone: barHeight + barTopMargin,
 		MarginTop:     barTopMargin,
 		Output:        output.WlOutput(),
 	})
