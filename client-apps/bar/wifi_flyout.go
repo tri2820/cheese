@@ -20,10 +20,10 @@ import (
 )
 
 const (
-	wifiFlyoutWidth     = 270
-	wifiFlyoutMaxHeight = 400
-	wifiHeaderHeight    = 38
-	wifiRowHeight       = 28
+	wifiFlyoutWidth  = 270
+	wifiFlyoutHeight = 340
+	wifiHeaderHeight = 38
+	wifiRowHeight    = 28
 )
 
 type wifiHit struct {
@@ -175,7 +175,7 @@ func (f *WifiFlyout) Open(moduleRect image.Rectangle) {
 		Name:          "cheese-wifi-flyout",
 		Anchor:        shell.AnchorTop | shell.AnchorLeft,
 		Width:         wifiFlyoutWidth,
-		Height:        uint32(calcHeight),
+		Height:        wifiFlyoutHeight,
 		ExclusiveZone: -1,
 		MarginTop:     topMargin,
 		MarginLeft:    leftMargin,
@@ -273,19 +273,6 @@ func (f *WifiFlyout) Open(moduleRect image.Rectangle) {
 
 			f.mu.Lock()
 			fr := f.frame
-			ly := f.layer
-			sf := f.surface
-			nets := f.networks
-			en := f.enabled
-			_, desiredH := f.computeContentAndSurfaceHeight(nets, en)
-			if ly != nil && sf != nil && desiredH != f.currentHeight {
-				f.currentHeight = desiredH
-				_ = ly.SetSize(wifiFlyoutWidth, uint32(desiredH))
-				_ = sf.Commit()
-				pending = false
-				f.mu.Unlock()
-				continue
-			}
 			f.mu.Unlock()
 
 			if fr != nil && fr.Ready() {
@@ -321,8 +308,8 @@ func (f *WifiFlyout) computeContentAndSurfaceHeight(networks []AccessPoint, enab
 	contentHeight = h
 
 	surfaceHeight = wifiHeaderHeight + 1 + contentHeight + 4
-	if surfaceHeight > wifiFlyoutMaxHeight {
-		surfaceHeight = wifiFlyoutMaxHeight
+	if surfaceHeight > wifiFlyoutHeight {
+		surfaceHeight = wifiFlyoutHeight
 	}
 	return contentHeight, surfaceHeight
 }

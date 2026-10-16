@@ -21,10 +21,10 @@ import (
 )
 
 const (
-	btFlyoutWidth     = 260
-	btFlyoutMaxHeight = 400
-	btHeaderHeight    = 38
-	btRowHeight       = 28
+	btFlyoutWidth  = 260
+	btFlyoutHeight = 280
+	btHeaderHeight = 38
+	btRowHeight    = 28
 )
 
 type btHit struct {
@@ -170,7 +170,7 @@ func (f *BluetoothFlyout) Open(moduleRect image.Rectangle) {
 		Name:          "cheese-bluetooth-flyout",
 		Anchor:        shell.AnchorTop | shell.AnchorLeft,
 		Width:         btFlyoutWidth,
-		Height:        uint32(calcHeight),
+		Height:        btFlyoutHeight,
 		ExclusiveZone: -1,
 		MarginTop:     topMargin,
 		MarginLeft:    leftMargin,
@@ -268,19 +268,6 @@ func (f *BluetoothFlyout) Open(moduleRect image.Rectangle) {
 
 			f.mu.Lock()
 			fr := f.frame
-			ly := f.layer
-			sf := f.surface
-			devs := f.devices
-			pwr := f.powered
-			_, desiredH := f.computeContentAndSurfaceHeight(devs, pwr)
-			if ly != nil && sf != nil && desiredH != f.currentHeight {
-				f.currentHeight = desiredH
-				_ = ly.SetSize(btFlyoutWidth, uint32(desiredH))
-				_ = sf.Commit()
-				pending = false
-				f.mu.Unlock()
-				continue
-			}
 			f.mu.Unlock()
 
 			if fr != nil && fr.Ready() {
@@ -318,8 +305,8 @@ func (f *BluetoothFlyout) computeContentAndSurfaceHeight(devices []BluetoothDevi
 	contentHeight = h
 
 	surfaceHeight = btHeaderHeight + 1 + contentHeight + 4
-	if surfaceHeight > btFlyoutMaxHeight {
-		surfaceHeight = btFlyoutMaxHeight
+	if surfaceHeight > btFlyoutHeight {
+		surfaceHeight = btFlyoutHeight
 	}
 	return contentHeight, surfaceHeight
 }
