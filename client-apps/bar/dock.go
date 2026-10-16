@@ -111,7 +111,7 @@ func NewDock(disp *display.Display, output *display.Output, niri *NiriService, i
 	}
 
 	layer, err := shell.NewLayer(surf, disp.LayerShell(), shell.LayerConfig{
-		Layer:         shell.LayerPositionTop,
+		Layer:         shell.LayerPositionOverlay,
 		Name:          "cheese-dock",
 		Anchor:        shell.AnchorBottom | shell.AnchorLeft | shell.AnchorRight,
 		Width:         0,

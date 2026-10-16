@@ -214,7 +214,11 @@ func (a *App) HandleCommand(cmd string) {
 	if cmd == "notif-toggle" {
 		for _, bar := range a.bars {
 			if bar.flyout != nil {
-				bar.flyout.Toggle(20)
+				anchorX := int32(barSidePad)
+				if bar.output != nil && bar.output.ModeWidth > flyoutWidth {
+					anchorX = int32((bar.output.ModeWidth - flyoutWidth) / 2)
+				}
+				bar.flyout.Toggle(anchorX)
 			}
 		}
 		return

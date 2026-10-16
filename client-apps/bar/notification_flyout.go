@@ -199,6 +199,7 @@ func (f *NotificationFlyout) openInternal(anchorX int32, auto bool) {
 		Height:        0,
 		ExclusiveZone: -1,
 		MarginTop:     int32(barTopMargin + barHeight),
+		MarginBottom:  int32(dockBottomMargin + dockShelfHeight + dockWindowGap),
 		Output:        f.output.WlOutput(),
 	})
 	if err != nil {

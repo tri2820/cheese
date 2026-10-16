@@ -107,12 +107,13 @@ func (f *VolumeFlyout) Open(moduleRect image.Rectangle) {
 	}
 	bdLayer, err := shell.NewLayer(bdSurf, f.disp.LayerShell(), shell.LayerConfig{
 		Layer:         shell.LayerPositionTop,
-		Name:          "cheese-volume-backdrop",
+		Name:          "cheese-vol-backdrop",
 		Anchor:        shell.AnchorTop | shell.AnchorBottom | shell.AnchorLeft | shell.AnchorRight,
 		Width:         0,
 		Height:        0,
 		ExclusiveZone: -1,
 		MarginTop:     int32(barTopMargin + barHeight),
+		MarginBottom:  int32(dockBottomMargin + dockShelfHeight + dockWindowGap),
 		Output:        f.output.WlOutput(),
 	})
 	if err != nil {
