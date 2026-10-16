@@ -75,6 +75,7 @@ type Dock struct {
 	hoveredIdx      int
 	slots           []dockSlotHit
 	pillRect        image.Rectangle
+	lastInputRect   image.Rectangle
 	autoHide        bool
 	reveal          float64
 	currentExclZone int32
@@ -386,6 +387,11 @@ func (d *Dock) updateInputRegion(rect image.Rectangle) {
 	if d.surface == nil || d.disp == nil {
 		return
 	}
+	if rect == d.lastInputRect {
+		return
+	}
+	d.lastInputRect = rect
+
 	region, err := d.disp.Compositor().CreateRegion()
 	if err != nil {
 		return
