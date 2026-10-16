@@ -2,6 +2,8 @@ package main
 
 import (
 	"log"
+	"os/exec"
+	"sort"
 	"sync"
 
 	"github.com/godbus/dbus/v5"
@@ -15,6 +17,15 @@ const (
 	bluezAdapterIface       = "org.bluez.Adapter1"
 	bluezDeviceIface        = "org.bluez.Device1"
 )
+
+type BluetoothDevice struct {
+	Path      dbus.ObjectPath
+	Address   string
+	Name      string
+	Icon      string
+	Connected bool
+	Paired    bool
+}
 
 type BluetoothState struct {
 	Powered   bool
@@ -79,6 +90,90 @@ func (s *BluetoothService) Close() {
 		s.conn.RemoveSignal(s.signals)
 		_ = s.conn.Close()
 	}
+}
+
+func (s *BluetoothService) ListDevices() ([]BluetoothDevice, bool) {
+	if s.conn == nil {
+		return nil, false
+	}
+	obj := s.conn.Object(bluezService, bluezRootPath)
+	var managed map[dbus.ObjectPath]map[string]map[string]dbus.Variant
+	if err := obj.Call(bluezObjectManagerIface+".GetManagedObjects", 0).Store(&managed); err != nil {
+		return nil, false
+	}
+
+	powered := false
+	for _, ifaces := range managed {
+		if props, ok := ifaces[bluezAdapterIface]; ok {
+			if p, ok := variantBool(props["Powered"]); ok && p {
+				powered = true
+				break
+			}
+		}
+	}
+	if !powered {
+		return nil, false
+	}
+
+	var devices []BluetoothDevice
+	for path, ifaces := range managed {
+		props, ok := ifaces[bluezDeviceIface]
+		if !ok {
+			continue
+		}
+		addr, _ := variantString(props["Address"])
+		name, _ := variantString(props["Name"])
+		if name == "" {
+			name, _ = variantString(props["Alias"])
+		}
+		if name == "" {
+			name = addr
+		}
+		icon, _ := variantString(props["Icon"])
+		conn, _ := variantBool(props["Connected"])
+		paired, _ := variantBool(props["Paired"])
+
+		devices = append(devices, BluetoothDevice{
+			Path:      path,
+			Address:   addr,
+			Name:      name,
+			Icon:      icon,
+			Connected: conn,
+			Paired:    paired,
+		})
+	}
+
+	sort.Slice(devices, func(i, j int) bool {
+		if devices[i].Connected != devices[j].Connected {
+			return devices[i].Connected
+		}
+		if devices[i].Paired != devices[j].Paired {
+			return devices[i].Paired
+		}
+		return devices[i].Name < devices[j].Name
+	})
+
+	return devices, true
+}
+
+func (s *BluetoothService) SetPowered(powered bool) error {
+	arg := "on"
+	if !powered {
+		arg = "off"
+	}
+	_ = exec.Command("bluetoothctl", "power", arg).Run()
+	s.refresh()
+	return nil
+}
+
+func (s *BluetoothService) ToggleDevice(dev BluetoothDevice) {
+	go func() {
+		if dev.Connected {
+			_ = exec.Command("bluetoothctl", "disconnect", dev.Address).Run()
+		} else {
+			_ = exec.Command("bluetoothctl", "connect", dev.Address).Run()
+		}
+	}()
 }
 
 func (s *BluetoothService) State() BluetoothState {

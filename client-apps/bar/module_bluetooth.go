@@ -1,19 +1,20 @@
 package main
 
 import (
-	"log"
-	"os/exec"
+	"image"
 )
 
 type BluetoothModule struct {
 	TextModule
 	bluetooth   *BluetoothService
+	flyout      *BluetoothFlyout
 	unsubscribe func()
 }
 
-func NewBluetoothModule(bluetooth *BluetoothService) *BluetoothModule {
+func NewBluetoothModule(bluetooth *BluetoothService, flyout *BluetoothFlyout) *BluetoothModule {
 	return &BluetoothModule{
 		bluetooth: bluetooth,
+		flyout:    flyout,
 	}
 }
 
@@ -35,14 +36,23 @@ func (m *BluetoothModule) Close() {
 	}
 }
 
-func (m *BluetoothModule) OnClick(button uint32) {
-	if button != 0x110 {
-		return
-	}
+func (m *BluetoothModule) HoverRect(rect image.Rectangle, point image.Point) (image.Rectangle, bool) {
+	return rect, true
+}
 
-	cmd := exec.Command("alacritty", "--class=floating", "-e", "bluetui")
-	if err := cmd.Start(); err != nil {
-		log.Printf("Bluetooth module click error: %v", err)
+func (m *BluetoothModule) OnClickAt(button uint32, rect image.Rectangle, point image.Point) bool {
+	if button != 0x110 {
+		return false
+	}
+	if m.flyout != nil {
+		m.flyout.Toggle(rect)
+	}
+	return true
+}
+
+func (m *BluetoothModule) OnClick(button uint32) {
+	if button == 0x110 && m.flyout != nil {
+		m.flyout.Toggle(image.Rect(0, 0, 0, 0))
 	}
 }
 
