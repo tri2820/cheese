@@ -647,11 +647,9 @@ func NewBar(disp *display.Display, output *display.Output, showTopBar bool, audi
 	volFlyout := NewVolumeFlyout(disp, output, audio)
 	b.volFlyout = volFlyout
 
-	b.leftModules = []Module{
-		NewNotificationModule(notifications, flyout),
-	}
+	b.leftModules = nil
 	b.centerModules = []Module{
-		NewClockModule(),
+		NewClockModule(flyout),
 	}
 	b.rightModules = []Module{
 		NewInputMethodModule(),
@@ -982,7 +980,7 @@ func (b *Bar) HandlePointerButton(ev client.WlPointerButtonEvent) {
 		}
 	}
 
-	if _, isNotif := clickedMod.(*NotificationModule); !isNotif && b.flyout != nil && b.flyout.IsOpen() {
+	if _, isClock := clickedMod.(*ClockModule); !isClock && b.flyout != nil && b.flyout.IsOpen() {
 		b.flyout.Close()
 	}
 	if _, isVol := clickedMod.(*VolumeModule); !isVol && b.volFlyout != nil && b.volFlyout.IsOpen() {
@@ -1143,7 +1141,7 @@ func drawModuleBackground(dst draw.Image, rect image.Rectangle) {
 }
 
 func (b *Bar) isModuleActive(mod Module) bool {
-	if _, ok := mod.(*NotificationModule); ok && b.flyout != nil {
+	if _, ok := mod.(*ClockModule); ok && b.flyout != nil {
 		return b.flyout.IsOpen()
 	}
 	if _, ok := mod.(*VolumeModule); ok && b.volFlyout != nil {

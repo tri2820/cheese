@@ -1,6 +1,7 @@
 package main
 
 import (
+	"image"
 	"log"
 	"sync"
 	"time"
@@ -14,9 +15,10 @@ type ClockModule struct {
 	local     *time.Location
 	singapore *time.Location
 	useLocal  bool
+	flyout    *NotificationFlyout
 }
 
-func NewClockModule() *ClockModule {
+func NewClockModule(flyout *NotificationFlyout) *ClockModule {
 	local := time.Now().Location()
 	singapore, err := time.LoadLocation("Asia/Singapore")
 	if err != nil {
@@ -28,6 +30,7 @@ func NewClockModule() *ClockModule {
 		local:     local,
 		singapore: singapore,
 		useLocal:  true,
+		flyout:    flyout,
 	}
 }
 
@@ -60,15 +63,42 @@ func (m *ClockModule) Close() {
 	}
 }
 
+func (m *ClockModule) HoverRect(rect image.Rectangle, point image.Point) (image.Rectangle, bool) {
+	return rect, true
+}
+
+func (m *ClockModule) OnClickAt(button uint32, rect image.Rectangle, point image.Point) bool {
+	if button == 0x110 {
+		if m.flyout != nil {
+			anchorX := int32(rect.Min.X + (rect.Dx()-flyoutWidth)/2)
+			if anchorX < barSidePad {
+				anchorX = barSidePad
+			}
+			m.flyout.Toggle(anchorX)
+		}
+		return true
+	}
+	if button == 0x111 {
+		m.mu.Lock()
+		m.useLocal = !m.useLocal
+		m.mu.Unlock()
+		m.updateText(time.Now(), true)
+		return true
+	}
+	return false
+}
+
 func (m *ClockModule) OnClick(button uint32) {
-	if button != 0x110 {
+	if button == 0x110 && m.flyout != nil {
+		m.flyout.Toggle(int32(barSidePad))
 		return
 	}
-
-	m.mu.Lock()
-	m.useLocal = !m.useLocal
-	m.mu.Unlock()
-	m.updateText(time.Now(), true)
+	if button == 0x111 {
+		m.mu.Lock()
+		m.useLocal = !m.useLocal
+		m.mu.Unlock()
+		m.updateText(time.Now(), true)
+	}
 }
 
 func (m *ClockModule) updateText(now time.Time, dirty bool) {

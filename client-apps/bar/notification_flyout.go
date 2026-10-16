@@ -111,7 +111,11 @@ func NewNotificationFlyout(disp *display.Display, output *display.Output, servic
 		f.mu.Lock()
 		f.scrollOffset = 0
 		f.mu.Unlock()
-		f.OpenAuto(int32(barSidePad))
+		anchorX := int32(barSidePad)
+		if output != nil && output.ModeWidth > flyoutWidth {
+			anchorX = int32((output.ModeWidth - flyoutWidth) / 2)
+		}
+		f.OpenAuto(anchorX)
 	})
 
 	return f
