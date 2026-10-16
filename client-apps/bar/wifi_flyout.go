@@ -161,7 +161,13 @@ func (f *WifiFlyout) Open(moduleRect image.Rectangle) {
 	}
 	topMargin := int32(barTopMargin + barHeight + moduleGap)
 
-	networks, enabled := f.network.ListAccessPoints()
+	f.mu.Lock()
+	networks := f.networks
+	enabled := f.enabled
+	f.mu.Unlock()
+	if len(networks) == 0 {
+		networks, enabled = f.network.ListAccessPoints()
+	}
 	_, calcHeight := f.computeContentAndSurfaceHeight(networks, enabled)
 
 	layer, err := shell.NewLayer(surf, f.disp.LayerShell(), shell.LayerConfig{

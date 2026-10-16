@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"log"
 	"os/exec"
 	"sort"
@@ -111,15 +110,18 @@ func (s *NetworkService) IsWirelessEnabled() bool {
 }
 
 func (s *NetworkService) SetWirelessEnabled(enabled bool) error {
-	arg := "on"
-	if !enabled {
-		arg = "off"
+	if s.conn == nil {
+		return nil
 	}
-	_ = exec.Command("nmcli", "radio", "wifi", arg).Run()
-	if s.conn != nil {
-		obj := s.conn.Object(nmService, nmPath)
-		_ = obj.SetProperty(nmIface+".WirelessEnabled", dbus.MakeVariant(enabled))
-	}
+	obj := s.conn.Object(nmService, nmPath)
+	_ = obj.SetProperty(nmIface+".WirelessEnabled", dbus.MakeVariant(enabled))
+	go func() {
+		arg := "on"
+		if !enabled {
+			arg = "off"
+		}
+		_ = exec.Command("nmcli", "radio", "wifi", arg).Run()
+	}()
 	s.refresh()
 	return nil
 }
@@ -132,48 +134,81 @@ func (s *NetworkService) ConnectToSSID(ssid string) {
 
 func (s *NetworkService) ListAccessPoints() ([]AccessPoint, bool) {
 	enabled := s.IsWirelessEnabled()
-	if !enabled {
+	if !enabled || s.conn == nil {
 		return nil, false
 	}
 
-	out, err := exec.Command("nmcli", "-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "dev", "wifi", "list").Output()
-	if err != nil {
+	obj := s.conn.Object(nmService, nmPath)
+	var devicePaths []dbus.ObjectPath
+	if err := obj.Call(nmIface+".GetDevices", 0).Store(&devicePaths); err != nil {
 		return nil, enabled
 	}
 
 	seen := make(map[string]*AccessPoint)
-	lines := strings.Split(string(out), "\n")
-	for _, line := range lines {
-		line = strings.TrimSpace(line)
-		if line == "" {
+	for _, dp := range devicePaths {
+		dev := s.conn.Object(nmService, dp)
+		tVal, err := dev.GetProperty(nmDeviceIface + ".DeviceType")
+		if err != nil || tVal.Value().(uint32) != nmDeviceTypeWifi {
 			continue
 		}
-		parts := strings.Split(line, ":")
-		if len(parts) < 4 {
-			continue
-		}
-		inUse := strings.TrimSpace(parts[0]) == "*"
-		ssid := strings.TrimSpace(parts[1])
-		if ssid == "" {
-			continue
-		}
-		strength := 0
-		_, _ = fmt.Sscanf(parts[2], "%d", &strength)
-		sec := strings.TrimSpace(parts[3]) != ""
 
-		if existing, exists := seen[ssid]; exists {
-			if uint8(strength) > existing.Strength {
-				existing.Strength = uint8(strength)
+		var activeAP dbus.ObjectPath
+		activeVal, err := dev.GetProperty(nmWirelessDeviceIface + ".ActiveAccessPoint")
+		if err == nil {
+			activeAP = activeVal.Value().(dbus.ObjectPath)
+		}
+
+		var apPaths []dbus.ObjectPath
+		if err := dev.Call(nmWirelessDeviceIface+".GetAccessPoints", 0).Store(&apPaths); err != nil {
+			continue
+		}
+
+		for _, apPath := range apPaths {
+			ap := s.conn.Object(nmService, apPath)
+			ssidVal, err := ap.GetProperty(nmAccessPointIface + ".Ssid")
+			if err != nil {
+				continue
 			}
-			if inUse {
-				existing.Connected = true
+			ssidBytes, ok := ssidVal.Value().([]byte)
+			if !ok {
+				continue
 			}
-		} else {
-			seen[ssid] = &AccessPoint{
-				SSID:      ssid,
-				Strength:  uint8(strength),
-				Security:  sec,
-				Connected: inUse,
+			ssid := strings.TrimSpace(string(ssidBytes))
+			if ssid == "" {
+				continue
+			}
+
+			strVal, _ := ap.GetProperty(nmAccessPointIface + ".Strength")
+			strength := byte(0)
+			if strVal.Value() != nil {
+				strength = strVal.Value().(byte)
+			}
+
+			wpaVal, _ := ap.GetProperty(nmAccessPointIface + ".WpaFlags")
+			rsnVal, _ := ap.GetProperty(nmAccessPointIface + ".RsnFlags")
+			sec := false
+			if wpaVal.Value() != nil && wpaVal.Value().(uint32) > 0 {
+				sec = true
+			}
+			if rsnVal.Value() != nil && rsnVal.Value().(uint32) > 0 {
+				sec = true
+			}
+
+			conn := (apPath == activeAP)
+			if existing, exists := seen[ssid]; exists {
+				if strength > existing.Strength {
+					existing.Strength = strength
+				}
+				if conn {
+					existing.Connected = true
+				}
+			} else {
+				seen[ssid] = &AccessPoint{
+					SSID:      ssid,
+					Strength:  strength,
+					Security:  sec,
+					Connected: conn,
+				}
 			}
 		}
 	}
