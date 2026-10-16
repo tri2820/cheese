@@ -1,7 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"log"
+	"os/exec"
+	"sort"
+	"strings"
 	"sync"
 
 	"github.com/godbus/dbus/v5"
@@ -18,6 +22,13 @@ const (
 	nmDeviceTypeWifi      uint32 = 2
 	nmDeviceStateActive   uint32 = 100
 )
+
+type AccessPoint struct {
+	SSID      string
+	Strength  uint8
+	Security  bool
+	Connected bool
+}
 
 type WifiState struct {
 	Connected bool
@@ -82,6 +93,104 @@ func (s *NetworkService) Close() {
 		s.conn.RemoveSignal(s.signals)
 		_ = s.conn.Close()
 	}
+}
+
+func (s *NetworkService) IsWirelessEnabled() bool {
+	if s.conn == nil {
+		return false
+	}
+	obj := s.conn.Object(nmService, nmPath)
+	val, err := obj.GetProperty(nmIface + ".WirelessEnabled")
+	if err != nil {
+		return true
+	}
+	if b, ok := val.Value().(bool); ok {
+		return b
+	}
+	return true
+}
+
+func (s *NetworkService) SetWirelessEnabled(enabled bool) error {
+	arg := "on"
+	if !enabled {
+		arg = "off"
+	}
+	_ = exec.Command("nmcli", "radio", "wifi", arg).Run()
+	if s.conn != nil {
+		obj := s.conn.Object(nmService, nmPath)
+		_ = obj.SetProperty(nmIface+".WirelessEnabled", dbus.MakeVariant(enabled))
+	}
+	s.refresh()
+	return nil
+}
+
+func (s *NetworkService) ConnectToSSID(ssid string) {
+	go func() {
+		_ = exec.Command("nmcli", "dev", "wifi", "connect", ssid).Run()
+	}()
+}
+
+func (s *NetworkService) ListAccessPoints() ([]AccessPoint, bool) {
+	enabled := s.IsWirelessEnabled()
+	if !enabled {
+		return nil, false
+	}
+
+	out, err := exec.Command("nmcli", "-t", "-f", "IN-USE,SSID,SIGNAL,SECURITY", "dev", "wifi", "list").Output()
+	if err != nil {
+		return nil, enabled
+	}
+
+	seen := make(map[string]*AccessPoint)
+	lines := strings.Split(string(out), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, ":")
+		if len(parts) < 4 {
+			continue
+		}
+		inUse := strings.TrimSpace(parts[0]) == "*"
+		ssid := strings.TrimSpace(parts[1])
+		if ssid == "" {
+			continue
+		}
+		strength := 0
+		_, _ = fmt.Sscanf(parts[2], "%d", &strength)
+		sec := strings.TrimSpace(parts[3]) != ""
+
+		if existing, exists := seen[ssid]; exists {
+			if uint8(strength) > existing.Strength {
+				existing.Strength = uint8(strength)
+			}
+			if inUse {
+				existing.Connected = true
+			}
+		} else {
+			seen[ssid] = &AccessPoint{
+				SSID:      ssid,
+				Strength:  uint8(strength),
+				Security:  sec,
+				Connected: inUse,
+			}
+		}
+	}
+
+	list := make([]AccessPoint, 0, len(seen))
+	for _, ap := range seen {
+		list = append(list, *ap)
+	}
+
+	sort.Slice(list, func(i, j int) bool {
+		if list[i].Connected != list[j].Connected {
+			return list[i].Connected
+		}
+		return list[i].Strength > list[j].Strength
+	})
+
+	return list, enabled
 }
 
 func (s *NetworkService) State() WifiState {

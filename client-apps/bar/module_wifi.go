@@ -1,20 +1,21 @@
 package main
 
 import (
-	"log"
-	"os/exec"
+	"image"
 	"strings"
 )
 
 type WifiModule struct {
 	TextModule
 	network     *NetworkService
+	flyout      *WifiFlyout
 	unsubscribe func()
 }
 
-func NewWifiModule(network *NetworkService) *WifiModule {
+func NewWifiModule(network *NetworkService, flyout *WifiFlyout) *WifiModule {
 	return &WifiModule{
 		network: network,
+		flyout:  flyout,
 	}
 }
 
@@ -36,15 +37,23 @@ func (m *WifiModule) Close() {
 	}
 }
 
-func (m *WifiModule) OnClick(button uint32) {
-	if button != 0x110 {
-		return
-	}
+func (m *WifiModule) HoverRect(rect image.Rectangle, point image.Point) (image.Rectangle, bool) {
+	return rect, true
+}
 
-	cmd := exec.Command("alacritty", "--class=floating", "-e", "nmtui")
-	if err := cmd.Start(); err != nil {
-		log.Printf("Wifi module click error: %v", err)
-		return
+func (m *WifiModule) OnClickAt(button uint32, rect image.Rectangle, point image.Point) bool {
+	if button != 0x110 {
+		return false
+	}
+	if m.flyout != nil {
+		m.flyout.Toggle(rect)
+	}
+	return true
+}
+
+func (m *WifiModule) OnClick(button uint32) {
+	if button == 0x110 && m.flyout != nil {
+		m.flyout.Toggle(image.Rect(0, 0, 0, 0))
 	}
 }
 

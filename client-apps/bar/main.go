@@ -240,6 +240,23 @@ func (a *App) HandleCommand(cmd string) {
 		}
 		return
 	}
+	if cmd == "wifi-toggle" {
+		for _, bar := range a.bars {
+			if bar.wifiFlyout != nil {
+				rect := image.Rect(1200, 0, 1260, barHeight)
+				bar.drawMu.RLock()
+				for _, hit := range bar.hits {
+					if _, ok := hit.mod.(*WifiModule); ok {
+						rect = hit.rect
+						break
+					}
+				}
+				bar.drawMu.RUnlock()
+				bar.wifiFlyout.Toggle(rect)
+			}
+		}
+		return
+	}
 	if strings.HasPrefix(cmd, "notif-scroll ") {
 		var delta float64
 		_, _ = fmt.Sscanf(strings.TrimPrefix(cmd, "notif-scroll "), "%f", &delta)
@@ -518,6 +535,7 @@ type Bar struct {
 	face          font.Face
 	flyout        *NotificationFlyout
 	volFlyout     *VolumeFlyout
+	wifiFlyout    *WifiFlyout
 	dock          *Dock
 	leftModules   []Module
 	centerModules []Module
@@ -650,6 +668,8 @@ func NewBar(disp *display.Display, output *display.Output, showTopBar bool, audi
 	b.flyout = flyout
 	volFlyout := NewVolumeFlyout(disp, output, audio)
 	b.volFlyout = volFlyout
+	wifiFlyout := NewWifiFlyout(disp, output, network)
+	b.wifiFlyout = wifiFlyout
 
 	b.leftModules = nil
 	b.centerModules = []Module{
@@ -660,7 +680,7 @@ func NewBar(disp *display.Display, output *display.Output, showTopBar bool, audi
 		NewMicModule(audio),
 		NewVolumeModule(audio, volFlyout),
 		NewBluetoothModule(bluetooth),
-		NewWifiModule(network),
+		NewWifiModule(network, wifiFlyout),
 	}
 
 	frame.SetRender(func(width, height int, frameTime uint32, pixels []byte) {
@@ -736,6 +756,9 @@ func (b *Bar) Close() {
 	if b.volFlyout != nil {
 		b.volFlyout.Destroy()
 	}
+	if b.wifiFlyout != nil {
+		b.wifiFlyout.Destroy()
+	}
 	if b.dock != nil {
 		b.dock.Close()
 	}
@@ -788,6 +811,9 @@ func (b *Bar) HandleCommand(cmd string) {
 func (b *Bar) draw(width, height int, pixels []byte) {
 	if b.volFlyout != nil {
 		b.volFlyout.SetBarWidth(width)
+	}
+	if b.wifiFlyout != nil {
+		b.wifiFlyout.SetBarWidth(width)
 	}
 	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
 
@@ -872,6 +898,9 @@ func (b *Bar) HandlePointerEnter(ev client.WlPointerEnterEvent, cursor *cursor_s
 	if b.volFlyout != nil {
 		b.volFlyout.HandlePointerEnter(ev, cursor)
 	}
+	if b.wifiFlyout != nil {
+		b.wifiFlyout.HandlePointerEnter(ev, cursor)
+	}
 	if b.dock != nil {
 		b.dock.HandlePointerEnter(ev, cursor)
 	}
@@ -900,6 +929,9 @@ func (b *Bar) HandlePointerLeave(ev client.WlPointerLeaveEvent, cursor *cursor_s
 	if b.volFlyout != nil {
 		b.volFlyout.HandlePointerLeave(ev, cursor)
 	}
+	if b.wifiFlyout != nil {
+		b.wifiFlyout.HandlePointerLeave(ev, cursor)
+	}
 	if b.dock != nil {
 		b.dock.HandlePointerLeave(ev, cursor)
 	}
@@ -927,6 +959,9 @@ func (b *Bar) HandlePointerMotion(ev client.WlPointerMotionEvent, cursor *cursor
 	if b.volFlyout != nil {
 		b.volFlyout.HandlePointerMotion(ev, cursor)
 	}
+	if b.wifiFlyout != nil {
+		b.wifiFlyout.HandlePointerMotion(ev, cursor)
+	}
 	if b.dock != nil {
 		b.dock.HandlePointerMotion(ev, cursor)
 	}
@@ -953,6 +988,9 @@ func (b *Bar) HandlePointerButton(ev client.WlPointerButtonEvent) {
 	if b.volFlyout != nil && b.volFlyout.HandlePointerButton(ev) {
 		return
 	}
+	if b.wifiFlyout != nil && b.wifiFlyout.HandlePointerButton(ev) {
+		return
+	}
 	if b.dock != nil && b.dock.HandlePointerButton(ev) {
 		if ev.State == client.WlPointerButtonStatePressed {
 			if b.flyout != nil && b.flyout.IsOpen() {
@@ -960,6 +998,9 @@ func (b *Bar) HandlePointerButton(ev client.WlPointerButtonEvent) {
 			}
 			if b.volFlyout != nil && b.volFlyout.IsOpen() {
 				b.volFlyout.Close()
+			}
+			if b.wifiFlyout != nil && b.wifiFlyout.IsOpen() {
+				b.wifiFlyout.Close()
 			}
 		}
 		return
@@ -990,6 +1031,9 @@ func (b *Bar) HandlePointerButton(ev client.WlPointerButtonEvent) {
 	if _, isVol := clickedMod.(*VolumeModule); !isVol && b.volFlyout != nil && b.volFlyout.IsOpen() {
 		b.volFlyout.Close()
 	}
+	if _, isWifi := clickedMod.(*WifiModule); !isWifi && b.wifiFlyout != nil && b.wifiFlyout.IsOpen() {
+		b.wifiFlyout.Close()
+	}
 
 	for _, hit := range b.hits {
 		if !point.In(hit.rect) {
@@ -1015,6 +1059,9 @@ func (b *Bar) HandlePointerAxis(ev client.WlPointerAxisEvent) {
 	}
 	if b.volFlyout != nil {
 		b.volFlyout.HandlePointerAxis(ev)
+	}
+	if b.wifiFlyout != nil {
+		b.wifiFlyout.HandlePointerAxis(ev)
 	}
 }
 
@@ -1150,6 +1197,9 @@ func (b *Bar) isModuleActive(mod Module) bool {
 	}
 	if _, ok := mod.(*VolumeModule); ok && b.volFlyout != nil {
 		return b.volFlyout.IsOpen()
+	}
+	if _, ok := mod.(*WifiModule); ok && b.wifiFlyout != nil {
+		return b.wifiFlyout.IsOpen()
 	}
 	return false
 }

@@ -83,15 +83,8 @@ type NotificationFlyout struct {
 	startTime        int64
 	dirtyCh          chan struct{}
 	stop             chan struct{}
-	currentHeight     int
-	scrollOffset      float64
-	draggingScrollbar bool
-	dragStartMouseY   int
-	dragStartScroll   float64
-	scrollHitRect     image.Rectangle
-	scrollThumbRect   image.Rectangle
-	scrollTrackAvail  int
-	scrollMax         float64
+	currentHeight    int
+	viewport         ScrollViewport
 }
 
 func NewNotificationFlyout(disp *display.Display, output *display.Output, service *NotificationService, icons *IconResolver, onCloseAll func()) *NotificationFlyout {
@@ -109,7 +102,7 @@ func NewNotificationFlyout(disp *display.Display, output *display.Output, servic
 	// and auto-hide after flyoutAutoHideDelay without marking items as read.
 	f.newSub = service.SubscribeNew(func() {
 		f.mu.Lock()
-		f.scrollOffset = 0
+		f.viewport.ScrollOffset = 0
 		f.mu.Unlock()
 		anchorX := int32(barSidePad)
 		if output != nil && output.ModeWidth > flyoutWidth {
@@ -289,7 +282,7 @@ func (f *NotificationFlyout) openInternal(anchorX int32, auto bool) {
 		f.autoHideDeadline = time.Now().Add(flyoutAutoHideDelay)
 	}
 	f.currentHeight = calcHeight
-	f.scrollOffset = 0
+	f.viewport.ScrollOffset = 0
 	f.dirtyCh = make(chan struct{}, 1)
 	f.stop = make(chan struct{})
 
@@ -502,7 +495,7 @@ func (f *NotificationFlyout) Close() {
 	f.backdropSurf = nil
 	f.backdropHover = false
 	f.hover = flyoutPointerState{}
-	f.scrollOffset = 0
+	f.viewport.ScrollOffset = 0
 	f.mu.Unlock()
 
 	if stopCh != nil {
@@ -593,153 +586,94 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 	if viewportBottom <= viewportTop {
 		viewportBottom = height
 	}
-	viewportHeight := viewportBottom - viewportTop
-	viewportRect := image.Rect(0, viewportTop, width, viewportBottom)
-
-	maxScroll := float64(contentHeight - viewportHeight)
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
 
 	f.mu.Lock()
-	if f.scrollOffset < 0 {
-		f.scrollOffset = 0
-	}
-	if f.scrollOffset > maxScroll {
-		f.scrollOffset = maxScroll
-	}
-	scrollY := int(math.Round(f.scrollOffset))
+	f.viewport.Setup(viewportTop, viewportBottom, contentHeight, width)
 	f.mu.Unlock()
 
-	vpCanvas := image.NewRGBA(image.Rect(0, 0, width, viewportHeight))
-	y := -scrollY
-
 	cardRight := width - flyoutOuterPad
-	if maxScroll > 0 {
+	if f.viewport.MaxScroll > 0 {
 		cardRight = width - 11
 	}
 
-	for _, c := range cards {
-		if y+c.height <= 0 {
-			y += c.height + flyoutCardGap
-			continue
-		}
-		if y >= viewportHeight {
-			break
-		}
+	f.viewport.Render(canvas, width, hoverInside, hoverPt, func(vpCanvas *image.RGBA, scrollY int) {
+		y := -scrollY
+		for _, c := range cards {
+			if y+c.height <= 0 {
+				y += c.height + flyoutCardGap
+				continue
+			}
+			if y >= f.viewport.ViewportHeight {
+				break
+			}
 
-		cardRect := image.Rect(flyoutOuterPad, y, cardRight, y+c.height)
-		drawSmoothRoundedRect(vpCanvas, cardRect, float64(moduleCornerRadius), color.RGBA{R: 0x22, G: 0x22, B: 0x22, A: 0xff}, draw.Over)
+			cardRect := image.Rect(flyoutOuterPad, y, cardRight, y+c.height)
+			drawSmoothRoundedRect(vpCanvas, cardRect, float64(moduleCornerRadius), color.RGBA{R: 0x22, G: 0x22, B: 0x22, A: 0xff}, draw.Over)
 
-		textX := cardRect.Min.X + flyoutCardPadX
-		curY := cardRect.Min.Y + flyoutCardPadY + ascent
+			textX := cardRect.Min.X + flyoutCardPadX
+			curY := cardRect.Min.Y + flyoutCardPadY + ascent
 
-		// 1. Header line with blue unread indicator dot consistently aligned on the left
-		headerX := textX
-		if c.notif.Unread {
-			dotX := math.Floor(float64(textX)+3.0) + 0.5
-			glyphBounds, _ := font.BoundString(f.face, "A0")
-			glyphCenterOffset := float64(glyphBounds.Min.Y+glyphBounds.Max.Y) / 128.0
-			dotY := math.Floor(float64(curY)+glyphCenterOffset+1.0) + 0.5
-			drawSmoothCircle(vpCanvas, dotX, dotY, 3.0, color.RGBA{R: 0x3b, G: 0x82, B: 0xf6, A: 0xff})
-			headerX += flyoutUnreadDotWidth
-		}
-		f.drawText(vpCanvas, headerX, curY, c.headerText, color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff})
+			// 1. Header line with blue unread indicator dot consistently aligned on the left
+			headerX := textX
+			if c.notif.Unread {
+				dotX := math.Floor(float64(textX)+3.0) + 0.5
+				glyphBounds, _ := font.BoundString(f.face, "A0")
+				glyphCenterOffset := float64(glyphBounds.Min.Y+glyphBounds.Max.Y) / 128.0
+				dotY := math.Floor(float64(curY)+glyphCenterOffset+1.0) + 0.5
+				drawSmoothCircle(vpCanvas, dotX, dotY, 3.0, color.RGBA{R: 0x3b, G: 0x82, B: 0xf6, A: 0xff})
+				headerX += flyoutUnreadDotWidth
+			}
+			f.drawText(vpCanvas, headerX, curY, c.headerText, color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff})
 
-		// Top-right close button '×' with rounded square background on hover
-		dismissText := "×"
-		dismissW := font.MeasureString(f.face, dismissText).Ceil()
-		dismissRect := image.Rect(cardRect.Max.X-24, cardRect.Min.Y+4, cardRect.Max.X-4, cardRect.Min.Y+24)
-		surfDismissRect := dismissRect.Add(image.Pt(0, viewportTop)).Intersect(viewportRect)
-		dismissCol := color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff}
-		if hoverInside && !surfDismissRect.Empty() && hoverPt.In(surfDismissRect) {
-			drawSmoothRoundedRect(vpCanvas, dismissRect, 4.0, color.RGBA{R: 0x38, G: 0x38, B: 0x38, A: 0xff}, draw.Over)
-			dismissCol = color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
-		}
-		f.drawText(vpCanvas, dismissRect.Min.X+(dismissRect.Dx()-dismissW)/2, textBaseline(f.face, dismissRect), dismissText, dismissCol)
-		if !surfDismissRect.Empty() {
-			hits = append(hits, flyoutHit{rect: surfDismissRect, action: "dismiss", notifID: c.notif.ID})
-		}
+			// Top-right close button '×' with rounded square background on hover
+			dismissText := "×"
+			dismissW := font.MeasureString(f.face, dismissText).Ceil()
+			dismissRect := image.Rect(cardRect.Max.X-24, cardRect.Min.Y+4, cardRect.Max.X-4, cardRect.Min.Y+24)
+			surfDismissRect, hasDismiss := f.viewport.ClipHit(dismissRect)
+			dismissCol := color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff}
+			if hoverInside && hasDismiss && hoverPt.In(surfDismissRect) {
+				drawSmoothRoundedRect(vpCanvas, dismissRect, 4.0, color.RGBA{R: 0x38, G: 0x38, B: 0x38, A: 0xff}, draw.Over)
+				dismissCol = color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
+			}
+			f.drawText(vpCanvas, dismissRect.Min.X+(dismissRect.Dx()-dismissW)/2, textBaseline(f.face, dismissRect), dismissText, dismissCol)
+			if hasDismiss {
+				hits = append(hits, flyoutHit{rect: surfDismissRect, action: "dismiss", notifID: c.notif.ID})
+			}
 
-		// 2. Content area below header: summary/body on the left, thumbnail image on the right
-		contentTopY := cardRect.Min.Y + flyoutCardPadY + lineHeight + 4
-		if c.hasThumb && c.notif.Thumbnail != nil {
-			thumbX := cardRect.Max.X - flyoutCardPadX - notifThumbSize
-			thumbY := contentTopY
-			thumbRect := image.Rect(thumbX, thumbY, thumbX+notifThumbSize, thumbY+notifThumbSize)
-			draw.Draw(vpCanvas, thumbRect, c.notif.Thumbnail, c.notif.Thumbnail.Bounds().Min, draw.Over)
-		}
+			// 2. Content area below header: summary/body on the left, thumbnail image on the right
+			contentTopY := cardRect.Min.Y + flyoutCardPadY + lineHeight + 4
+			if c.hasThumb && c.notif.Thumbnail != nil {
+				thumbX := cardRect.Max.X - flyoutCardPadX - notifThumbSize
+				thumbY := contentTopY
+				thumbRect := image.Rect(thumbX, thumbY, thumbX+notifThumbSize, thumbY+notifThumbSize)
+				draw.Draw(vpCanvas, thumbRect, c.notif.Thumbnail, c.notif.Thumbnail.Bounds().Min, draw.Over)
+			}
 
-		curY = contentTopY + ascent
-		for _, line := range c.summaryLines {
-			f.drawText(vpCanvas, textX, curY, line, color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
-			curY += lineHeight
-		}
-
-		if len(c.bodyLines) > 0 {
-			curY += 2
-			for _, line := range c.bodyLines {
-				f.drawText(vpCanvas, textX, curY, line, color.RGBA{R: 0xb0, G: 0xb0, B: 0xb0, A: 0xff})
+			curY = contentTopY + ascent
+			for _, line := range c.summaryLines {
+				f.drawText(vpCanvas, textX, curY, line, color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
 				curY += lineHeight
 			}
-		}
 
-		surfCardRect := cardRect.Add(image.Pt(0, viewportTop)).Intersect(viewportRect)
-		if !surfCardRect.Empty() {
-			hits = append(hits, flyoutHit{rect: surfCardRect, action: "dismiss", notifID: c.notif.ID})
-		}
-		y += c.height + flyoutCardGap
-	}
-
-	draw.Draw(canvas, viewportRect, vpCanvas, image.Point{}, draw.Over)
-
-	var scrollHitRect, scrollThumbRect image.Rectangle
-	var scrollTrackAvail int
-	if maxScroll > 0 && contentHeight > 0 {
-		thumbH := int(math.Round(float64(viewportHeight) * float64(viewportHeight) / float64(contentHeight)))
-		if thumbH < 24 {
-			thumbH = 24
-		}
-		if thumbH > viewportHeight {
-			thumbH = viewportHeight
-		}
-		trackAvail := viewportHeight - thumbH
-		thumbOffset := 0
-		if trackAvail > 0 {
-			thumbOffset = int(math.Round((float64(scrollY) / maxScroll) * float64(trackAvail)))
-		}
-		scrollTrackAvail = trackAvail
-		scrollHitRect = image.Rect(width-12, viewportTop, width, viewportBottom)
-		scrollThumbRect = image.Rect(width-12, viewportTop+thumbOffset, width, viewportTop+thumbOffset+thumbH)
-
-		f.mu.Lock()
-		dragging := f.draggingScrollbar
-		f.mu.Unlock()
-		scrollHovered := dragging || (hoverInside && hoverPt.In(scrollHitRect))
-
-		if scrollHovered {
-			trackDrawRect := image.Rect(width-8, viewportTop, width-2, viewportBottom)
-			drawSmoothRoundedRect(canvas, trackDrawRect, 3.0, color.RGBA{R: 0x26, G: 0x26, B: 0x26, A: 0xff}, draw.Over)
-			thumbCol := color.RGBA{R: 0xaa, G: 0xaa, B: 0xaa, A: 0xff}
-			if dragging {
-				thumbCol = color.RGBA{R: 0xd0, G: 0xd0, B: 0xd0, A: 0xff}
+			if len(c.bodyLines) > 0 {
+				curY += 2
+				for _, line := range c.bodyLines {
+					f.drawText(vpCanvas, textX, curY, line, color.RGBA{R: 0xb0, G: 0xb0, B: 0xb0, A: 0xff})
+					curY += lineHeight
+				}
 			}
-			barRect := image.Rect(width-8, viewportTop+thumbOffset, width-2, viewportTop+thumbOffset+thumbH)
-			drawSmoothRoundedRect(canvas, barRect, 3.0, thumbCol, draw.Over)
-		} else {
-			barRect := image.Rect(width-5, viewportTop+thumbOffset, width-2, viewportTop+thumbOffset+thumbH)
-			drawSmoothRoundedRect(canvas, barRect, 1.5, color.RGBA{R: 0x66, G: 0x66, B: 0x66, A: 0xff}, draw.Over)
+
+			if surfCardRect, ok := f.viewport.ClipHit(cardRect); ok {
+				hits = append(hits, flyoutHit{rect: surfCardRect, action: "dismiss", notifID: c.notif.ID})
+			}
+			y += c.height + flyoutCardGap
 		}
-	}
+	})
 
 	writeARGB8888(pixels, canvas)
 
 	f.mu.Lock()
 	f.hits = hits
-	f.scrollHitRect = scrollHitRect
-	f.scrollThumbRect = scrollThumbRect
-	f.scrollTrackAvail = scrollTrackAvail
-	f.scrollMax = maxScroll
 	f.mu.Unlock()
 }
 
@@ -758,10 +692,7 @@ func (f *NotificationFlyout) updateCursorShapeLocked(cursor *cursor_shape_v1.WpC
 		return
 	}
 	pt := image.Pt(f.hover.x, f.hover.y)
-	clickable := f.draggingScrollbar
-	if !clickable && f.scrollMax > 0 && !f.scrollHitRect.Empty() && pt.In(f.scrollHitRect) {
-		clickable = true
-	}
+	clickable := f.viewport.IsScrollbarHovered(f.hover.inside, pt)
 	if !clickable {
 		for _, hit := range f.hits {
 			if pt.In(hit.rect) {
@@ -825,7 +756,7 @@ func (f *NotificationFlyout) HandlePointerLeave(ev client.WlPointerLeaveEvent, c
 	}
 	f.hover.inside = false
 	f.hover.shape = 0
-	f.draggingScrollbar = false
+	f.viewport.HandleButtonRelease()
 	f.mu.Unlock()
 	if cursor != nil {
 		_ = cursor.SetShape(ev.Serial, cursor_shape_v1.WpCursorShapeDeviceV1ShapeDefault)
@@ -841,17 +772,7 @@ func (f *NotificationFlyout) HandlePointerMotion(ev client.WlPointerMotionEvent,
 	}
 	f.hover.x = int(ev.SurfaceX)
 	f.hover.y = int(ev.SurfaceY)
-	if f.draggingScrollbar && f.scrollTrackAvail > 0 && f.scrollMax > 0 {
-		dy := f.hover.y - f.dragStartMouseY
-		next := f.dragStartScroll + (float64(dy)/float64(f.scrollTrackAvail))*f.scrollMax
-		if next < 0 {
-			next = 0
-		}
-		if next > f.scrollMax {
-			next = f.scrollMax
-		}
-		f.scrollOffset = next
-	}
+	_ = f.viewport.HandleMotion(f.hover.y)
 	f.updateCursorShapeLocked(cursor)
 	f.mu.Unlock()
 	f.markDirty()
@@ -875,28 +796,12 @@ func (f *NotificationFlyout) SimulateHover(x, y int) {
 }
 
 func (f *NotificationFlyout) ScrollBy(delta float64) {
-	items := f.service.List()
-	_, contentHeight, surfHeight := f.layoutCards(items, flyoutWidth)
-	viewportHeight := (surfHeight - flyoutOuterPad) - (flyoutHeaderHeight + 2)
-	maxScroll := float64(contentHeight - viewportHeight)
-	if maxScroll < 0 {
-		maxScroll = 0
-	}
-
 	f.mu.Lock()
 	if !f.isOpen {
 		f.mu.Unlock()
 		return
 	}
-	next := f.scrollOffset + delta
-	if next < 0 {
-		next = 0
-	}
-	if next > maxScroll {
-		next = maxScroll
-	}
-	changed := math.Abs(next-f.scrollOffset) > 0.1
-	f.scrollOffset = next
+	changed := f.viewport.ScrollBy(delta)
 	f.mu.Unlock()
 
 	if changed {
@@ -940,8 +845,7 @@ func (f *NotificationFlyout) HandlePointerButton(ev client.WlPointerButtonEvent)
 	}
 
 	if ev.Button == 0x110 && ev.State == client.WlPointerButtonStateReleased {
-		wasDragging := f.draggingScrollbar
-		f.draggingScrollbar = false
+		wasDragging := f.viewport.HandleButtonRelease()
 		f.mu.Unlock()
 		if wasDragging {
 			f.markDirty()
@@ -955,22 +859,7 @@ func (f *NotificationFlyout) HandlePointerButton(ev client.WlPointerButtonEvent)
 	}
 
 	pt := image.Pt(f.hover.x, f.hover.y)
-	if f.scrollMax > 0 && !f.scrollHitRect.Empty() && pt.In(f.scrollHitRect) {
-		if !pt.In(f.scrollThumbRect) && f.scrollTrackAvail > 0 {
-			thumbH := f.scrollThumbRect.Dy()
-			relY := float64(pt.Y - f.scrollHitRect.Min.Y - thumbH/2)
-			next := (relY / float64(f.scrollTrackAvail)) * f.scrollMax
-			if next < 0 {
-				next = 0
-			}
-			if next > f.scrollMax {
-				next = f.scrollMax
-			}
-			f.scrollOffset = next
-		}
-		f.draggingScrollbar = true
-		f.dragStartMouseY = pt.Y
-		f.dragStartScroll = f.scrollOffset
+	if f.viewport.HandleButtonPress(pt) {
 		f.mu.Unlock()
 		f.markDirty()
 		return true
