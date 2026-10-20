@@ -162,7 +162,11 @@ func (f *BluetoothFlyout) Open(moduleRect image.Rectangle) {
 	}
 	topMargin := int32(barTopMargin + barHeight + moduleGap)
 
-	devices, powered := f.bluetooth.ListDevices()
+	devices := f.devices
+	powered := f.powered
+	if st := f.bluetooth.State(); st.Powered {
+		powered = true
+	}
 	_, calcHeight := f.computeContentAndSurfaceHeight(devices, powered)
 
 	layer, err := shell.NewLayer(surf, f.disp.LayerShell(), shell.LayerConfig{
@@ -170,7 +174,7 @@ func (f *BluetoothFlyout) Open(moduleRect image.Rectangle) {
 		Name:          "cheese-bluetooth-flyout",
 		Anchor:        shell.AnchorTop | shell.AnchorLeft,
 		Width:         btFlyoutWidth,
-		Height:        btFlyoutHeight,
+		Height:        uint32(calcHeight),
 		ExclusiveZone: -1,
 		MarginTop:     topMargin,
 		MarginLeft:    leftMargin,
@@ -237,17 +241,22 @@ func (f *BluetoothFlyout) Open(moduleRect image.Rectangle) {
 		pending := true
 		bdMapped := false
 
+		load := func() {
+			devs, pwr := f.bluetooth.ListDevices()
+			f.mu.Lock()
+			f.devices = devs
+			f.powered = pwr
+			f.mu.Unlock()
+		}
+		load()
+
 		for {
 			select {
 			case <-dirtyCh:
 				pending = true
 			case <-renderTicker.C:
 			case <-ticker.C:
-				devs, pwr := f.bluetooth.ListDevices()
-				f.mu.Lock()
-				f.devices = devs
-				f.powered = pwr
-				f.mu.Unlock()
+				load()
 				pending = true
 			case <-stopCh:
 				return
@@ -268,7 +277,23 @@ func (f *BluetoothFlyout) Open(moduleRect image.Rectangle) {
 
 			f.mu.Lock()
 			fr := f.frame
+			ly := f.layer
+			sf := f.surface
+			devs := f.devices
+			pwr := f.powered
+			curH := f.currentHeight
 			f.mu.Unlock()
+
+			_, desiredHeight := f.computeContentAndSurfaceHeight(devs, pwr)
+			if ly != nil && sf != nil && desiredHeight != curH {
+				f.mu.Lock()
+				f.currentHeight = desiredHeight
+				f.mu.Unlock()
+				_ = ly.SetSize(btFlyoutWidth, uint32(desiredHeight))
+				_ = sf.Commit()
+				pending = false
+				continue
+			}
 
 			if fr != nil && fr.Ready() {
 				fr.ManualRender(uint32(time.Now().UnixMilli() - f.startTime))
@@ -398,11 +423,17 @@ func (f *BluetoothFlyout) draw(width, height int, pixels []byte) {
 	switchY := (btHeaderHeight - switchH) / 2
 	switchRect := image.Rect(switchX, switchY, switchX+switchW, switchY+switchH)
 
+	switchHovered := hoverInside && hoverPt.In(switchRect)
 	switchBg := color.RGBA{R: 0x33, G: 0x33, B: 0x33, A: 0xff}
 	knobCenterX := float64(switchX + 10)
 	if powered {
 		switchBg = color.RGBA{R: 0x3b, G: 0x82, B: 0xf6, A: 0xff}
+		if switchHovered {
+			switchBg = color.RGBA{R: 0x5a, G: 0x9b, B: 0xf8, A: 0xff}
+		}
 		knobCenterX = float64(switchX + switchW - 10)
+	} else if switchHovered {
+		switchBg = color.RGBA{R: 0x48, G: 0x48, B: 0x48, A: 0xff}
 	}
 	drawSmoothRoundedRect(canvas, switchRect, float64(switchH)/2.0, switchBg, draw.Over)
 	drawSmoothCircle(canvas, knobCenterX, float64(switchY+switchH/2), 7.0, color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff})
@@ -452,7 +483,7 @@ func (f *BluetoothFlyout) draw(width, height int, pixels []byte) {
 				rowRect := image.Rect(8, y, cardRight, y+btRowHeight)
 				if surfRow, ok := f.viewport.ClipHit(rowRect); ok {
 					if hoverInside && hoverPt.In(surfRow) {
-						drawSmoothRoundedRect(vpCanvas, rowRect, 6, color.RGBA{R: 0x28, G: 0x28, B: 0x28, A: 0xff}, draw.Over)
+						drawSmoothRoundedRect(vpCanvas, rowRect, 6, color.RGBA{R: 0x36, G: 0x36, B: 0x36, A: 0xff}, draw.Over)
 					}
 					hits = append(hits, btHit{rect: surfRow, action: "toggle_device", device: d})
 				}
@@ -486,7 +517,7 @@ func (f *BluetoothFlyout) draw(width, height int, pixels []byte) {
 				if surfRow, ok := f.viewport.ClipHit(rowRect); ok {
 					rowHovered = hoverInside && hoverPt.In(surfRow)
 					if rowHovered {
-						drawSmoothRoundedRect(vpCanvas, rowRect, 6, color.RGBA{R: 0x28, G: 0x28, B: 0x28, A: 0xff}, draw.Over)
+						drawSmoothRoundedRect(vpCanvas, rowRect, 6, color.RGBA{R: 0x36, G: 0x36, B: 0x36, A: 0xff}, draw.Over)
 					}
 					hits = append(hits, btHit{rect: surfRow, action: "toggle_device", device: d})
 				}
@@ -520,7 +551,7 @@ func (f *BluetoothFlyout) draw(width, height int, pixels []byte) {
 		if surfSettings, ok := f.viewport.ClipHit(settingsRect); ok {
 			settingsHovered = hoverInside && hoverPt.In(surfSettings)
 			if settingsHovered {
-				drawSmoothRoundedRect(vpCanvas, settingsRect, 6, color.RGBA{R: 0x28, G: 0x28, B: 0x28, A: 0xff}, draw.Over)
+				drawSmoothRoundedRect(vpCanvas, settingsRect, 6, color.RGBA{R: 0x36, G: 0x36, B: 0x36, A: 0xff}, draw.Over)
 			}
 			hits = append(hits, btHit{rect: surfSettings, action: "settings"})
 		}
