@@ -1,11 +1,13 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"os/exec"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/godbus/dbus/v5"
 )
@@ -41,9 +43,10 @@ type NetworkService struct {
 	subscribers map[int]func(WifiState)
 	nextSubID   int
 
-	conn    *dbus.Conn
-	signals chan *dbus.Signal
-	done    chan struct{}
+	conn            *dbus.Conn
+	signals         chan *dbus.Signal
+	done            chan struct{}
+	wirelessEnabled bool
 }
 
 func NewNetworkService() *NetworkService {
@@ -75,7 +78,6 @@ func NewNetworkService() *NetworkService {
 		}
 	}
 
-	s.refresh()
 	go s.run()
 	return s
 }
@@ -109,26 +111,52 @@ func (s *NetworkService) IsWirelessEnabled() bool {
 	return true
 }
 
+// WirelessEnabled returns the last known radio state without blocking on D-Bus.
+func (s *NetworkService) WirelessEnabled() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.wirelessEnabled
+}
+
 func (s *NetworkService) SetWirelessEnabled(enabled bool) error {
 	if s.conn == nil {
 		return nil
 	}
 	obj := s.conn.Object(nmService, nmPath)
-	_ = obj.SetProperty(nmIface+".WirelessEnabled", dbus.MakeVariant(enabled))
 	go func() {
+		_ = obj.SetProperty(nmIface+".WirelessEnabled", dbus.MakeVariant(enabled))
 		arg := "on"
 		if !enabled {
 			arg = "off"
 		}
 		_ = exec.Command("nmcli", "radio", "wifi", arg).Run()
+		s.refresh()
 	}()
-	s.refresh()
 	return nil
 }
 
-func (s *NetworkService) ConnectToSSID(ssid string) {
+func (s *NetworkService) ConnectToSSID(ap AccessPoint) {
 	go func() {
-		_ = exec.Command("nmcli", "dev", "wifi", "connect", ssid).Run()
+		out, err := exec.Command("nmcli", "-t", "-f", "NAME", "connection", "show").Output()
+		saved := false
+		if err == nil {
+			for _, line := range strings.Split(string(out), "\n") {
+				if strings.TrimSpace(line) == ap.SSID {
+					saved = true
+					break
+				}
+			}
+		}
+
+		if saved {
+			_ = exec.Command("nmcli", "connection", "up", "id", ap.SSID).Run()
+		} else if !ap.Security {
+			_ = exec.Command("nmcli", "dev", "wifi", "connect", ap.SSID).Run()
+		} else {
+			_ = exec.Command("ghostty", "--class=floating", "-e", "nmcli", "dev", "wifi", "connect", ap.SSID, "--ask").Start()
+		}
+		time.Sleep(500 * time.Millisecond)
+		s.refresh()
 	}()
 }
 
@@ -179,19 +207,27 @@ func (s *NetworkService) ListAccessPoints() ([]AccessPoint, bool) {
 			}
 
 			strVal, _ := ap.GetProperty(nmAccessPointIface + ".Strength")
-			strength := byte(0)
+			var strength uint8
 			if strVal.Value() != nil {
-				strength = strVal.Value().(byte)
+				if s, ok := strVal.Value().(byte); ok {
+					strength = s
+				} else if s, ok := strVal.Value().(uint32); ok {
+					strength = uint8(s)
+				}
 			}
 
 			wpaVal, _ := ap.GetProperty(nmAccessPointIface + ".WpaFlags")
 			rsnVal, _ := ap.GetProperty(nmAccessPointIface + ".RsnFlags")
 			sec := false
-			if wpaVal.Value() != nil && wpaVal.Value().(uint32) > 0 {
-				sec = true
+			if wpaVal.Value() != nil {
+				if w, ok := wpaVal.Value().(uint32); ok && w > 0 {
+					sec = true
+				}
 			}
-			if rsnVal.Value() != nil && rsnVal.Value().(uint32) > 0 {
-				sec = true
+			if rsnVal.Value() != nil {
+				if r, ok := rsnVal.Value().(uint32); ok && r > 0 {
+					sec = true
+				}
 			}
 
 			conn := (apPath == activeAP)
@@ -256,6 +292,7 @@ func (s *NetworkService) Subscribe(fn func(WifiState)) func() {
 }
 
 func (s *NetworkService) run() {
+	s.refresh()
 	for {
 		select {
 		case <-s.done:
@@ -278,8 +315,10 @@ func (s *NetworkService) refresh() {
 	}
 
 	next := readWifiState(s.conn)
+	enabled := s.IsWirelessEnabled()
 
 	s.mu.Lock()
+	s.wirelessEnabled = enabled
 	if next == s.state {
 		s.mu.Unlock()
 		return
@@ -360,7 +399,18 @@ func getUint32Property(obj dbus.BusObject, iface, prop string) (uint32, error) {
 	if err != nil {
 		return 0, err
 	}
-	return value.Value().(uint32), nil
+	switch v := value.Value().(type) {
+	case uint32:
+		return v, nil
+	case uint8:
+		return uint32(v), nil
+	case uint16:
+		return uint32(v), nil
+	case int32:
+		return uint32(v), nil
+	default:
+		return 0, fmt.Errorf("unexpected type %T", value.Value())
+	}
 }
 
 func getObjectPathProperty(obj dbus.BusObject, iface, prop string) (dbus.ObjectPath, error) {
@@ -368,7 +418,13 @@ func getObjectPathProperty(obj dbus.BusObject, iface, prop string) (dbus.ObjectP
 	if err != nil {
 		return "", err
 	}
-	return value.Value().(dbus.ObjectPath), nil
+	if p, ok := value.Value().(dbus.ObjectPath); ok {
+		return p, nil
+	}
+	if s, ok := value.Value().(string); ok {
+		return dbus.ObjectPath(s), nil
+	}
+	return "", fmt.Errorf("unexpected type %T", value.Value())
 }
 
 func getBytesProperty(obj dbus.BusObject, iface, prop string) ([]byte, error) {
@@ -376,7 +432,13 @@ func getBytesProperty(obj dbus.BusObject, iface, prop string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return value.Value().([]byte), nil
+	if b, ok := value.Value().([]byte); ok {
+		return b, nil
+	}
+	if s, ok := value.Value().(string); ok {
+		return []byte(s), nil
+	}
+	return nil, fmt.Errorf("unexpected type %T", value.Value())
 }
 
 func getByteProperty(obj dbus.BusObject, iface, prop string) (uint8, error) {
@@ -384,5 +446,14 @@ func getByteProperty(obj dbus.BusObject, iface, prop string) (uint8, error) {
 	if err != nil {
 		return 0, err
 	}
-	return value.Value().(byte), nil
+	switch v := value.Value().(type) {
+	case uint8:
+		return v, nil
+	case uint32:
+		return uint8(v), nil
+	case int32:
+		return uint8(v), nil
+	default:
+		return 0, fmt.Errorf("unexpected type %T", value.Value())
+	}
 }

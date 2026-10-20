@@ -29,7 +29,7 @@ const (
 type wifiHit struct {
 	rect   image.Rectangle
 	action string
-	ssid   string
+	ap     AccessPoint
 }
 
 type WifiFlyout struct {
@@ -163,8 +163,8 @@ func (f *WifiFlyout) Open(moduleRect image.Rectangle) {
 
 	networks := f.networks
 	enabled := f.enabled
-	if len(networks) == 0 {
-		networks, enabled = f.network.ListAccessPoints()
+	if !enabled {
+		enabled = f.network.WirelessEnabled()
 	}
 	_, calcHeight := f.computeContentAndSurfaceHeight(networks, enabled)
 
@@ -173,7 +173,7 @@ func (f *WifiFlyout) Open(moduleRect image.Rectangle) {
 		Name:          "cheese-wifi-flyout",
 		Anchor:        shell.AnchorTop | shell.AnchorLeft,
 		Width:         wifiFlyoutWidth,
-		Height:        wifiFlyoutHeight,
+		Height:        uint32(calcHeight),
 		ExclusiveZone: -1,
 		MarginTop:     topMargin,
 		MarginLeft:    leftMargin,
@@ -240,17 +240,22 @@ func (f *WifiFlyout) Open(moduleRect image.Rectangle) {
 		pending := true
 		bdMapped := false
 
+		load := func() {
+			nets, en := f.network.ListAccessPoints()
+			f.mu.Lock()
+			f.networks = nets
+			f.enabled = en
+			f.mu.Unlock()
+		}
+		load()
+
 		for {
 			select {
 			case <-dirtyCh:
 				pending = true
 			case <-renderTicker.C:
 			case <-ticker.C:
-				nets, en := f.network.ListAccessPoints()
-				f.mu.Lock()
-				f.networks = nets
-				f.enabled = en
-				f.mu.Unlock()
+				load()
 				pending = true
 			case <-stopCh:
 				return
@@ -271,7 +276,23 @@ func (f *WifiFlyout) Open(moduleRect image.Rectangle) {
 
 			f.mu.Lock()
 			fr := f.frame
+			ly := f.layer
+			sf := f.surface
+			networks := f.networks
+			en := f.enabled
+			curH := f.currentHeight
 			f.mu.Unlock()
+
+			_, desiredHeight := f.computeContentAndSurfaceHeight(networks, en)
+			if ly != nil && sf != nil && desiredHeight != curH {
+				f.mu.Lock()
+				f.currentHeight = desiredHeight
+				f.mu.Unlock()
+				_ = ly.SetSize(wifiFlyoutWidth, uint32(desiredHeight))
+				_ = sf.Commit()
+				pending = false
+				continue
+			}
 
 			if fr != nil && fr.Ready() {
 				fr.ManualRender(uint32(time.Now().UnixMilli() - f.startTime))
@@ -447,7 +468,7 @@ func (f *WifiFlyout) draw(width, height int, pixels []byte) {
 				if hoverInside && hoverPt.In(surfRow) {
 					drawSmoothRoundedRect(vpCanvas, rowRect, 6, color.RGBA{R: 0x28, G: 0x28, B: 0x28, A: 0xff}, draw.Over)
 				}
-				hits = append(hits, wifiHit{rect: surfRow, action: "connect", ssid: ap.SSID})
+				hits = append(hits, wifiHit{rect: surfRow, action: "connect", ap: ap})
 			}
 
 			// Blue checkmark
@@ -494,7 +515,7 @@ func (f *WifiFlyout) draw(width, height int, pixels []byte) {
 					if rowHovered {
 						drawSmoothRoundedRect(vpCanvas, rowRect, 6, color.RGBA{R: 0x28, G: 0x28, B: 0x28, A: 0xff}, draw.Over)
 					}
-					hits = append(hits, wifiHit{rect: surfRow, action: "connect", ssid: ap.SSID})
+					hits = append(hits, wifiHit{rect: surfRow, action: "connect", ap: ap})
 				}
 
 				ssidText := truncateToWidth(f.face, ap.SSID, cardRight-62)
@@ -733,12 +754,16 @@ func (f *WifiFlyout) HandlePointerButton(ev client.WlPointerButtonEvent) bool {
 	for _, hit := range hitsCopy {
 		if pt.In(hit.rect) {
 			if hit.action == "toggle_wifi" {
-				_ = f.network.SetWirelessEnabled(!en)
+				newEn := !en
+				f.mu.Lock()
+				f.enabled = newEn
+				f.mu.Unlock()
+				_ = f.network.SetWirelessEnabled(newEn)
 				f.markDirty()
 				return true
 			}
-			if hit.action == "connect" && hit.ssid != "" {
-				f.network.ConnectToSSID(hit.ssid)
+			if hit.action == "connect" && hit.ap.SSID != "" {
+				f.network.ConnectToSSID(hit.ap)
 				f.Close()
 				return true
 			}
