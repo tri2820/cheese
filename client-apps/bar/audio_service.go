@@ -73,7 +73,6 @@ func NewAudioService() *AudioService {
 		log.Printf("Audio service subscribe error: %v", err)
 	}
 
-	s.refresh()
 	go s.run()
 	return s
 }
@@ -128,16 +127,18 @@ func (s *AudioService) ToggleSourceMute() error {
 		return nil
 	}
 
-	if err := s.client.Request(&proto.SetSourceMute{
-		SourceIndex: proto.Undefined,
-		SourceName:  source,
-		Mute:        !muted,
-	}, nil); err != nil {
-		return err
-	}
+	go func() {
+		if err := s.client.Request(&proto.SetSourceMute{
+			SourceIndex: proto.Undefined,
+			SourceName:  source,
+			Mute:        !muted,
+		}, nil); err != nil {
+			return
+		}
 
-	// Trigger a refresh immediately; subscription events will still keep us current.
-	s.refresh()
+		// Trigger a refresh immediately; subscription events will still keep us current.
+		s.refresh()
+	}()
 	return nil
 }
 
@@ -151,15 +152,16 @@ func (s *AudioService) ToggleSinkMute() error {
 		return nil
 	}
 
-	if err := s.client.Request(&proto.SetSinkMute{
-		SinkIndex: proto.Undefined,
-		SinkName:  sink,
-		Mute:      !muted,
-	}, nil); err != nil {
-		return err
-	}
-
-	s.refresh()
+	go func() {
+		if err := s.client.Request(&proto.SetSinkMute{
+			SinkIndex: proto.Undefined,
+			SinkName:  sink,
+			Mute:      !muted,
+		}, nil); err != nil {
+			return
+		}
+		s.refresh()
+	}()
 	return nil
 }
 
@@ -214,6 +216,7 @@ func (s *AudioService) SetSinkVolume(percent int) error {
 }
 
 func (s *AudioService) run() {
+	s.refresh()
 	for {
 		select {
 		case <-s.done:

@@ -75,7 +75,7 @@ type Dock struct {
 	hoveredIdx      int
 	slots           []dockSlotHit
 	pillRect        image.Rectangle
-	lastInputRect   image.Rectangle
+	lastInputRects  []image.Rectangle
 	autoHide        bool
 	reveal          float64
 	currentExclZone int32
@@ -383,24 +383,54 @@ func (d *Dock) stepAnimation() bool {
 	return animating
 }
 
-func (d *Dock) updateInputRegion(rect image.Rectangle) {
+const dockTriggerHeight = 2
+
+// dockTriggerRect is the hover target while the dock is hidden: the full screen
+// width at the bottom edge, so the dock can be revealed from anywhere along it.
+func dockTriggerRect(width, height int) image.Rectangle {
+	if width <= 0 || height <= 0 {
+		return image.Rectangle{}
+	}
+	h := dockTriggerHeight
+	if h > height {
+		h = height
+	}
+	return image.Rect(0, height-h, width, height)
+}
+
+func (d *Dock) updateInputRegion(rects ...image.Rectangle) {
 	if d.surface == nil || d.disp == nil {
 		return
 	}
-	if rect == d.lastInputRect {
+	if sameInputRects(rects, d.lastInputRects) {
 		return
 	}
-	d.lastInputRect = rect
+	d.lastInputRects = rects
 
 	region, err := d.disp.Compositor().CreateRegion()
 	if err != nil {
 		return
 	}
-	if !rect.Empty() {
+	for _, rect := range rects {
+		if rect.Empty() {
+			continue
+		}
 		_ = region.Add(int32(rect.Min.X), int32(rect.Min.Y), int32(rect.Dx()), int32(rect.Dy()))
 	}
 	_ = d.surface.WlSurface().SetInputRegion(region)
 	_ = region.Destroy()
+}
+
+func sameInputRects(a, b []image.Rectangle) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func (d *Dock) draw(width, height int, pixels []byte) {
@@ -439,22 +469,15 @@ func (d *Dock) draw(width, height int, pixels []byte) {
 	pillWidth := totalItemsWidth + 2*dockPadX
 	pillX := (width - pillWidth) / 2
 
-	// When hidden in auto-hide mode, render nothing and leave a thin 2px trigger strip at the bottom screen edge
+	// When hidden in auto-hide mode, render nothing and leave a thin trigger strip
+	// along the whole bottom screen edge, so the dock reveals from anywhere at the
+	// bottom rather than only above its own (hidden) pill.
 	if autoHide && reveal <= 0.01 {
 		writeARGB8888(pixels, canvas)
-		triggerLeft := pillX - 32
-		if triggerLeft < 0 {
-			triggerLeft = 0
-		}
-		triggerRight := pillX + pillWidth + 32
-		if triggerRight > width {
-			triggerRight = width
-		}
-		triggerRect := image.Rect(triggerLeft, height-2, triggerRight, height)
 		d.mu.Lock()
 		d.pillRect = image.Rect(pillX, height-dockBottomMargin-dockShelfHeight, pillX+pillWidth, height-dockBottomMargin)
 		d.mu.Unlock()
-		d.updateInputRegion(triggerRect)
+		d.updateInputRegion(dockTriggerRect(width, height))
 		return
 	}
 
@@ -571,6 +594,13 @@ func (d *Dock) draw(width, height int, pixels []byte) {
 	d.pillRect = pillRect
 	d.mu.Unlock()
 
+	if autoHide {
+		// Keep the bottom hot edge claimed while the dock is visible too: without
+		// this the region collapses to the pill and a pointer resting on the bottom
+		// edge leaves immediately, hiding the dock the instant it appears.
+		d.updateInputRegion(inputRect, dockTriggerRect(width, height))
+		return
+	}
 	d.updateInputRegion(inputRect)
 }
 

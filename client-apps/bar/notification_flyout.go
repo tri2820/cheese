@@ -84,6 +84,7 @@ type NotificationFlyout struct {
 	dirtyCh          chan struct{}
 	stop             chan struct{}
 	currentHeight    int
+	anchorX          int32
 	viewport         ScrollViewport
 }
 
@@ -103,12 +104,15 @@ func NewNotificationFlyout(disp *display.Display, output *display.Output, servic
 	f.newSub = service.SubscribeNew(func() {
 		f.mu.Lock()
 		f.viewport.ScrollOffset = 0
+		anchor := f.anchorX
 		f.mu.Unlock()
-		anchorX := int32(barSidePad)
-		if output != nil && output.ModeWidth > flyoutWidth {
-			anchorX = int32((output.ModeWidth - flyoutWidth) / 2)
+		if anchor <= 0 {
+			anchor = int32(barSidePad)
+			if output != nil && output.ModeWidth > flyoutWidth {
+				anchor = int32((output.ModeWidth - flyoutWidth) / 2)
+			}
 		}
-		f.OpenAuto(anchorX)
+		f.OpenAuto(anchor)
 	})
 
 	return f
@@ -129,6 +133,13 @@ func (f *NotificationFlyout) IsOpen() bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.isOpen
+}
+
+// SetAnchorX positions auto-opened notifications under the trigger (the clock).
+func (f *NotificationFlyout) SetAnchorX(x int32) {
+	f.mu.Lock()
+	f.anchorX = x
+	f.mu.Unlock()
 }
 
 // Toggle is called when the user clicks the notification trigger on the top bar.
@@ -178,48 +189,63 @@ func (f *NotificationFlyout) openInternal(anchorX int32, auto bool) {
 		return
 	}
 
-	// 1. Transparent click-outside backdrop on LayerPositionTop
-	bdSurf, err := surface.New(f.disp.Compositor())
-	if err != nil {
-		f.mu.Unlock()
-		return
+	// Click-outside backdrop, only for user-triggered opens. Auto-opened
+	// notifications (a notification arriving on its own) get no backdrop, so a
+	// stray click can't dismiss them and they don't block input to the windows
+	// below. They still auto-hide on their timer.
+	var bdSurf *surface.Surface
+	var bdLayer *shell.LayerSurface
+	var bdFrame *shm.Frame
+	if !auto {
+		var err error
+		bdSurf, err = surface.New(f.disp.Compositor())
+		if err != nil {
+			f.mu.Unlock()
+			return
+		}
+		bdLayer, err = shell.NewLayer(bdSurf, f.disp.LayerShell(), shell.LayerConfig{
+			Layer:         shell.LayerPositionTop,
+			Name:          "cheese-notif-backdrop",
+			Anchor:        shell.AnchorTop | shell.AnchorBottom | shell.AnchorLeft | shell.AnchorRight,
+			Width:         0,
+			Height:        0,
+			ExclusiveZone: -1,
+			MarginTop:     int32(barTopMargin + barHeight),
+			MarginBottom:  int32(dockBottomMargin + dockShelfHeight + dockWindowGap),
+			Output:        f.output.WlOutput(),
+		})
+		if err != nil {
+			f.mu.Unlock()
+			_ = bdSurf.Close()
+			return
+		}
+		bdFrame, err = shm.NewFrame(f.disp.Shm(), bdLayer, f.disp, shm.FrameConfig{
+			Format:  client.WlShmFormatArgb8888,
+			Buffers: 1,
+		})
+		if err != nil {
+			f.mu.Unlock()
+			_ = bdLayer.Close()
+			_ = bdSurf.Close()
+			return
+		}
+		bdFrame.SetRender(func(width, height int, frameTime uint32, pixels []byte) {})
+		bdFrame.SetManualMode(true)
 	}
-	bdLayer, err := shell.NewLayer(bdSurf, f.disp.LayerShell(), shell.LayerConfig{
-		Layer:         shell.LayerPositionTop,
-		Name:          "cheese-notif-backdrop",
-		Anchor:        shell.AnchorTop | shell.AnchorBottom | shell.AnchorLeft | shell.AnchorRight,
-		Width:         0,
-		Height:        0,
-		ExclusiveZone: -1,
-		MarginTop:     int32(barTopMargin + barHeight),
-		MarginBottom:  int32(dockBottomMargin + dockShelfHeight + dockWindowGap),
-		Output:        f.output.WlOutput(),
-	})
-	if err != nil {
-		f.mu.Unlock()
-		_ = bdSurf.Close()
-		return
-	}
-	bdFrame, err := shm.NewFrame(f.disp.Shm(), bdLayer, f.disp, shm.FrameConfig{
-		Format:  client.WlShmFormatArgb8888,
-		Buffers: 1,
-	})
-	if err != nil {
-		f.mu.Unlock()
-		_ = bdLayer.Close()
-		_ = bdSurf.Close()
-		return
-	}
-	bdFrame.SetRender(func(width, height int, frameTime uint32, pixels []byte) {})
-	bdFrame.SetManualMode(true)
 
-	// 2. Notification flyout on LayerPositionOverlay
+	// Notification flyout on LayerPositionOverlay
 	surf, err := surface.New(f.disp.Compositor())
 	if err != nil {
 		f.mu.Unlock()
-		_ = bdFrame.Close()
-		_ = bdLayer.Close()
-		_ = bdSurf.Close()
+		if bdFrame != nil {
+			_ = bdFrame.Close()
+		}
+		if bdLayer != nil {
+			_ = bdLayer.Close()
+		}
+		if bdSurf != nil {
+			_ = bdSurf.Close()
+		}
 		log.Printf("NotificationFlyout: Failed to create surface: %v", err)
 		return
 	}
@@ -227,6 +253,11 @@ func (f *NotificationFlyout) openInternal(anchorX int32, auto bool) {
 	leftMargin := anchorX
 	if leftMargin < barSidePad {
 		leftMargin = barSidePad
+	}
+	if f.output != nil {
+		if maxLeft := int32(f.output.ModeWidth - flyoutWidth - barSidePad); maxLeft > barSidePad && leftMargin > maxLeft {
+			leftMargin = maxLeft
+		}
 	}
 	topMargin := int32(barTopMargin + barHeight + moduleGap)
 
@@ -247,9 +278,15 @@ func (f *NotificationFlyout) openInternal(anchorX int32, auto bool) {
 	if err != nil {
 		f.mu.Unlock()
 		_ = surf.Close()
-		_ = bdFrame.Close()
-		_ = bdLayer.Close()
-		_ = bdSurf.Close()
+		if bdFrame != nil {
+			_ = bdFrame.Close()
+		}
+		if bdLayer != nil {
+			_ = bdLayer.Close()
+		}
+		if bdSurf != nil {
+			_ = bdSurf.Close()
+		}
 		log.Printf("NotificationFlyout: Failed to create layer surface: %v", err)
 		return
 	}
@@ -262,9 +299,15 @@ func (f *NotificationFlyout) openInternal(anchorX int32, auto bool) {
 		f.mu.Unlock()
 		_ = layer.Close()
 		_ = surf.Close()
-		_ = bdFrame.Close()
-		_ = bdLayer.Close()
-		_ = bdSurf.Close()
+		if bdFrame != nil {
+			_ = bdFrame.Close()
+		}
+		if bdLayer != nil {
+			_ = bdLayer.Close()
+		}
+		if bdSurf != nil {
+			_ = bdSurf.Close()
+		}
 		return
 	}
 
@@ -294,9 +337,11 @@ func (f *NotificationFlyout) openInternal(anchorX int32, auto bool) {
 	layer.OnClose(func() {
 		f.Close()
 	})
-	bdLayer.OnClose(func() {
-		f.Close()
-	})
+	if bdLayer != nil {
+		bdLayer.OnClose(func() {
+			f.Close()
+		})
+	}
 
 	stopCh := f.stop
 	dirtyCh := f.dirtyCh
@@ -564,7 +609,7 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 			clearBg = color.RGBA{R: 0x3a, G: 0x3a, B: 0x3a, A: 0xff}
 			clearFg = color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
 		}
-		drawSmoothRoundedRect(canvas, clearBtnRect, 4, clearBg, draw.Over)
+		drawSmoothRoundedRect(canvas, clearBtnRect, float64(btnH)/2, clearBg, draw.Over)
 		f.drawText(canvas, btnX+7, textBaseline(f.face, clearBtnRect), clearText, clearFg)
 		hits = append(hits, flyoutHit{rect: clearBtnRect, action: "clear_all"})
 	}
@@ -632,7 +677,7 @@ func (f *NotificationFlyout) draw(width, height int, pixels []byte) {
 			surfDismissRect, hasDismiss := f.viewport.ClipHit(dismissRect)
 			dismissCol := color.RGBA{R: 0x88, G: 0x88, B: 0x88, A: 0xff}
 			if hoverInside && hasDismiss && hoverPt.In(surfDismissRect) {
-				drawSmoothRoundedRect(vpCanvas, dismissRect, 4.0, color.RGBA{R: 0x38, G: 0x38, B: 0x38, A: 0xff}, draw.Over)
+				drawSmoothRoundedRect(vpCanvas, dismissRect, float64(dismissRect.Dy())/2, color.RGBA{R: 0x38, G: 0x38, B: 0x38, A: 0xff}, draw.Over)
 				dismissCol = color.RGBA{R: 0xff, G: 0xff, B: 0xff, A: 0xff}
 			}
 			f.drawText(vpCanvas, dismissRect.Min.X+(dismissRect.Dx()-dismissW)/2, textBaseline(f.face, dismissRect), dismissText, dismissCol)

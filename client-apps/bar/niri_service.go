@@ -87,7 +87,6 @@ func NewNiriService() *NiriService {
 		subscribers: make(map[int]func(NiriState)),
 		done:        make(chan struct{}),
 	}
-	s.refreshInitial()
 	go s.run()
 	return s
 }
@@ -123,6 +122,7 @@ func (s *NiriService) Subscribe(fn func(NiriState)) func() {
 }
 
 func (s *NiriService) run() {
+	s.refreshInitial()
 	for {
 		if err := s.runEventStream(); err != nil && !errors.Is(err, errNiriServiceStopped) {
 			log.Printf("Niri event-stream error: %v", err)
@@ -326,9 +326,21 @@ func (s *NiriService) refreshInitial() {
 		}
 	}
 
+	next := NiriState{Windows: windows, Workspaces: workspaces}
+
 	s.mu.Lock()
-	s.state = NiriState{Windows: windows, Workspaces: workspaces}
+	s.state = next
+	subs := make([]func(NiriState), 0, len(s.subscribers))
+	for _, fn := range s.subscribers {
+		subs = append(subs, fn)
+	}
 	s.mu.Unlock()
+
+	for _, fn := range subs {
+		if fn != nil {
+			fn(cloneNiriState(next))
+		}
+	}
 }
 
 func runJSON(name string, args ...string) []byte {

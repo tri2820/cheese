@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -86,12 +87,20 @@ func (m *DDCMonitor) loop() {
 	}
 }
 
-func discoverConnectedExternalOutputs() map[string]string {
-	result := make(map[string]string)
+// ddcOutput is a connected external connector that speaks DDC/CI.
+type ddcOutput struct {
+	Name    string // niri output name, e.g. "HDMI-A-1"
+	DevPath string // /dev/i2c-N serving the connector
+	ConnDir string // /sys/class/drm/cardX-<output>
+}
+
+func discoverConnectedExternalOutputs() []ddcOutput {
+	result := make([]ddcOutput, 0, 2)
 	matches, err := filepath.Glob("/sys/class/drm/card*-*/ddc")
 	if err != nil {
 		return result
 	}
+	sort.Slice(matches, func(i, j int) bool { return matches[i] < matches[j] })
 	for _, ddcLink := range matches {
 		connDir := filepath.Dir(ddcLink)
 		base := filepath.Base(connDir) // e.g. "card1-HDMI-A-1"
@@ -119,7 +128,7 @@ func discoverConnectedExternalOutputs() map[string]string {
 		if _, err := os.Stat(devPath); err != nil {
 			continue
 		}
-		result[outName] = devPath
+		result = append(result, ddcOutput{Name: outName, DevPath: devPath, ConnDir: connDir})
 	}
 	return result
 }
@@ -134,7 +143,8 @@ func (m *DDCMonitor) pollOnce() {
 	}
 	var toggles []niriToggle
 
-	for outName, devPath := range extOutputs {
+	for _, out := range extOutputs {
+		outName, devPath := out.Name, out.DevPath
 		powerMode, err := queryDDCPowerMode(devPath)
 
 		m.mu.Lock()

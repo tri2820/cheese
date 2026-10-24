@@ -144,11 +144,13 @@ func (m *TaskbarModule) OnClickAt(button uint32, rect image.Rectangle, point ima
 	if !ok {
 		return false
 	}
-	cmd := exec.Command("niri", "msg", "action", "focus-window", "--id", strconv.FormatInt(item.window.ID, 10))
-	if err := cmd.Run(); err != nil {
-		log.Printf("taskbar focus click error: id=%d err=%v", item.window.ID, err)
-		return true
-	}
+	id := item.window.ID
+	go func() {
+		cmd := exec.Command("niri", "msg", "action", "focus-window", "--id", strconv.FormatInt(id, 10))
+		if err := cmd.Run(); err != nil {
+			log.Printf("taskbar focus click error: id=%d err=%v", id, err)
+		}
+	}()
 	return true
 }
 

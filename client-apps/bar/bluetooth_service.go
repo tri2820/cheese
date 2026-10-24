@@ -73,7 +73,6 @@ func NewBluetoothService() *BluetoothService {
 		log.Printf("Bluetooth service object-manager match error: %v", err)
 	}
 
-	s.refresh()
 	go s.run()
 	return s
 }
@@ -161,8 +160,10 @@ func (s *BluetoothService) SetPowered(powered bool) error {
 	if !powered {
 		arg = "off"
 	}
-	_ = exec.Command("bluetoothctl", "power", arg).Run()
-	s.refresh()
+	go func() {
+		_ = exec.Command("bluetoothctl", "power", arg).Run()
+		s.refresh()
+	}()
 	return nil
 }
 
@@ -173,6 +174,45 @@ func (s *BluetoothService) ToggleDevice(dev BluetoothDevice) {
 		} else {
 			_ = exec.Command("bluetoothctl", "connect", dev.Address).Run()
 		}
+	}()
+}
+
+func (s *BluetoothService) adapterPath() dbus.ObjectPath {
+	if s.conn == nil {
+		return ""
+	}
+	obj := s.conn.Object(bluezService, bluezRootPath)
+	var managed map[dbus.ObjectPath]map[string]map[string]dbus.Variant
+	if err := obj.Call(bluezObjectManagerIface+".GetManagedObjects", 0).Store(&managed); err != nil {
+		return ""
+	}
+	for path, ifaces := range managed {
+		if _, ok := ifaces[bluezAdapterIface]; ok {
+			return path
+		}
+	}
+	return ""
+}
+
+// StartDiscovery tells BlueZ to scan for nearby devices so unpaired/connectable
+// devices show up in the list.
+func (s *BluetoothService) StartDiscovery() {
+	go func() {
+		adapter := s.adapterPath()
+		if adapter == "" {
+			return
+		}
+		_ = s.conn.Object(bluezService, adapter).Call(bluezAdapterIface+".StartDiscovery", 0).Err
+	}()
+}
+
+func (s *BluetoothService) StopDiscovery() {
+	go func() {
+		adapter := s.adapterPath()
+		if adapter == "" {
+			return
+		}
+		_ = s.conn.Object(bluezService, adapter).Call(bluezAdapterIface+".StopDiscovery", 0).Err
 	}()
 }
 
@@ -204,6 +244,7 @@ func (s *BluetoothService) Subscribe(fn func(BluetoothState)) func() {
 }
 
 func (s *BluetoothService) run() {
+	s.refresh()
 	for {
 		select {
 		case <-s.done:

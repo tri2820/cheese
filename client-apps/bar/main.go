@@ -84,6 +84,7 @@ type App struct {
 	audio         *AudioService
 	network       *NetworkService
 	bluetooth     *BluetoothService
+	brightness    *BrightnessService
 	niri          *NiriService
 	icons         *IconResolver
 	notifications *NotificationService
@@ -100,6 +101,7 @@ func NewApp(shutdown func()) *App {
 		audio:         NewAudioService(),
 		network:       NewNetworkService(),
 		bluetooth:     NewBluetoothService(),
+		brightness:    NewBrightnessService(),
 		niri:          NewNiriService(),
 		icons:         NewIconResolver(),
 		notifications: NewNotificationService(),
@@ -132,6 +134,8 @@ func (a *App) Close() {
 	a.network = nil
 	bluetooth := a.bluetooth
 	a.bluetooth = nil
+	brightness := a.brightness
+	a.brightness = nil
 	niri := a.niri
 	a.niri = nil
 	notifications := a.notifications
@@ -161,6 +165,9 @@ func (a *App) Close() {
 	}
 	if bluetooth != nil {
 		bluetooth.Close()
+	}
+	if brightness != nil {
+		brightness.Close()
 	}
 	if niri != nil {
 		niri.Close()
@@ -270,6 +277,41 @@ func (a *App) HandleCommand(cmd string) {
 				}
 				bar.drawMu.RUnlock()
 				bar.btFlyout.Toggle(rect)
+			}
+		}
+		return
+	}
+	if cmd == "cc-toggle" {
+		for _, bar := range a.bars {
+			if bar.ccFlyout != nil {
+				rect := image.Rect(1100, 0, 1160, barHeight)
+				bar.drawMu.RLock()
+				for _, hit := range bar.hits {
+					if _, ok := hit.mod.(*ControlCenterModule); ok {
+						rect = hit.rect
+						break
+					}
+				}
+				bar.drawMu.RUnlock()
+				bar.ccFlyout.Toggle(rect)
+			}
+		}
+		return
+	}
+	if strings.HasPrefix(cmd, "cc-hover ") {
+		var hx, hy int
+		_, _ = fmt.Sscanf(strings.TrimPrefix(cmd, "cc-hover "), "%d %d", &hx, &hy)
+		for _, bar := range a.bars {
+			if bar.ccFlyout != nil {
+				bar.ccFlyout.SimulateHover(hx, hy)
+			}
+		}
+		return
+	}
+	if cmd == "cc-br-expand" {
+		for _, bar := range a.bars {
+			if bar.ccFlyout != nil {
+				bar.ccFlyout.setBrightnessExpanded(true)
 			}
 		}
 		return
@@ -533,7 +575,7 @@ func (a *App) SyncOutputs(disp *display.Display) {
 			continue
 		}
 		wantTopBar := primary != nil && output.WlOutput() == primary.WlOutput()
-		bar, err := NewBar(disp, output, wantTopBar, a.audio, a.network, a.bluetooth, a.niri, a.icons, a.notifications, closeAllNotifs)
+		bar, err := NewBar(disp, output, wantTopBar, a.audio, a.network, a.bluetooth, a.brightness, a.niri, a.icons, a.notifications, closeAllNotifs)
 		if err != nil {
 			log.Printf("Failed to create bar for %s: %v", output.Name, err)
 			continue
@@ -554,6 +596,7 @@ type Bar struct {
 	volFlyout     *VolumeFlyout
 	wifiFlyout    *WifiFlyout
 	btFlyout      *BluetoothFlyout
+	ccFlyout      *ControlCenterFlyout
 	dock          *Dock
 	leftModules   []Module
 	centerModules []Module
@@ -585,7 +628,7 @@ type pointerState struct {
 	rect   image.Rectangle
 }
 
-func NewBar(disp *display.Display, output *display.Output, showTopBar bool, audio *AudioService, network *NetworkService, bluetooth *BluetoothService, niri *NiriService, icons *IconResolver, notifications *NotificationService, closeAllNotifs func()) (*Bar, error) {
+func NewBar(disp *display.Display, output *display.Output, showTopBar bool, audio *AudioService, network *NetworkService, bluetooth *BluetoothService, brightness *BrightnessService, niri *NiriService, icons *IconResolver, notifications *NotificationService, closeAllNotifs func()) (*Bar, error) {
 	b := &Bar{
 		output:     output,
 		showTopBar: showTopBar,
@@ -690,17 +733,16 @@ func NewBar(disp *display.Display, output *display.Output, showTopBar bool, audi
 	b.wifiFlyout = wifiFlyout
 	btFlyout := NewBluetoothFlyout(disp, output, bluetooth)
 	b.btFlyout = btFlyout
+	ccFlyout := NewControlCenterFlyout(disp, output, bluetooth, audio, brightness)
+	b.ccFlyout = ccFlyout
 
 	b.leftModules = nil
-	b.centerModules = []Module{
-		NewClockModule(flyout),
-	}
+	b.centerModules = nil
 	b.rightModules = []Module{
 		NewInputMethodModule(),
-		NewMicModule(audio),
-		NewVolumeModule(audio, volFlyout),
-		NewBluetoothModule(bluetooth, btFlyout),
 		NewWifiModule(network, wifiFlyout),
+		NewControlCenterModule(ccFlyout),
+		NewClockModule(flyout),
 	}
 
 	frame.SetRender(func(width, height int, frameTime uint32, pixels []byte) {
@@ -782,6 +824,9 @@ func (b *Bar) Close() {
 	if b.btFlyout != nil {
 		b.btFlyout.Destroy()
 	}
+	if b.ccFlyout != nil {
+		b.ccFlyout.Destroy()
+	}
 	if b.dock != nil {
 		b.dock.Close()
 	}
@@ -841,6 +886,9 @@ func (b *Bar) draw(width, height int, pixels []byte) {
 	if b.btFlyout != nil {
 		b.btFlyout.SetBarWidth(width)
 	}
+	if b.ccFlyout != nil {
+		b.ccFlyout.SetBarWidth(width)
+	}
 	canvas := image.NewRGBA(image.Rect(0, 0, width, height))
 
 	draw.Draw(canvas, canvas.Rect, image.NewUniform(color.RGBA{R: 0x00, G: 0x00, B: 0x00, A: 0x00}), image.Point{}, draw.Src)
@@ -849,6 +897,20 @@ func (b *Bar) draw(width, height int, pixels []byte) {
 	hits = b.drawLeft(canvas, image.Rect(0, 0, width, height), b.leftModules, hits)
 	hits = b.drawCentered(canvas, image.Rect(0, 0, width, height), b.centerModules, hits)
 	hits = b.drawRight(canvas, image.Rect(0, 0, width, height), b.rightModules, hits)
+
+	// Keep auto-opened notifications anchored under the clock trigger.
+	for _, hit := range hits {
+		if _, ok := hit.mod.(*ClockModule); ok {
+			ax := int32(hit.rect.Min.X + (hit.rect.Dx()-flyoutWidth)/2)
+			if ax < barSidePad {
+				ax = barSidePad
+			}
+			if b.flyout != nil {
+				b.flyout.SetAnchorX(ax)
+			}
+			break
+		}
+	}
 
 	writeARGB8888(pixels, canvas)
 
@@ -930,6 +992,9 @@ func (b *Bar) HandlePointerEnter(ev client.WlPointerEnterEvent, cursor *cursor_s
 	if b.btFlyout != nil {
 		b.btFlyout.HandlePointerEnter(ev, cursor)
 	}
+	if b.ccFlyout != nil {
+		b.ccFlyout.HandlePointerEnter(ev, cursor)
+	}
 	if b.dock != nil {
 		b.dock.HandlePointerEnter(ev, cursor)
 	}
@@ -964,6 +1029,9 @@ func (b *Bar) HandlePointerLeave(ev client.WlPointerLeaveEvent, cursor *cursor_s
 	if b.btFlyout != nil {
 		b.btFlyout.HandlePointerLeave(ev, cursor)
 	}
+	if b.ccFlyout != nil {
+		b.ccFlyout.HandlePointerLeave(ev, cursor)
+	}
 	if b.dock != nil {
 		b.dock.HandlePointerLeave(ev, cursor)
 	}
@@ -997,6 +1065,9 @@ func (b *Bar) HandlePointerMotion(ev client.WlPointerMotionEvent, cursor *cursor
 	if b.btFlyout != nil {
 		b.btFlyout.HandlePointerMotion(ev, cursor)
 	}
+	if b.ccFlyout != nil {
+		b.ccFlyout.HandlePointerMotion(ev, cursor)
+	}
 	if b.dock != nil {
 		b.dock.HandlePointerMotion(ev, cursor)
 	}
@@ -1029,6 +1100,9 @@ func (b *Bar) HandlePointerButton(ev client.WlPointerButtonEvent) {
 	if b.btFlyout != nil && b.btFlyout.HandlePointerButton(ev) {
 		return
 	}
+	if b.ccFlyout != nil && b.ccFlyout.HandlePointerButton(ev) {
+		return
+	}
 	if b.dock != nil && b.dock.HandlePointerButton(ev) {
 		if ev.State == client.WlPointerButtonStatePressed {
 			if b.flyout != nil && b.flyout.IsOpen() {
@@ -1042,6 +1116,9 @@ func (b *Bar) HandlePointerButton(ev client.WlPointerButtonEvent) {
 			}
 			if b.btFlyout != nil && b.btFlyout.IsOpen() {
 				b.btFlyout.Close()
+			}
+			if b.ccFlyout != nil && b.ccFlyout.IsOpen() {
+				b.ccFlyout.Close()
 			}
 		}
 		return
@@ -1078,6 +1155,9 @@ func (b *Bar) HandlePointerButton(ev client.WlPointerButtonEvent) {
 	if _, isBt := clickedMod.(*BluetoothModule); !isBt && b.btFlyout != nil && b.btFlyout.IsOpen() {
 		b.btFlyout.Close()
 	}
+	if _, isCC := clickedMod.(*ControlCenterModule); !isCC && b.ccFlyout != nil && b.ccFlyout.IsOpen() {
+		b.ccFlyout.Close()
+	}
 
 	for _, hit := range b.hits {
 		if !point.In(hit.rect) {
@@ -1109,6 +1189,9 @@ func (b *Bar) HandlePointerAxis(ev client.WlPointerAxisEvent) {
 	}
 	if b.btFlyout != nil {
 		b.btFlyout.HandlePointerAxis(ev)
+	}
+	if b.ccFlyout != nil {
+		b.ccFlyout.HandlePointerAxis(ev)
 	}
 }
 
@@ -1250,6 +1333,9 @@ func (b *Bar) isModuleActive(mod Module) bool {
 	}
 	if _, ok := mod.(*BluetoothModule); ok && b.btFlyout != nil {
 		return b.btFlyout.IsOpen()
+	}
+	if _, ok := mod.(*ControlCenterModule); ok && b.ccFlyout != nil {
+		return b.ccFlyout.IsOpen()
 	}
 	return false
 }
@@ -1400,6 +1486,16 @@ func writeARGB8888(dst []byte, src *image.RGBA) {
 func loadBarFont(output *display.Output) font.Face {
 	dpi := output.DPIOrDefault()
 	face, err := common.LoadFont("JetBrainsMono Nerd Font", 10, dpi)
+	if err != nil {
+		log.Printf("Falling back to basic font on %s: %v", output.Name, err)
+		return basicfont.Face7x13
+	}
+	return face
+}
+
+func loadBarFontSize(output *display.Output, size float64) font.Face {
+	dpi := output.DPIOrDefault()
+	face, err := common.LoadFont("JetBrainsMono Nerd Font", size, dpi)
 	if err != nil {
 		log.Printf("Falling back to basic font on %s: %v", output.Name, err)
 		return basicfont.Face7x13

@@ -21,16 +21,16 @@ func NewInputMethodModule() *InputMethodModule {
 
 func (m *InputMethodModule) Start(markDirty func()) {
 	m.markDirty = markDirty
-	if m.refreshAndMarkDirty() {
-		return
-	}
-
 	go func() {
 		ticker := time.NewTicker(500 * time.Millisecond)
 		defer ticker.Stop()
 
 		timeout := time.NewTimer(15 * time.Second)
 		defer timeout.Stop()
+
+		if m.refreshAndMarkDirty() {
+			return
+		}
 
 		for {
 			select {
@@ -61,12 +61,14 @@ func (m *InputMethodModule) OnClick(button uint32) {
 	}
 
 	cmd := exec.Command("fcitx5-remote", "-t")
-	if err := cmd.Run(); err != nil {
-		log.Printf("Input method toggle error: %v", err)
-		return
-	}
+	go func() {
+		if err := cmd.Run(); err != nil {
+			log.Printf("Input method toggle error: %v", err)
+			return
+		}
 
-	m.refreshAndMarkDirty()
+		m.refreshAndMarkDirty()
+	}()
 }
 
 func (m *InputMethodModule) HandleCommand(cmd string) bool {
